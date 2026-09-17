@@ -68,6 +68,24 @@ class VideoWorker:
                 "logs": ""
             }
 
+        # 兼容 flow.google.com 迁移架构：若无 project_id，自动从 gflow 本地工程库探测已有工程，避免调用废弃的 labs createProject RPC
+        project_id = getattr(task, "project_id", None) or ""
+        if not project_id:
+            try:
+                appdata = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
+                gflow_db = Path(appdata) / "ffroliva" / "gflow-cli" / "gflow.db"
+                if gflow_db.exists():
+                    import sqlite3
+                    with sqlite3.connect(str(gflow_db)) as c_conn:
+                        row = c_conn.execute(
+                            "SELECT flow_project_id FROM projects WHERE profile_name = ? ORDER BY id DESC LIMIT 1",
+                            (profile.name,)
+                        ).fetchone()
+                        if row and row[0]:
+                            project_id = row[0]
+            except Exception as e:
+                print(f"[{worker_name}] 查找 profile [{profile.name}] 已有 project 异常: {e}")
+
         cmd = [
             str(self.python_bin),
             "-m", "gflow_cli",
@@ -79,8 +97,10 @@ class VideoWorker:
             "--duration", str(task.duration_sec),
             "--out-dir", str(self.output_dir),
             "--json",
-            task.prompt
         ]
+        if project_id:
+            cmd.extend(["--project", str(project_id)])
+        cmd.append(task.prompt)
 
         # Record pre-existing files in output_dir to identify newly created file if needed
         existing_files = set(self.output_dir.glob("*.mp4"))
