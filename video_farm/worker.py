@@ -156,10 +156,10 @@ class VideoWorker:
                 "logs": f"Mock executed with sample: {self.mock_sample_video}"
             }
 
-        start_img = Path(task.start_image_path).resolve()
-        end_img = Path(task.end_image_path).resolve()
+        start_img = Path(task.start_image_path).resolve() if task.start_image_path and task.start_image_path.strip() else None
+        end_img = Path(task.end_image_path).resolve() if task.end_image_path and task.end_image_path.strip() else None
 
-        if not start_img.exists():
+        if start_img and not start_img.exists():
             return {
                 "success": False,
                 "pid": None,
@@ -168,7 +168,7 @@ class VideoWorker:
                 "output_video_path": None,
                 "logs": ""
             }
-        if not end_img.exists():
+        if end_img and not end_img.exists():
             return {
                 "success": False,
                 "pid": None,
@@ -196,17 +196,30 @@ class VideoWorker:
             except Exception as e:
                 print(f"[{worker_name}] 查找 profile [{profile.name}] 已有 project 异常: {e}")
 
-        cmd = [
-            str(self.python_bin),
-            "-m", "gflow_cli",
-            "video", "i2v",
-            "--initial-frame", str(start_img),
-            "--end-frame", str(end_img),
-            "--aspect", task.aspect_ratio,
-            "--profile", profile.name,
-            "--out-dir", str(self.output_dir),
-            "--json",
-        ]
+        aspect = task.aspect_ratio or "16:9"
+        if start_img and start_img.is_file():
+            cmd = [
+                str(self.python_bin),
+                "-m", "gflow_cli",
+                "video", "i2v",
+                "--initial-frame", str(start_img),
+                "--aspect", aspect,
+                "--profile", profile.name,
+                "--out-dir", str(self.output_dir),
+                "--json",
+            ]
+            if end_img and end_img.is_file():
+                cmd.extend(["--end-frame", str(end_img)])
+        else:
+            cmd = [
+                str(self.python_bin),
+                "-m", "gflow_cli",
+                "video", "t2v",
+                "--aspect", aspect,
+                "--profile", profile.name,
+                "--out-dir", str(self.output_dir),
+                "--json",
+            ]
         if getattr(task, "model", None) and task.model:
             cmd.extend(["--model", task.model])
         # 注意：新版 flow.google.com 上 Veo 3.1 Lite 界面往往无 8s 选项，强加 --duration 会触发 Configuration error
@@ -274,26 +287,35 @@ class VideoWorker:
                     "logs": logs
                 }
 
-            # Try parsing JSON output from stdout
+            # Try parsing JSON output from stdout (support multi-line and single-line JSON)
             output_video_path = None
             try:
-                lines = stdout.strip().splitlines()
-                for line in reversed(lines):
-                    line_str = line.strip()
-                    if line_str.startswith("{") and line_str.endswith("}"):
-                        data = json.loads(line_str)
-                        if "local_path" in data and data["local_path"]:
-                            output_video_path = data["local_path"]
+                s_clean = stdout.strip()
+                if s_clean.startswith("{") and s_clean.endswith("}"):
+                    data = json.loads(s_clean)
+                    for k in ["local_path", "path", "saved_path", "output"]:
+                        if data.get(k):
+                            output_video_path = data[k]
                             break
-                        elif "path" in data:
-                            output_video_path = data["path"]
-                            break
-                        elif "saved_path" in data:
-                            output_video_path = data["saved_path"]
-                            break
-                        elif "output" in data:
-                            output_video_path = data["output"]
-                            break
+                if not output_video_path:
+                    lines = stdout.strip().splitlines()
+                    for line in reversed(lines):
+                        line_str = line.strip()
+                        if line_str.startswith("{") and line_str.endswith("}"):
+                            data = json.loads(line_str)
+                            for k in ["local_path", "path", "saved_path", "output"]:
+                                if data.get(k):
+                                    output_video_path = data[k]
+                                    break
+                            if output_video_path:
+                                break
+                if not output_video_path:
+                    import re
+                    m = re.search(r'"(?:local_path|path)":\s*"([^"]+\.mp4)"', stdout + "\n" + stderr)
+                    if m:
+                        cand = m.group(1).replace("\\\\", "\\")
+                        if Path(cand).exists():
+                            output_video_path = cand
             except Exception:
                 pass
 

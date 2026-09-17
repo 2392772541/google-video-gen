@@ -681,8 +681,8 @@ async def create_task(
         end_dest_str = str(Path(end_image_path).resolve())
     
     if engine == "flow":
-        if not start_dest_str or not end_dest_str:
-            raise HTTPException(status_code=400, detail="Google Flow 首尾帧模式必须同时提供首帧和尾帧图片（上传文件或选定已有图片）")
+        # Google Flow 支持 首尾帧插值(i2v with end frame)、单首帧(i2v)或纯文生视频(t2v)
+        pass
 
     task = Task(
         id=task_id,

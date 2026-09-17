@@ -67,6 +67,7 @@ document.addEventListener("DOMContentLoaded", () => {
     advToggle: document.getElementById("accordion-toggle-adv"),
     advBody: document.getElementById("accordion-body-adv"),
     advArrow: document.getElementById("adv-arrow"),
+    selectAspect: document.getElementById("select-aspect"),
     selectDuration: document.getElementById("select-duration"),
     selectPriority: document.getElementById("select-priority"),
     selectAssignedProf: document.getElementById("select-assigned-profile"),
@@ -476,24 +477,14 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    if (state.currentEngine === "flow") {
-      if (!state.startFile && !state.startImagePath) {
-        showToast("Google Flow 模式必须提供首帧图片 (上传文件或选定已有图片)", "warn");
-        return;
-      }
-      if (!state.endFile && !state.endImagePath) {
-        showToast("Google Flow 模式必须提供尾帧图片 (上传文件或选定已有图片)", "warn");
-        return;
-      }
-    }
-
     el.btnSubmitTask.disabled = true;
     el.btnSubmitTask.textContent = "⏳ 正在提交任务...";
 
     const formData = new FormData();
     formData.append("engine", state.currentEngine);
     formData.append("prompt", prompt);
-    formData.append("aspect_ratio", "9:16");
+    const aspectVal = el.selectAspect ? el.selectAspect.value : "16:9";
+    formData.append("aspect_ratio", aspectVal);
     formData.append("duration_sec", el.selectDuration.value);
     formData.append("priority", el.selectPriority.value);
     formData.append("require_clean_watermark", el.checkRequireClean.checked);
