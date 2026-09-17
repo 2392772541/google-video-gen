@@ -69,6 +69,9 @@ def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 engine TEXT DEFAULT 'flow', -- 'flow', 'gemini'
+                task_type TEXT DEFAULT 'video', -- 'video', 'image'
+                model TEXT DEFAULT '',
+                output_image_paths TEXT,
                 FOREIGN KEY(assigned_profile_id) REFERENCES profiles(id)
             )
             """)
@@ -84,10 +87,16 @@ def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
             )
             """)
 
-            # Ensure 'engine' column exists in tasks for backwards compatibility
+            # Ensure columns exist in tasks for backwards compatibility
             cols = [r["name"] for r in conn.execute("PRAGMA table_info(tasks)").fetchall()]
             if "engine" not in cols:
                 conn.execute("ALTER TABLE tasks ADD COLUMN engine TEXT DEFAULT 'flow'")
+            if "task_type" not in cols:
+                conn.execute("ALTER TABLE tasks ADD COLUMN task_type TEXT DEFAULT 'video'")
+            if "model" not in cols:
+                conn.execute("ALTER TABLE tasks ADD COLUMN model TEXT DEFAULT ''")
+            if "output_image_paths" not in cols:
+                conn.execute("ALTER TABLE tasks ADD COLUMN output_image_paths TEXT")
 
             event_cols = [r["name"] for r in conn.execute("PRAGMA table_info(task_events)").fetchall()]
             if "detail" not in event_cols:
@@ -126,6 +135,9 @@ def row_to_profile(row: sqlite3.Row) -> Profile:
 def row_to_task(row: sqlite3.Row) -> Task:
     row_dict = dict(row)
     engine = row_dict.get("engine", "flow") or "flow"
+    task_type = row_dict.get("task_type", "video") or "video"
+    model = row_dict.get("model", "") or ""
+    output_image_paths = row_dict.get("output_image_paths")
     t = Task(
         id=row["id"],
         project_id=row["project_id"] or "",
@@ -144,6 +156,7 @@ def row_to_task(row: sqlite3.Row) -> Task:
         start_time=row["start_time"],
         finish_time=row["finish_time"],
         output_video_path=row["output_video_path"],
+        output_image_paths=output_image_paths,
         first_frame_ncc=row["first_frame_ncc"],
         last_frame_ncc=row["last_frame_ncc"],
         last_vs_start_ncc=row["last_vs_start_ncc"],
@@ -154,9 +167,11 @@ def row_to_task(row: sqlite3.Row) -> Task:
         error_message=row["error_message"],
         logs=row["logs"],
         created_at=row["created_at"],
-        updated_at=row["updated_at"]
+        updated_at=row["updated_at"],
+        engine=engine,
+        task_type=task_type,
+        model=model
     )
-    t.engine = engine
     return t
 
 # --- Profile operations ---
@@ -287,19 +302,24 @@ def add_task(task: Task, db_path: Path = DEFAULT_DB_PATH) -> None:
     conn = get_db_connection(db_path)
     now = datetime.now().astimezone().isoformat()
     engine = getattr(task, "engine", "flow") or "flow"
+    task_type = getattr(task, "task_type", "video") or "video"
+    model = getattr(task, "model", "") or ""
+    output_image_paths = getattr(task, "output_image_paths", None)
     try:
         with conn:
             conn.execute("""
             INSERT INTO tasks (
                 id, project_id, prompt, start_image_path, end_image_path, aspect_ratio,
                 duration_sec, status, assigned_profile_id, priority, retry_count,
-                max_retries, require_clean_watermark, submit_time, created_at, updated_at, engine
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                max_retries, require_clean_watermark, submit_time, created_at, updated_at, engine,
+                task_type, model, output_image_paths
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 task.id, task.project_id, task.prompt, task.start_image_path, task.end_image_path,
                 task.aspect_ratio, task.duration_sec, task.status, task.assigned_profile_id,
                 task.priority, task.retry_count, task.max_retries, 1 if task.require_clean_watermark else 0,
-                task.submit_time, task.created_at, task.updated_at, engine
+                task.submit_time, task.created_at, task.updated_at, engine,
+                task_type, model, output_image_paths
             ))
     finally:
         conn.close()
@@ -337,6 +357,7 @@ def update_task_status(
     assigned_profile_id: Optional[str] = None,
     clear_assigned_profile: bool = False,
     output_video_path: Optional[str] = None,
+    output_image_paths: Optional[str] = None,
     error_code: Optional[str] = None,
     error_message: Optional[str] = None,
     logs: Optional[str] = None,
@@ -365,6 +386,10 @@ def update_task_status(
             if output_video_path:
                 updates.append("output_video_path = ?")
                 params.append(output_video_path)
+
+            if output_image_paths is not None:
+                updates.append("output_image_paths = ?")
+                params.append(output_image_paths)
 
             if error_code is not None:
                 updates.append("error_code = ?")

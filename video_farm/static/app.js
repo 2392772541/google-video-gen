@@ -9,7 +9,10 @@ document.addEventListener("DOMContentLoaded", () => {
     tasks: [],
     currentFilter: "all",
     startFile: null,
+    startImagePath: null,
     endFile: null,
+    endImagePath: null,
+    imageRefFile: null,
     currentTaskForQA: null,
     currentTaskForVideo: null,
     currentTaskForLog: null,
@@ -70,6 +73,35 @@ document.addEventListener("DOMContentLoaded", () => {
     checkRequireClean: document.getElementById("check-require-clean"),
     btnSubmitTask: document.getElementById("btn-submit-task"),
     btnResetForm: document.getElementById("btn-reset-form"),
+    selectVideoModel: document.getElementById("select-video-model"),
+
+    // 图像工坊 DOM 映射
+    inputImagePrompt: document.getElementById("input-image-prompt"),
+    selectImageModel: document.getElementById("select-image-model"),
+    selectImageAspect: document.getElementById("select-image-aspect"),
+    selectImageProfile: document.getElementById("select-image-profile"),
+    dropImageRef: document.getElementById("drop-image-ref"),
+    fileInputImageRef: document.getElementById("file-input-image-ref"),
+    imgPreviewRef: document.getElementById("img-preview-ref"),
+    placeholderImageRef: document.getElementById("placeholder-image-ref"),
+    btnClearImageRef: document.getElementById("btn-clear-image-ref"),
+    btnSubmitImageTask: document.getElementById("btn-submit-image-task"),
+    btnImageExampleStart: document.getElementById("btn-image-example-start"),
+    btnImageExampleEnd: document.getElementById("btn-image-example-end"),
+    imageGalleryList: document.getElementById("image-gallery-list"),
+    galleryCount: document.getElementById("gallery-count"),
+    btnRefreshImages: document.getElementById("btn-refresh-images"),
+
+    countVideo: document.getElementById("count-video"),
+    countImage: document.getElementById("count-image"),
+
+    // 大图预览弹窗
+    modalImageViewer: document.getElementById("modal-image-viewer"),
+    imageViewerImg: document.getElementById("image-viewer-img"),
+    imageViewerTitle: document.getElementById("image-viewer-title"),
+    btnViewerSetStart: document.getElementById("btn-viewer-set-start"),
+    btnViewerSetEnd: document.getElementById("btn-viewer-set-end"),
+    btnViewerDownload: document.getElementById("btn-viewer-download"),
 
     // 批量导入
     inputBatchJson: document.getElementById("input-batch-json"),
@@ -151,6 +183,16 @@ document.addEventListener("DOMContentLoaded", () => {
     }, duration);
   }
 
+  function escapeJs(str) {
+    if (!str) return "";
+    return String(str)
+      .replace(/\\/g, "\\\\")
+      .replace(/'/g, "\\'")
+      .replace(/"/g, '\\"')
+      .replace(/\n/g, "\\n")
+      .replace(/\r/g, "");
+  }
+
   function escapeHtml(str) {
     if (!str) return "";
     return String(str)
@@ -172,6 +214,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (targetPane) targetPane.classList.add("active");
 
       if (targetId === "view-tasks") fetchTasks();
+      if (targetId === "view-images") { fetchTasks().then(() => renderImageGallery()); }
       if (targetId === "view-profiles") fetchProfiles();
     });
   });
@@ -309,8 +352,13 @@ document.addEventListener("DOMContentLoaded", () => {
         }
         aspectTagEl.style.display = "block";
 
-        if (isStart) state.startFile = file;
-        else state.endFile = file;
+        if (isStart) {
+          state.startFile = file;
+          state.startImagePath = null;
+        } else {
+          state.endFile = file;
+          state.endImagePath = null;
+        }
       };
       img.src = e.target.result;
     };
@@ -331,6 +379,10 @@ document.addEventListener("DOMContentLoaded", () => {
     const tmpFile = state.startFile;
     state.startFile = state.endFile;
     state.endFile = tmpFile;
+
+    const tmpPath = state.startImagePath;
+    state.startImagePath = state.endImagePath;
+    state.endImagePath = tmpPath;
 
     const tmpSrc = el.previewStart.src;
     el.previewStart.src = el.previewEnd.src;
@@ -399,7 +451,9 @@ document.addEventListener("DOMContentLoaded", () => {
   // 重置表单
   el.btnResetForm.addEventListener("click", () => {
     state.startFile = null;
+    state.startImagePath = null;
     state.endFile = null;
+    state.endImagePath = null;
     el.previewStart.src = "";
     el.previewStart.style.display = "none";
     el.placeholderStart.style.display = "flex";
@@ -423,12 +477,12 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     if (state.currentEngine === "flow") {
-      if (!state.startFile) {
-        showToast("Google Flow 模式必须上传首帧图片 (Start Frame)", "warn");
+      if (!state.startFile && !state.startImagePath) {
+        showToast("Google Flow 模式必须提供首帧图片 (上传文件或选定已有图片)", "warn");
         return;
       }
-      if (!state.endFile) {
-        showToast("Google Flow 模式必须上传尾帧图片 (End Frame)", "warn");
+      if (!state.endFile && !state.endImagePath) {
+        showToast("Google Flow 模式必须提供尾帧图片 (上传文件或选定已有图片)", "warn");
         return;
       }
     }
@@ -443,12 +497,22 @@ document.addEventListener("DOMContentLoaded", () => {
     formData.append("duration_sec", el.selectDuration.value);
     formData.append("priority", el.selectPriority.value);
     formData.append("require_clean_watermark", el.checkRequireClean.checked);
+    if (el.selectVideoModel) {
+      formData.append("model", el.selectVideoModel.value);
+    }
 
     if (state.startFile) {
       formData.append("start_image", state.startFile);
+    } else if (state.startImagePath) {
+      formData.append("start_image_path", state.startImagePath);
     }
-    if (state.endFile && state.currentEngine === "flow") {
-      formData.append("end_image", state.endFile);
+
+    if (state.currentEngine === "flow") {
+      if (state.endFile) {
+        formData.append("end_image", state.endFile);
+      } else if (state.endImagePath) {
+        formData.append("end_image_path", state.endImagePath);
+      }
     }
     if (el.selectAssignedProf.value) {
       formData.append("assigned_profile_id", el.selectAssignedProf.value);
@@ -571,26 +635,32 @@ document.addEventListener("DOMContentLoaded", () => {
       state.tasks = await resp.json();
       updateTaskFilterCounts();
       renderTasks();
+      renderImageGallery();
     } catch (e) {
       console.error("fetchTasks 失败", e);
     }
   }
 
   function updateTaskFilterCounts() {
-    const counts = { all: state.tasks.length, running: 0, queued: 0, completed: 0, failed: 0 };
+    const counts = { all: state.tasks.length, running: 0, queued: 0, completed: 0, failed: 0, video: 0, image: 0 };
     state.tasks.forEach(t => {
+      if (t.task_type === "image") counts.image++;
+      else counts.video++;
+
       if (["dispatching", "running", "verifying"].includes(t.status)) counts.running++;
       else if (["queued", "retry_wait"].includes(t.status)) counts.queued++;
       else if (t.status === "completed") counts.completed++;
       else if (t.status === "failed") counts.failed++;
     });
 
-    el.countAll.textContent = counts.all;
-    el.countRunning.textContent = counts.running;
-    el.countQueued.textContent = counts.queued;
-    el.countCompleted.textContent = counts.completed;
-    el.countFailed.textContent = counts.failed;
-    el.badgeTotalTasks.textContent = counts.all;
+    if (el.countAll) el.countAll.textContent = counts.all;
+    if (el.countVideo) el.countVideo.textContent = counts.video;
+    if (el.countImage) el.countImage.textContent = counts.image;
+    if (el.countRunning) el.countRunning.textContent = counts.running;
+    if (el.countQueued) el.countQueued.textContent = counts.queued;
+    if (el.countCompleted) el.countCompleted.textContent = counts.completed;
+    if (el.countFailed) el.countFailed.textContent = counts.failed;
+    if (el.badgeTotalTasks) el.badgeTotalTasks.textContent = counts.all;
   }
 
   function renderTasks() {
@@ -598,7 +668,11 @@ document.addEventListener("DOMContentLoaded", () => {
     container.innerHTML = "";
 
     let filtered = state.tasks;
-    if (state.currentFilter === "running") {
+    if (state.currentFilter === "video") {
+      filtered = filtered.filter(t => t.task_type !== "image");
+    } else if (state.currentFilter === "image") {
+      filtered = filtered.filter(t => t.task_type === "image");
+    } else if (state.currentFilter === "running") {
       filtered = filtered.filter(t => ["dispatching", "running", "verifying"].includes(t.status));
     } else if (state.currentFilter === "queued") {
       filtered = filtered.filter(t => ["queued", "retry_wait"].includes(t.status));
@@ -622,9 +696,17 @@ document.addEventListener("DOMContentLoaded", () => {
       if (["dispatching", "running", "verifying"].includes(t.status)) statusBadgeClass = "status-running";
       if (t.status === "failed") statusBadgeClass = "status-failed";
 
-      const engineBadge = t.engine === "gemini"
-        ? "<span class=\"badge-engine-gemini\" style=\"margin-right:6px;\">🌐 Gemini 网页版</span>"
-        : "<span class=\"badge-engine-flow\" style=\"margin-right:6px;\">🎬 Flow 首尾帧</span>";
+      const isImageTask = t.task_type === "image";
+      let engineBadge = "";
+      if (isImageTask) {
+        const mLabel = t.model === "nano-pro" ? "Nano Banana Pro" : (t.model === "nano2" ? "Nano Banana 2" : (t.model === "imagen4" ? "Imagen 3.5" : (t.model || "Nano Pro")));
+        engineBadge = `<span class="badge-task-image" style="margin-right:6px;">🖼️ ${escapeHtml(mLabel)}</span>`;
+      } else if (t.engine === "gemini") {
+        engineBadge = `<span class="badge-engine-gemini" style="margin-right:6px;">🌐 Gemini 网页版</span>`;
+      } else {
+        const mLabel = t.model ? ` · ${t.model}` : "";
+        engineBadge = `<span class="badge-engine-flow" style="margin-right:6px;">🎬 Flow 首尾帧${mLabel}</span>`;
+      }
 
       // 质检人话化徽标
       let firstNccText = "未质检";
@@ -707,13 +789,28 @@ document.addEventListener("DOMContentLoaded", () => {
           <div class="task-prompt-text" title="${escapeHtml(t.prompt)}">${escapeHtml(t.prompt)}</div>
           
           <div class="task-meta-row">
-            <span>比例: ${t.aspect_ratio || "9:16"} | 时长: ${t.duration_sec || 8}s</span>
+            <span>比例: ${t.aspect_ratio || "9:16"}${isImageTask ? ` | 模型: ${t.model || "nano-pro"}` : ` | 时长: ${t.duration_sec || 8}s`}</span>
             <span>账号: ${t.assigned_profile_id || "自动调度"}</span>
           </div>
 
           ${errorNoticeHtml}
 
-          ${t.status === "completed" ? `
+          ${isImageTask && t.status === "completed" && t.image_urls && t.image_urls.length > 0 ? `
+            <div style="margin-top:10px; display:flex; gap:10px; align-items:center; background:rgba(0,0,0,0.25); padding:8px; border-radius:6px; border:1px solid rgba(255,255,255,0.05);">
+              <div style="width:65px; height:85px; border-radius:4px; overflow:hidden; background:#000; cursor:pointer; flex-shrink:0;" onclick="openImageViewer('${escapeJs(t.image_paths[0] || "")}', '${escapeJs(t.image_urls[0])}', '${escapeJs(t.prompt)}')">
+                <img src="${t.image_urls[0]}" style="width:100%; height:100%; object-fit:cover;" title="点击查看大图">
+              </div>
+              <div style="display:flex; flex-direction:column; gap:6px; flex:1; min-width:0;">
+                <span style="font-size:11px; color:var(--text-sub);">✅ 图像已生成就绪，可一键填入视频工作台：</span>
+                <div style="display:flex; gap:6px;">
+                  <button class="gallery-btn-action" style="flex:1;" onclick="setAsStartFrame('${escapeJs(t.image_paths[0] || "")}', '${escapeJs(t.image_urls[0])}')">📌 设为首帧</button>
+                  <button class="gallery-btn-action" style="flex:1;" onclick="setAsEndFrame('${escapeJs(t.image_paths[0] || "")}', '${escapeJs(t.image_urls[0])}')">📌 设为尾帧</button>
+                </div>
+              </div>
+            </div>
+          ` : ""}
+
+          ${!isImageTask && t.status === "completed" ? `
             <div class="task-qa-box">
               <div class="qa-col">
                 <span class="qa-col-label">首帧约束</span>
@@ -733,8 +830,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
         <div class="task-card-bottom">
           <div class="task-btn-group">
-            ${t.has_video ? `<button class="btn btn-primary btn-sm btn-play-video" data-id="${t.id}" data-url="${t.video_url}">🎥 播放</button>` : ""}
-            ${t.status === "completed" && t.engine !== "gemini" ? `<button class="btn btn-secondary btn-sm btn-view-qa" data-id="${t.id}">🔍 质检对比</button>` : ""}
+            ${isImageTask && t.status === "completed" && t.image_urls && t.image_urls.length > 0 ? `<button class="btn btn-primary btn-sm" onclick="openImageViewer('${escapeJs(t.image_paths[0] || "")}', '${escapeJs(t.image_urls[0])}', '${escapeJs(t.prompt)}')">👁️ 查看大图</button>` : ""}
+            ${!isImageTask && t.has_video ? `<button class="btn btn-primary btn-sm btn-play-video" data-id="${t.id}" data-url="${t.video_url}">🎥 播放</button>` : ""}
+            ${!isImageTask && t.status === "completed" && t.engine !== "gemini" ? `<button class="btn btn-secondary btn-sm btn-view-qa" data-id="${t.id}">🔍 质检对比</button>` : ""}
             <button class="btn btn-secondary btn-sm btn-view-log" data-id="${t.id}">📋 日志</button>
             ${t.status === "failed" ? `<button class="btn btn-warning btn-sm btn-retry-task" data-id="${t.id}">🔄 重试</button>` : ""}
           </div>
@@ -791,6 +889,255 @@ document.addEventListener("DOMContentLoaded", () => {
         });
         showToast("已在 Windows 资源管理器中打开成片目录", "info");
       });
+    });
+  }
+
+  // ==================== 图像生成工坊事件绑定 ====================
+  if (el.btnImageExampleStart) {
+    el.btnImageExampleStart.addEventListener("click", () => {
+      el.inputImagePrompt.value = "电影级微距特写镜头，一滴清澈透亮的水珠悬挂在翠绿的叶尖，晶莹剔透，晨光透过水滴形成柔和的彩虹色散光晕，背景自然虚化Bokeh效果，8K极致超清细节，摄影大师质感。";
+      showToast("已填入适合作为视频首帧的高清微距画面描述", "info");
+    });
+  }
+
+  if (el.btnImageExampleEnd) {
+    el.btnImageExampleEnd.addEventListener("click", () => {
+      el.inputImagePrompt.value = "电影特写定格镜头，水滴从叶尖滑落脱离的瞬间，在空气中拉长形成饱满的水滴流线型，下方的水面泛起轻微涟漪，柔和暖色朝阳逆光照射，高帧率定格瞬间，8k极度逼真。";
+      showToast("已填入适合作为视频尾帧的高清动态画面描述", "info");
+    });
+  }
+
+  if (el.dropImageRef && el.fileInputImageRef) {
+    el.dropImageRef.addEventListener("click", (e) => {
+      if (e.target !== el.fileInputImageRef && e.target !== el.btnClearImageRef) {
+        el.fileInputImageRef.click();
+      }
+    });
+
+    el.dropImageRef.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      el.dropImageRef.classList.add("drag-over");
+    });
+    el.dropImageRef.addEventListener("dragleave", () => {
+      el.dropImageRef.classList.remove("drag-over");
+    });
+    el.dropImageRef.addEventListener("drop", (e) => {
+      e.preventDefault();
+      el.dropImageRef.classList.remove("drag-over");
+      if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+        handleImageRefSelect(e.dataTransfer.files[0]);
+      }
+    });
+
+    el.fileInputImageRef.addEventListener("change", (e) => {
+      if (e.target.files && e.target.files.length > 0) {
+        handleImageRefSelect(e.target.files[0]);
+      }
+    });
+  }
+
+  function handleImageRefSelect(file) {
+    if (!file.type.startsWith("image/")) {
+      showToast("请上传有效图片文件 (PNG / JPG / WebP)", "warn");
+      return;
+    }
+    state.imageRefFile = file;
+    const r = new FileReader();
+    r.onload = ev => {
+      el.imgPreviewRef.src = ev.target.result;
+      el.imgPreviewRef.style.display = "block";
+      el.placeholderImageRef.style.display = "none";
+      if (el.btnClearImageRef) el.btnClearImageRef.style.display = "inline-block";
+    };
+    r.readAsDataURL(file);
+  }
+
+  if (el.btnClearImageRef) {
+    el.btnClearImageRef.addEventListener("click", (e) => {
+      e.stopPropagation();
+      state.imageRefFile = null;
+      el.imgPreviewRef.src = "";
+      el.imgPreviewRef.style.display = "none";
+      el.placeholderImageRef.style.display = "block";
+      el.btnClearImageRef.style.display = "none";
+      if (el.fileInputImageRef) el.fileInputImageRef.value = "";
+    });
+  }
+
+  if (el.btnSubmitImageTask) {
+    el.btnSubmitImageTask.addEventListener("click", async () => {
+      const prompt = el.inputImagePrompt.value.trim();
+      if (!prompt) {
+        showToast("请输入图像画面描述提示词", "warn");
+        return;
+      }
+
+      el.btnSubmitImageTask.disabled = true;
+      el.btnSubmitImageTask.textContent = "⏳ 正在提交生图任务...";
+
+      const formData = new FormData();
+      formData.append("prompt", prompt);
+      formData.append("model", el.selectImageModel ? el.selectImageModel.value : "nano-pro");
+      formData.append("aspect_ratio", el.selectImageAspect ? el.selectImageAspect.value : "9:16");
+      if (state.imageRefFile) {
+        formData.append("ref_image", state.imageRefFile);
+      }
+      if (el.selectImageProfile && el.selectImageProfile.value) {
+        formData.append("assigned_profile_id", el.selectImageProfile.value);
+      }
+
+      try {
+        const resp = await fetch("/api/tasks/create-image", {
+          method: "POST",
+          body: formData
+        });
+        const data = await resp.json();
+        if (resp.ok) {
+          showToast("🚀 图像生成任务 " + data.id + " 已成功加入队列！", "success");
+          fetchTasks().then(() => renderImageGallery());
+        } else {
+          showToast("生图提交失败: " + (data.detail || "未知错误"), "error");
+        }
+      } catch (err) {
+        showToast("网络错误: " + err.message, "error");
+      } finally {
+        el.btnSubmitImageTask.disabled = false;
+        el.btnSubmitImageTask.textContent = "🚀 立即生成图片";
+      }
+    });
+  }
+
+  if (el.btnRefreshImages) {
+    el.btnRefreshImages.addEventListener("click", () => {
+      fetchTasks().then(() => {
+        renderImageGallery();
+        showToast("成果库已更新", "info");
+      });
+    });
+  }
+
+  // ==================== 设为首尾帧与图片预览联动 ====================
+  window.setAsStartFrame = function(path, url) {
+    state.startFile = null;
+    state.startImagePath = path;
+    el.previewStart.src = url;
+    el.previewStart.style.display = "block";
+    el.placeholderStart.style.display = "none";
+    el.aspectTagStart.textContent = "图片已装载 ✓";
+    el.aspectTagStart.style.background = "rgba(16, 185, 129, 0.85)";
+    el.aspectTagStart.style.display = "block";
+
+    showToast("📌 已成功将所选图片填入视频【首帧】！已切回生成工作台", "success");
+    const tabBtn = document.querySelector('.tab-button[data-target="view-generate"]');
+    if (tabBtn) tabBtn.click();
+  };
+
+  window.setAsEndFrame = function(path, url) {
+    state.endFile = null;
+    state.endImagePath = path;
+    el.previewEnd.src = url;
+    el.previewEnd.style.display = "block";
+    el.placeholderEnd.style.display = "none";
+    el.aspectTagEnd.textContent = "图片已装载 ✓";
+    el.aspectTagEnd.style.background = "rgba(16, 185, 129, 0.85)";
+    el.aspectTagEnd.style.display = "block";
+
+    showToast("📌 已成功将所选图片填入视频【尾帧】！已切回生成工作台", "success");
+    const tabBtn = document.querySelector('.tab-button[data-target="view-generate"]');
+    if (tabBtn) tabBtn.click();
+  };
+
+  let currentViewerImgPath = "";
+  let currentViewerImgUrl = "";
+  window.openImageViewer = function(path, url, prompt) {
+    currentViewerImgPath = path;
+    currentViewerImgUrl = url;
+    if (el.modalImageViewer) {
+      el.imageViewerImg.src = url;
+      el.imageViewerTitle.textContent = prompt ? ("图片预览: " + prompt.slice(0, 30) + "...") : "高清图片预览";
+      if (el.btnViewerDownload) el.btnViewerDownload.href = url;
+      el.modalImageViewer.classList.add("active");
+    } else {
+      window.open(url, "_blank");
+    }
+  };
+
+  if (el.btnViewerSetStart) {
+    el.btnViewerSetStart.addEventListener("click", () => {
+      if (currentViewerImgPath && currentViewerImgUrl) {
+        window.setAsStartFrame(currentViewerImgPath, currentViewerImgUrl);
+        if (el.modalImageViewer) el.modalImageViewer.classList.remove("active");
+      }
+    });
+  }
+
+  if (el.btnViewerSetEnd) {
+    el.btnViewerSetEnd.addEventListener("click", () => {
+      if (currentViewerImgPath && currentViewerImgUrl) {
+        window.setAsEndFrame(currentViewerImgPath, currentViewerImgUrl);
+        if (el.modalImageViewer) el.modalImageViewer.classList.remove("active");
+      }
+    });
+  }
+
+  function renderImageGallery() {
+    if (!el.imageGalleryList) return;
+    const container = el.imageGalleryList;
+    const imageItems = [];
+    (state.tasks || []).forEach(t => {
+      if (t.status === "completed" && t.image_urls && t.image_urls.length > 0) {
+        t.image_urls.forEach((url, idx) => {
+          const p = (t.image_paths && t.image_paths[idx]) ? t.image_paths[idx] : "";
+          imageItems.push({
+            taskId: t.id,
+            url: url,
+            path: p,
+            prompt: t.prompt,
+            model: t.model || "nano-pro",
+            aspect: t.aspect_ratio || "9:16",
+            created_at: t.created_at || ""
+          });
+        });
+      }
+    });
+
+    if (el.galleryCount) {
+      el.galleryCount.textContent = "(" + imageItems.length + " 张图片)";
+    }
+
+    if (imageItems.length === 0) {
+      container.innerHTML = `
+        <div style="grid-column: 1 / -1; text-align:center; padding:60px 0; color:var(--text-muted); font-size:13px;">
+          <span style="font-size:28px; display:block; margin-bottom:10px;">🎨</span>
+          暂无已生成的图片成果<br>
+          在左侧输入画面提示词，选择模型（如 Imagen 3.5 旗舰画质），点击【立即生成图片】开始创作！
+        </div>
+      `;
+      return;
+    }
+
+    container.innerHTML = "";
+    imageItems.forEach(item => {
+      const card = document.createElement("div");
+      card.className = "gallery-card";
+      const modelLabel = item.model === "nano-pro" ? "Nano Banana Pro" : (item.model === "nano2" ? "Nano Banana 2" : (item.model === "imagen4" ? "Imagen 3.5" : item.model));
+      card.innerHTML = `
+        <div class="gallery-img-box" onclick="openImageViewer('${escapeJs(item.path)}', '${escapeJs(item.url)}', '${escapeJs(item.prompt)}')">
+          <img src="${item.url}" alt="${escapeHtml(item.prompt)}" loading="lazy">
+        </div>
+        <div class="gallery-info">
+          <div class="gallery-tags">
+            <span class="badge-task-image">${modelLabel}</span>
+            <span class="badge" style="background:rgba(255,255,255,0.06); font-size:10px; padding:2px 5px; border-radius:3px;">${item.aspect}</span>
+          </div>
+          <div class="gallery-prompt" title="${escapeHtml(item.prompt)}">${escapeHtml(item.prompt)}</div>
+          <div class="gallery-actions">
+            <button class="gallery-btn-action" onclick="setAsStartFrame('${escapeJs(item.path)}', '${escapeJs(item.url)}')">📌 设为首帧</button>
+            <button class="gallery-btn-action" onclick="setAsEndFrame('${escapeJs(item.path)}', '${escapeJs(item.url)}')">📌 设为尾帧</button>
+          </div>
+        </div>
+      `;
+      container.appendChild(card);
     });
   }
 
@@ -1175,35 +1522,64 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function updateAssignedProfSelect() {
     const sel = el.selectAssignedProf;
-    const currentVal = sel.value;
-    sel.innerHTML = "<option value=\"\">自动调度（负载均衡 + 额度耗尽自动轮换）</option>";
-    state.profiles.forEach(p => {
-      if (p.enabled) {
-        const opt = document.createElement("option");
-        opt.value = p.id;
-        opt.textContent = p.name + " (" + (p.account_label || "无备注") + ") [" + p.status + "]";
-        sel.appendChild(opt);
-      }
-    });
-    sel.value = currentVal;
+    const imgSel = el.selectImageProfile;
+    const currentVal = sel ? sel.value : "";
+    const currentImgVal = imgSel ? imgSel.value : "";
+
+    if (sel) {
+      sel.innerHTML = '<option value="">自动调度（负载均衡 + 额度耗尽自动轮换）</option>';
+      state.profiles.forEach(p => {
+        if (p.enabled) {
+          const opt = document.createElement("option");
+          opt.value = p.id;
+          opt.textContent = p.name + " (" + (p.account_label || "无备注") + ") [" + p.status + "]";
+          sel.appendChild(opt);
+        }
+      });
+      sel.value = currentVal;
+    }
+
+    if (imgSel) {
+      imgSel.innerHTML = '<option value="">自动轮询空闲账号</option>';
+      state.profiles.forEach(p => {
+        if (p.enabled) {
+          const opt = document.createElement("option");
+          opt.value = p.id;
+          opt.textContent = p.name + " (" + (p.account_label || "无备注") + ") [" + p.status + "]";
+          imgSel.appendChild(opt);
+        }
+      });
+      imgSel.value = currentImgVal;
+    }
   }
 
   // 添加新 Profile 弹窗
   el.btnOpenAddProfile.addEventListener("click", () => {
+    // 自动寻找下一个未使用的代号
+    const existingNames = new Set((state.profiles || []).map(p => p.name.toLowerCase()));
+    let nextIdx = 2;
+    while (existingNames.has("acc" + nextIdx) || existingNames.has("gflow-acc" + nextIdx)) {
+      nextIdx++;
+    }
+    el.inputProfName.value = "acc" + nextIdx;
+    el.inputProfLabel.value = "备用账号 " + nextIdx;
+    if (el.inputProfNotes) el.inputProfNotes.value = "";
     el.modalAddProfile.classList.add("active");
   });
 
   el.btnConfirmAddProfile.addEventListener("click", async () => {
     const name = el.inputProfName.value.trim().toLowerCase();
     const label = el.inputProfLabel.value.trim();
-    const notes = el.inputProfNotes.value.trim();
+    const notes = el.inputProfNotes ? el.inputProfNotes.value.trim() : "";
 
     if (!name || !/^[a-z0-9_-]+$/.test(name)) {
-      showToast("Profile 名称仅支持小写字母、数字与下划线 (如 gflow-acc2)", "warn");
+      showToast("账号代号仅支持小写字母、数字与中划线 (如 acc2)", "warn");
       return;
     }
 
     try {
+      el.btnConfirmAddProfile.disabled = true;
+      el.btnConfirmAddProfile.textContent = "创建中...";
       const resp = await fetch("/api/profiles/add", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1211,18 +1587,25 @@ document.addEventListener("DOMContentLoaded", () => {
       });
       const data = await resp.json();
       if (resp.ok) {
-        showToast("Profile " + name + " 添加成功！", "success");
+        showToast("账号 [" + name + "] 创建成功，正在为你弹出独立登录窗口...", "success");
         el.modalAddProfile.classList.remove("active");
-        el.inputProfName.value = "";
-        el.inputProfLabel.value = "";
-        el.inputProfNotes.value = "";
         fetchProfiles();
         fetchOverview();
+        // 自动拉起独立 Chrome 登录窗口，无需用户再到卡片上去找
+        try {
+          await fetch("/api/profiles/" + data.id + "/launch-login", { method: "POST" });
+          showToast("已弹出独立 Chrome 窗口，请登录 Google 后直接关闭该窗口即可", "info", 5000);
+        } catch (err) {
+          console.error("Auto launch login error:", err);
+        }
       } else {
         showToast("添加失败: " + (data.detail || "未知错误"), "error");
       }
     } catch (e) {
       showToast("错误: " + e.message, "error");
+    } finally {
+      el.btnConfirmAddProfile.disabled = false;
+      el.btnConfirmAddProfile.textContent = "确定并立即打开 Chrome 登录";
     }
   });
 
@@ -1326,6 +1709,9 @@ document.addEventListener("DOMContentLoaded", () => {
     const activeTab = document.querySelector(".tab-button.active");
     if (activeTab && activeTab.getAttribute("data-target") === "view-tasks") {
       fetchTasks();
+    }
+    if (activeTab && activeTab.getAttribute("data-target") === "view-images") {
+      fetchTasks().then(() => renderImageGallery());
     }
     if (activeTab && activeTab.getAttribute("data-target") === "view-profiles") {
       fetchProfiles();

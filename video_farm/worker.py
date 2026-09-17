@@ -94,10 +94,15 @@ class VideoWorker:
             "--end-frame", str(end_img),
             "--aspect", task.aspect_ratio,
             "--profile", profile.name,
-            "--duration", str(task.duration_sec),
             "--out-dir", str(self.output_dir),
             "--json",
         ]
+        if getattr(task, "model", None) and task.model:
+            cmd.extend(["--model", task.model])
+        # 注意：新版 flow.google.com 上 Veo 3.1 Lite 界面往往无 8s 选项，强加 --duration 会触发 Configuration error
+        # 仅当任务非默认值且非 8 时才尝试传入；若为空或 8，则省略 --duration 遵循 Flow 默认时长 (官方建议)
+        if task.duration_sec and task.duration_sec not in (0, 8):
+            cmd.extend(["--duration", str(task.duration_sec)])
         if project_id:
             cmd.extend(["--project", str(project_id)])
         cmd.append(task.prompt)
@@ -140,6 +145,9 @@ class VideoWorker:
                 if proc.returncode == 11 or any(k in stderr.lower() for k in ["profilelocked", "already in use", "is locked", "lockfile"]):
                     err_code = "PROFILE_LOCKED"
                     err_msg = f"Profile [{profile.name}] 被当前打开的 Chrome 窗口独占锁定。请在桌面关闭 Chrome 窗口或在控制台点击【⏹ 关闭占用 Chrome】后系统将自动恢复任务。"
+                elif "renders no duration control" in stderr.lower() or "configuration error" in stderr.lower():
+                    err_code = "CONFIG_ERROR"
+                    err_msg = f"Google Flow 界面未开放该时长选项，建议使用 Flow 默认时长生成。"
                 return {
                     "success": False,
                     "pid": pid,
@@ -207,3 +215,163 @@ class VideoWorker:
                 "output_video_path": None,
                 "logs": str(exc)
             }
+    def execute_image_task(self, task: Task, profile: Profile) -> Dict[str, Any]:
+        """
+        Executes gflow-cli image t2i (文生图) or i2i (图生图) for a given task and profile.
+        Returns execution result dictionary with output_image_paths list.
+        """
+        worker_name = threading.current_thread().name
+        is_i2i = bool(task.start_image_path and Path(task.start_image_path).exists())
+        subcmd = "i2i" if is_i2i else "t2i"
+
+        # 探测已存在的 project_id 避免废弃接口
+        project_id = getattr(task, "project_id", None) or ""
+        if not project_id:
+            try:
+                appdata = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
+                gflow_db = Path(appdata) / "ffroliva" / "gflow-cli" / "gflow.db"
+                if gflow_db.exists():
+                    import sqlite3
+                    with sqlite3.connect(str(gflow_db)) as c_conn:
+                        row = c_conn.execute(
+                            "SELECT flow_project_id FROM projects WHERE profile_name = ? ORDER BY id DESC LIMIT 1",
+                            (profile.name,)
+                        ).fetchone()
+                        if row and row[0]:
+                            project_id = row[0]
+            except Exception as e:
+                print(f"[{worker_name}] 查找 profile [{profile.name}] 已有 project 异常: {e}")
+
+        cmd = [
+            str(self.python_bin),
+            "-m", "gflow_cli",
+            "image", subcmd,
+            "--aspect", task.aspect_ratio or "9:16",
+            "--profile", profile.name,
+            "--out", str(self.output_dir),
+            "--json",
+        ]
+        if is_i2i:
+            cmd.extend(["--ref", str(Path(task.start_image_path).resolve())])
+        if getattr(task, "model", None) and task.model:
+            cmd.extend(["--model", task.model])
+        if project_id:
+            cmd.extend(["--project", str(project_id)])
+        cmd.append(task.prompt)
+
+        existing_imgs = set(self.output_dir.glob("*.png")) | set(self.output_dir.glob("*.jpg")) | set(self.output_dir.glob("*.jpeg")) | set(self.output_dir.glob("*.webp"))
+
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                cwd=str(self.gflow_dir),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+                errors="replace"
+            )
+            pid = proc.pid
+            mode_desc = f"图生图 (i2i, 垫图={Path(task.start_image_path).name})" if is_i2i else "文生图 (t2i)"
+            print(f"[{worker_name}] 启动 gflow 图像进程 (PID={pid}) -> {mode_desc} Profile=[{profile.name}] Task=[{task.id}]")
+
+            try:
+                stdout, stderr = proc.communicate(timeout=self.timeout_sec)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                stdout, stderr = proc.communicate()
+                return {
+                    "success": False,
+                    "pid": pid,
+                    "error_code": "TIMEOUT",
+                    "error_message": f"图像生成超时（超过 {self.timeout_sec}s，PID={pid} 已终止）",
+                    "output_image_paths": [],
+                    "logs": f"=== STDOUT ===\n{stdout}\n=== STDERR ===\n{stderr}"
+                }
+
+            logs = f"=== PID: {pid} ===\n=== STDOUT ===\n{stdout}\n=== STDERR ===\n{stderr}"
+
+            if proc.returncode != 0:
+                err_code = f"EXIT_{proc.returncode}"
+                err_msg = f"进程退出码 {proc.returncode}\n{stderr[:400]}"
+                if proc.returncode == 36 or "FlowHostMigratedError" in stdout or "not ported yet" in stdout or "not ported yet" in stderr:
+                    err_code = "UNSUPPORTED_FEATURE"
+                    err_msg = "Google Flow (flow.google.com) 当前仅支持 Nano Banana Pro (nano-pro) 与 Nano Banana 2 (nano2) 生图模型；Imagen 3.5 官方尚未适配，请切换模型为 Nano Banana Pro。"
+                elif proc.returncode == 11 or any(k in stderr.lower() for k in ["profilelocked", "already in use", "is locked", "lockfile"]):
+                    err_code = "PROFILE_LOCKED"
+                    err_msg = f"Profile [{profile.name}] 被当前打开的 Chrome 窗口独占锁定。请在桌面关闭 Chrome 窗口或在控制台点击【⏹ 关闭占用 Chrome】后系统将自动恢复任务。"
+                return {
+                    "success": False,
+                    "pid": pid,
+                    "error_code": err_code,
+                    "error_message": err_msg,
+                    "output_image_paths": [],
+                    "logs": logs
+                }
+
+            # 尝试从 stdout 解析输出图片路径列表
+            found_paths = []
+            try:
+                lines = stdout.strip().splitlines()
+                for line in reversed(lines):
+                    line_str = line.strip()
+                    if line_str.startswith("{") and line_str.endswith("}"):
+                        data = json.loads(line_str)
+                        if "images" in data and isinstance(data["images"], list):
+                            for img in data["images"]:
+                                if isinstance(img, dict) and "local_path" in img and img["local_path"]:
+                                    lp = Path(img["local_path"]).resolve()
+                                    if lp.exists():
+                                        found_paths.append(str(lp))
+                            if found_paths:
+                                break
+                        elif "saved_paths" in data and isinstance(data["saved_paths"], list):
+                            found_paths = [str(Path(p).resolve()) for p in data["saved_paths"] if Path(p).exists()]
+                            if found_paths:
+                                break
+                        elif "paths" in data and isinstance(data["paths"], list):
+                            found_paths = [str(Path(p).resolve()) for p in data["paths"] if Path(p).exists()]
+                            if found_paths:
+                                break
+                        elif "local_path" in data and data["local_path"] and Path(data["local_path"]).exists():
+                            found_paths = [str(Path(data["local_path"]).resolve())]
+                            break
+            except Exception:
+                pass
+
+            if not found_paths:
+                # 对比现有图像识别出新落盘的文件
+                current_imgs = set(self.output_dir.glob("*.png")) | set(self.output_dir.glob("*.jpg")) | set(self.output_dir.glob("*.jpeg")) | set(self.output_dir.glob("*.webp"))
+                new_files = sorted(list(current_imgs - existing_imgs), key=lambda p: p.stat().st_mtime, reverse=True)
+                if new_files:
+                    found_paths = [str(p.resolve()) for p in new_files]
+
+            if found_paths:
+                return {
+                    "success": True,
+                    "pid": pid,
+                    "error_code": None,
+                    "error_message": None,
+                    "output_image_paths": found_paths,
+                    "logs": logs
+                }
+            else:
+                return {
+                    "success": False,
+                    "pid": pid,
+                    "error_code": "OUTPUT_NOT_FOUND",
+                    "error_message": "生图命令执行成功，但未在输出目录找到生成的图像文件",
+                    "output_image_paths": [],
+                    "logs": logs
+                }
+
+        except Exception as exc:
+            return {
+                "success": False,
+                "pid": None,
+                "error_code": "EXCEPTION",
+                "error_message": str(exc),
+                "output_image_paths": [],
+                "logs": str(exc)
+            }
+

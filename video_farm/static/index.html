@@ -50,6 +50,9 @@
         <button class="tab-button active" data-target="view-generate">
           <span>🎬 生成视频</span>
         </button>
+        <button class="tab-button" data-target="view-images">
+          <span>🖼️ 生成图片 (Google Flow)</span>
+        </button>
         <button class="tab-button" data-target="view-tasks">
           <span>📊 任务与成片</span>
           <span class="pill-count" id="badge-total-tasks">0</span>
@@ -162,6 +165,16 @@
               <span id="adv-arrow">▼</span>
             </div>
             <div class="accordion-body" id="accordion-body-adv" style="display:none;">
+                <div class="field-group">
+                  <label for="select-video-model">Google Flow 视频模型</label>
+                  <select class="select-control" id="select-video-model">
+                    <option value="veo-lite" selected>Veo 3.1 Lite (推荐 · 经济稳定 · 默认)</option>
+                    <option value="veo-fast">Veo 3.1 Fast (快速响应模式)</option>
+                    <option value="veo-quality">Veo 3.1 Quality (高精画质)</option>
+                    <option value="omni-flash">Omni Flash (支持首尾帧 · 解锁10秒)</option>
+                    <option value="veo-lite-lp">Veo 3.1 Lite LP</option>
+                  </select>
+                </div>
               <div class="field-group">
                 <label>画幅比例</label>
                 <select class="select-control" id="select-aspect" disabled>
@@ -241,11 +254,119 @@
       </div>
     </section>
 
-    <!-- ================= 视图 2: 任务与成片 ================= -->
+
+    <!-- ================= 视图 2: 生成图片 (Imagen 3.5 / Nano) ================= -->
+    <section class="view-pane" id="view-images">
+      <div class="studio-grid" style="grid-template-columns: 420px 1fr; gap: 20px;">
+        <!-- 左侧：图像生成配置 -->
+        <div class="config-panel" style="background:var(--bg-surface); border:1px solid rgba(255,255,255,0.08); border-radius:12px; padding:20px; display:flex; flex-direction:column; gap:14px;">
+          <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+            <div>
+              <h3 style="font-size:16px; font-weight:600; color:var(--text-main); display:flex; align-items:center; gap:6px;">
+                <span>🖼️ Google Flow 图像生成工坊</span>
+              </h3>
+              <p style="font-size:12px; color:var(--text-muted); margin-top:3px;">基于官方 Nano Banana Pro / Imagen 模型 · 支持文生图与垫图图生图</p>
+            </div>
+            <span class="badge" style="background:rgba(16,185,129,0.15); color:#34d399; border:1px solid rgba(16,185,129,0.3); padding:4px 8px; border-radius:6px; font-size:11px; white-space:nowrap;">
+              ⚡ 生成后可一键设为首尾帧
+            </span>
+          </div>
+
+          <!-- 提示词输入 -->
+          <div class="prompt-group">
+            <div class="prompt-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+              <label for="input-image-prompt" style="font-size:13px; font-weight:500;">🎨 画面描述提示词 (Prompt)</label>
+              <div style="display:flex; gap:6px;">
+                <button class="btn btn-secondary btn-sm" id="btn-image-example-start" style="padding:2px 8px; font-size:11px;">填入首帧样本</button>
+                <button class="btn btn-secondary btn-sm" id="btn-image-example-end" style="padding:2px 8px; font-size:11px;">填入尾帧样本</button>
+              </div>
+            </div>
+            <textarea class="prompt-area" id="input-image-prompt" style="height:115px;" placeholder="详细描述想生成的画面细节、光影、主体姿态与构图，例如：电影特写微距镜头，一颗透明的水滴悬挂在翠绿的叶尖，晨光透过水滴折射出彩虹光晕，超高清8K，虚化背景..."></textarea>
+          </div>
+
+          <!-- 模型与画幅控制 -->
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+            <div class="field-group">
+              <label for="select-image-model">🎨 图像生成模型</label>
+              <select class="select-control" id="select-image-model">
+                <option value="nano-pro" selected>Nano Banana Pro (nano-pro · 推荐 · 深度适配 flow.google.com)</option>
+                <option value="nano2">Nano Banana 2 (nano2 · 极速出图)</option>
+                <option value="imagen4">Imagen 3.5 (imagen4 · 仅限未迁移的旧版账号)</option>
+              </select>
+            </div>
+
+            <div class="field-group">
+              <label for="select-image-aspect">📐 画面长宽比 (Aspect Ratio)</label>
+              <select class="select-control" id="select-image-aspect">
+                <option value="9:16" selected>9:16 (竖屏短视频 · 最适首尾帧)</option>
+                <option value="16:9">16:9 (横屏宽幅)</option>
+                <option value="1:1">1:1 (正方形社交贴图)</option>
+                <option value="4:3">4:3 (标准横幅)</option>
+                <option value="3:4">3:4 (标准立式)</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- 垫图上传 (可选图生图) -->
+          <div class="field-group">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+              <label style="font-size:13px;">📷 参考垫图 (可选，上传后自动切换为图生图 i2i)</label>
+              <button class="btn btn-secondary btn-sm" id="btn-clear-image-ref" style="display:none; padding:1px 6px; font-size:11px;">清除垫图</button>
+            </div>
+            <div class="drop-card" id="drop-image-ref" style="height:85px; margin-top:2px; cursor:pointer; display:flex; align-items:center; justify-content:center; border:1px dashed rgba(255,255,255,0.15); border-radius:8px;">
+              <div class="drop-placeholder" id="placeholder-image-ref" style="text-align:center;">
+                <span class="drop-icon" style="font-size:18px;">🖼️</span>
+                <span class="drop-text" style="font-size:12px; margin-top:2px;">点击或拖入参考垫图（可选）</span>
+                <span class="drop-subtext" style="font-size:11px; color:var(--text-muted);">留空则为纯文生图 (t2i)</span>
+              </div>
+              <img class="preview-img" id="img-preview-ref" style="display:none; max-height:75px; object-fit:contain;" alt="参考图预览">
+              <input type="file" id="file-input-image-ref" accept="image/*" style="display:none;">
+            </div>
+          </div>
+
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-top:10px;">
+            <div class="field-group" style="margin-bottom:0; width:180px;">
+              <select class="select-control" id="select-image-profile">
+                <option value="">自动轮询空闲账号</option>
+              </select>
+            </div>
+            <button class="btn btn-primary" id="btn-submit-image-task" style="padding:10px 22px; font-weight:600; font-size:14px;">
+              🚀 立即生成图片
+            </button>
+          </div>
+        </div>
+
+        <!-- 右侧：生成图片画廊与联动操作 -->
+        <div class="stage-panel" style="background:var(--bg-surface); border:1px solid rgba(255,255,255,0.08); border-radius:12px; padding:20px; display:flex; flex-direction:column;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+            <div class="stage-title" style="margin-bottom:0; font-size:15px;">
+              <span>🖼️ 已生成图片成果库</span>
+              <span id="gallery-count" style="font-size:12px; color:var(--text-muted); margin-left:8px;">(0 张图片)</span>
+            </div>
+            <button class="btn btn-secondary btn-sm" id="btn-refresh-images">🔄 刷新成果</button>
+          </div>
+
+          <div style="font-size:12px; line-height:1.6; color:var(--text-sub); background:var(--bg-card); padding:10px 14px; border-radius:8px; border:1px solid rgba(255,255,255,0.06); margin-bottom:14px;">
+            💡 <b>无缝联动生视频闭环</b>：点击任意图片卡片下方的<b>【📌 设为首帧】</b>或<b>【📌 设为尾帧】</b>，系统将自动将该图填入“生成视频”工作台，无需手动保存再重新上传！
+          </div>
+
+          <!-- 图像网格容器 -->
+          <div class="image-gallery-grid" id="image-gallery-list">
+            <div style="grid-column: 1 / -1; text-align:center; padding:50px 0; color:var(--text-muted); font-size:13px;">
+              暂无已生成的图片，请在左侧输入提示词点击【立即生成图片】
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+        <!-- ================= 视图 2: 任务与成片 ================= -->
     <section class="view-pane" id="view-tasks">
       <div class="tasks-toolbar">
         <div class="filter-group">
           <button class="filter-btn active" data-filter="all">全部 <span id="count-all">0</span></button>
+          <button class="filter-btn" data-filter="video">🎬 视频 <span id="count-video">0</span></button>
+          <button class="filter-btn" data-filter="image">🖼️ 图像 <span id="count-image">0</span></button>
           <button class="filter-btn" data-filter="running">⚡ 生成中 <span id="count-running">0</span></button>
           <button class="filter-btn" data-filter="queued">⏳ 排队中 <span id="count-queued">0</span></button>
           <button class="filter-btn" data-filter="completed">✅ 已完成 <span id="count-completed">0</span></button>
@@ -406,32 +527,34 @@
 
   <!-- ================= 模态弹窗 3: 添加新账号 ================= -->
   <div class="modal-backdrop" id="modal-add-profile">
-    <div class="modal-panel" style="max-width:480px;">
+    <div class="modal-panel" style="max-width:500px;">
       <div class="modal-panel-header">
-        <h3>添加新 Google Flow 账号</h3>
+        <h3>添加新 Google 账号</h3>
         <button class="close-x" data-modal="modal-add-profile">&times;</button>
       </div>
       <div class="modal-panel-body" style="display:flex; flex-direction:column; gap:14px;">
         <div class="field-group">
-          <label for="input-prof-name">Profile 目录英文标识 (如 gflow-acc2)</label>
-          <input type="text" class="input-control" id="input-prof-name" placeholder="仅限小写英文和数字">
+          <label for="input-prof-name">账号英文代号（系统已自动预填）</label>
+          <input type="text" class="input-control" id="input-prof-name" placeholder="例如 acc2，仅限英文字母和数字">
+          <span style="font-size:11px; color:var(--text-muted); margin-top:3px;">仅用于在本地建立独立的 Chrome 隔离目录，完全不影响你的日常主浏览器</span>
         </div>
         <div class="field-group">
-          <label for="input-prof-label">账号中文标签/备注 (可选)</label>
-          <input type="text" class="input-control" id="input-prof-label" placeholder="如：备用账号 02 (订阅版)">
+          <label for="input-prof-label">账号显示名称 / 备注（可选）</label>
+          <input type="text" class="input-control" id="input-prof-label" placeholder="例如：备用账号 02">
         </div>
-        <div class="field-group">
-          <label for="input-prof-notes">说明/备注 (可选)</label>
-          <input type="text" class="input-control" id="input-prof-notes" placeholder="如：用于草稿测试">
-        </div>
+        <input type="hidden" id="input-prof-notes" value="">
 
-        <div style="font-size:12px; color:var(--text-muted); background:var(--bg-card); padding:10px; border-radius:6px;">
-          📌 创建后系统将为其建立独立 Chrome 用户环境。点击卡片上的<b>“登录”</b>即可弹出原生 Chrome 登录 Google，安全不丢 Cookie。
+        <div style="font-size:12px; line-height:1.7; color:var(--text-sub); background:var(--bg-card); padding:12px 14px; border-radius:8px; border:1px solid rgba(255,255,255,0.06);">
+          <b style="color:var(--text-main); font-size:13px;">💡 添加流程非常简单：</b><br>
+          1. 点击下方<b>【确定并立即打开 Chrome 登录】</b>；<br>
+          2. 系统会自动为你弹出一个<b>全新纯净的独立 Chrome 窗口</b>；<br>
+          3. 在该窗口中正常登录你的第 2 个 Google 账号；<br>
+          4. 登录成功进入页面后，<b>直接关闭该 Chrome 窗口</b>即可！系统会自动识别为空闲就绪状态，后续自动多账号轮询切换。
         </div>
 
         <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:8px;">
           <button class="btn btn-secondary btn-sm" data-modal="modal-add-profile">取消</button>
-          <button class="btn btn-primary btn-sm" id="btn-confirm-add-profile">确定添加</button>
+          <button class="btn btn-primary btn-sm" id="btn-confirm-add-profile">确定并立即打开 Chrome 登录</button>
         </div>
       </div>
     </div>

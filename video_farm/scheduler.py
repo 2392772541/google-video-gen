@@ -1,5 +1,6 @@
 from __future__ import annotations
 import time
+import json
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
@@ -52,6 +53,17 @@ def classify_failure(err_code: str, err_msg: str, logs: str) -> tuple[str, str, 
             False
         )
 
+    # 1.5 新特性/模型尚未移植支持（例如 flow.google.com 下的 imagen4）
+    if code_up in ("UNSUPPORTED_FEATURE", "EXIT_36") or any(k in content for k in [
+        "not ported yet", "flowhostmigratederror", "flow-host-migrated"
+    ]):
+        return (
+            "UNSUPPORTED_FEATURE",
+            err_msg or "Google Flow 新架构尚未支持当前指定模型或功能，无需重试",
+            0,
+            False
+        )
+
     # 2. 额度耗尽 (Quota, Daily limit, Out of credits, Resource exhausted)
     if code_up == "QUOTA_EXHAUSTED" or any(k in content for k in [
         "quota_exhausted", "quota", "exhausted", "credit", "daily limit", "resource_exhausted",
@@ -66,8 +78,9 @@ def classify_failure(err_code: str, err_msg: str, logs: str) -> tuple[str, str, 
         )
 
     # 3. 触发风控/频控 (429, Unusual activity, Rate limit)
-    if code_up == "RATE_LIMITED" or any(k in content for k in [
-        "rate_limited", "unusual_activity", "rate_limit", "429", "too many requests",
+    is_429 = bool(re.search(r"429", content)) or 'status": 429' in content or 'http 429' in content
+    if code_up == "RATE_LIMITED" or is_429 or any(k in content for k in [
+        "rate_limited", "unusual_activity", "rate_limit", "too many requests",
         "public_error_unusual_activity", "频控", "限流", "请求过多"
     ]):
         return (
@@ -165,8 +178,11 @@ class VideoScheduler:
                 db_path=self.db_path
             )
 
-            # 根据任务类型派发到对应的 Worker
-            if engine_name == "gemini":
+            # 根据任务类型与业务形态派发到对应的 Worker
+            task_type = getattr(task, "task_type", "video") or "video"
+            if task_type == "image":
+                exec_res = self.flow_worker.execute_image_task(task, profile)
+            elif engine_name == "gemini":
                 exec_res = self.gemini_worker.execute_task(task, profile)
             else:
                 exec_res = self.flow_worker.execute_task(task, profile)
@@ -183,6 +199,26 @@ class VideoScheduler:
                 category, friendly_msg, cooldown_sec, count_retry = classify_failure(raw_code, raw_msg, logs)
                 now_dt = datetime.now().astimezone()
                 cooldown_until = (now_dt + timedelta(seconds=cooldown_sec)).isoformat()
+
+                if category == "UNSUPPORTED_FEATURE":
+                    db.update_profile_status(
+                        profile_id=profile_id,
+                        status="idle",
+                        cooldown_until=None,
+                        success=True,
+                        db_path=self.db_path
+                    )
+                    db.update_task_status(
+                        task_id=task_id,
+                        status="failed",
+                        error_code=category,
+                        error_message=friendly_msg,
+                        logs=logs,
+                        db_path=self.db_path
+                    )
+                    db.log_task_event(task_id, "TASK_FAILED", f"❌ {friendly_msg}", db_path=self.db_path)
+                    print(f"[{thread_name}] ❌ 任务 [{task_id}] 特性不支持直接标记失败: {friendly_msg}")
+                    return
 
                 if category == "PROFILE_LOCKED":
                     # 浏览器窗口独占占用：账号维持 idle，任务安全保留在排队中，不扣重试次数
@@ -262,7 +298,23 @@ class VideoScheduler:
                 )
                 return
 
-            # ---------------- 成功生成 -> 质检验收流程 ----------------
+            # ---------------- 成功生成 -> 图像任务直接结单 / 视频进入质检验收 ----------------
+            task_type = getattr(task, "task_type", "video") or "video"
+            if task_type == "image":
+                img_paths = exec_res.get("output_image_paths") or []
+                img_json = json.dumps(img_paths, ensure_ascii=False)
+                db.update_task_status(
+                    task_id=task_id,
+                    status="completed",
+                    output_image_paths=img_json,
+                    logs=exec_res.get("logs") or "",
+                    db_path=self.db_path
+                )
+                db.update_profile_status(profile_id=profile_id, status="idle", success=True, db_path=self.db_path)
+                count = len(img_paths)
+                db.log_task_event(task_id, "TASK_COMPLETED", f"图像生成完成，共获得 {count} 张高质图片", db_path=self.db_path)
+                return
+
             video_path = exec_res["output_video_path"]
             db.update_task_status(
                 task_id=task_id,
@@ -363,14 +415,23 @@ class VideoScheduler:
         finally:
             conn.close()
 
+        # 冷却防抖：只有等待超过 30 秒且未达到最大重试次数的 retry_wait 任务才允许推回 queued
+        now_iso = datetime.now().astimezone().isoformat()
+        threshold_iso = (datetime.now().astimezone() - timedelta(seconds=30)).isoformat()
+        conn = db.get_db_connection(self.db_path)
+        try:
+            with conn:
+                conn.execute("""
+                UPDATE tasks 
+                SET status = 'queued', updated_at = ?
+                WHERE status = 'retry_wait' 
+                  AND retry_count < max_retries
+                  AND updated_at <= ?
+                """, (now_iso, threshold_iso))
+        finally:
+            conn.close()
+
         if not queued_tasks:
-            # 自动将 retry_wait 的任务推回 queued
-            conn = db.get_db_connection(self.db_path)
-            try:
-                with conn:
-                    conn.execute("UPDATE tasks SET status = 'queued' WHERE status = 'retry_wait'")
-            finally:
-                conn.close()
             return 0
 
         dispatched = 0

@@ -514,6 +514,7 @@ def get_tasks(status: Optional[str] = None, limit: int = 100):
 
         has_video = bool(t.output_video_path and Path(t.output_video_path).exists())
         video_filename = Path(t.output_video_path).name if has_video else None
+        img_paths, img_urls = _resolve_output_images(t)
         
         res.append({
             "id": t.id,
@@ -521,6 +522,10 @@ def get_tasks(status: Optional[str] = None, limit: int = 100):
             "status": t.status,
             "human_status": h_status,
             "engine": getattr(t, "engine", "flow"),
+            "task_type": getattr(t, "task_type", "video") or "video",
+            "model": getattr(t, "model", "") or "",
+            "image_paths": img_paths,
+            "image_urls": img_urls,
             "aspect_ratio": t.aspect_ratio,
             "duration_sec": t.duration_sec,
             "assigned_profile_id": t.assigned_profile_id,
@@ -561,12 +566,17 @@ def get_task_detail(task_id: str):
         "watermark_corner": f"/media/qa/{task_id}/watermark_corner.png" if (qa_task_dir / "watermark_corner.png").exists() else None,
     }
     
+    img_paths, img_urls = _resolve_output_images(t)
     return {
         "id": t.id,
         "prompt": t.prompt,
         "start_image_path": t.start_image_path,
         "end_image_path": t.end_image_path,
         "engine": getattr(t, "engine", "flow"),
+        "task_type": getattr(t, "task_type", "video") or "video",
+        "model": getattr(t, "model", "") or "",
+        "image_paths": img_paths,
+        "image_urls": img_urls,
         "start_image_url": _resolve_image_url(t.start_image_path, task_id, "start"),
         "end_image_url": _resolve_image_url(t.end_image_path, task_id, "end"),
         "status": t.status,
@@ -594,6 +604,28 @@ def get_task_detail(task_id: str):
         "events": events
     }
 
+
+def _resolve_output_images(task: Task) -> tuple[List[str], List[str]]:
+    paths: List[str] = []
+    urls: List[str] = []
+    raw_json = getattr(task, "output_image_paths", None)
+    if raw_json:
+        try:
+            raw = json.loads(raw_json)
+            if isinstance(raw, list):
+                paths = [str(Path(p).resolve()) for p in raw]
+            elif isinstance(raw, str) and raw:
+                paths = [str(Path(raw).resolve())]
+        except Exception:
+            pass
+    for p_str in paths:
+        p = Path(p_str)
+        if OUTPUTS_DIR in p.parents or p.parent == OUTPUTS_DIR:
+            urls.append(f"/media/outputs/{p.name}")
+        else:
+            urls.append(f"/media/file?path={p.as_posix()}")
+    return paths, urls
+
 def _resolve_image_url(path_str: str, task_id: str, kind: str) -> Optional[str]:
     if not path_str:
         return None
@@ -618,8 +650,11 @@ def _resolve_image_url(path_str: str, task_id: str, kind: str) -> Optional[str]:
 async def create_task(
     prompt: str = Form(...),
     engine: str = Form("flow"),
+    model: str = Form("veo-lite"),
     start_image: Optional[UploadFile] = File(None),
     end_image: Optional[UploadFile] = File(None),
+    start_image_path: Optional[str] = Form(None),
+    end_image_path: Optional[str] = Form(None),
     priority: int = Form(10),
     aspect_ratio: str = Form("9:16"),
     duration_sec: int = Form(8),
@@ -636,33 +671,28 @@ async def create_task(
     start_dest_str = ""
     end_dest_str = ""
     
-    if engine == "flow":
-        if not start_image or not end_image:
-            raise HTTPException(status_code=400, detail="Google Flow 首尾帧模式必须同时上传首帧和尾帧图片")
+    # 优先解析上传的文件；若无上传文件，则使用传入的本地文件路径
+    if start_image and start_image.filename:
         start_ext = Path(start_image.filename or "start.png").suffix or ".png"
-        end_ext = Path(end_image.filename or "end.png").suffix or ".png"
         start_dest = task_upload_dir / f"start{start_ext}"
-        end_dest = task_upload_dir / f"end{end_ext}"
         with open(start_dest, "wb") as f:
             shutil.copyfileobj(start_image.file, f)
+        start_dest_str = str(start_dest.resolve())
+    elif start_image_path and Path(start_image_path).exists():
+        start_dest_str = str(Path(start_image_path).resolve())
+
+    if end_image and end_image.filename:
+        end_ext = Path(end_image.filename or "end.png").suffix or ".png"
+        end_dest = task_upload_dir / f"end{end_ext}"
         with open(end_dest, "wb") as f:
             shutil.copyfileobj(end_image.file, f)
-        start_dest_str = str(start_dest.resolve())
         end_dest_str = str(end_dest.resolve())
-    else:
-        # Gemini 网页版模式
-        if start_image:
-            start_ext = Path(start_image.filename or "start.png").suffix or ".png"
-            start_dest = task_upload_dir / f"start{start_ext}"
-            with open(start_dest, "wb") as f:
-                shutil.copyfileobj(start_image.file, f)
-            start_dest_str = str(start_dest.resolve())
-        if end_image:
-            end_ext = Path(end_image.filename or "end.png").suffix or ".png"
-            end_dest = task_upload_dir / f"end{end_ext}"
-            with open(end_dest, "wb") as f:
-                shutil.copyfileobj(end_image.file, f)
-            end_dest_str = str(end_dest.resolve())
+    elif end_image_path and Path(end_image_path).exists():
+        end_dest_str = str(Path(end_image_path).resolve())
+    
+    if engine == "flow":
+        if not start_dest_str or not end_dest_str:
+            raise HTTPException(status_code=400, detail="Google Flow 首尾帧模式必须同时提供首帧和尾帧图片（上传文件或选定已有图片）")
 
     task = Task(
         id=task_id,
@@ -670,6 +700,8 @@ async def create_task(
         start_image_path=start_dest_str,
         end_image_path=end_dest_str,
         engine=engine,
+        task_type="video",
+        model=model.strip() if model else "veo-lite",
         aspect_ratio=aspect_ratio,
         duration_sec=duration_sec,
         status="queued",
@@ -680,8 +712,55 @@ async def create_task(
     
     db.add_task(task, DB_PATH)
     engine_desc = "Google Flow (首尾帧模式)" if engine == "flow" else "Gemini 网页版"
-    db.log_task_event(task_id, "TASK_CREATED_WEB", f"通过Web控制台提交任务，引擎: {engine_desc}", db_path=DB_PATH)
+    db.log_task_event(task_id, "TASK_CREATED_WEB", f"通过Web控制台提交视频任务，引擎: {engine_desc}，模型: {task.model}", db_path=DB_PATH)
     return {"id": task_id, "status": "queued", "engine": engine, "message": f"{engine_desc}任务创建成功并已加入队列"}
+
+@app.post("/api/tasks/create-image")
+async def create_image_task_endpoint(
+    prompt: str = Form(...),
+    model: str = Form("nano-pro"),
+    aspect_ratio: str = Form("9:16"),
+    ref_image: Optional[UploadFile] = File(None),
+    ref_image_path: Optional[str] = Form(None),
+    priority: int = Form(10),
+    assigned_profile_id: Optional[str] = Form(None)
+):
+    if not prompt.strip():
+        raise HTTPException(status_code=400, detail="生图提示词不能为空")
+    
+    task_id = f"task_{uuid.uuid4().hex[:12]}"
+    task_upload_dir = UPLOADS_DIR / task_id
+    task_upload_dir.mkdir(parents=True, exist_ok=True)
+    
+    ref_dest_str = ""
+    if ref_image and ref_image.filename:
+        ref_ext = Path(ref_image.filename or "ref.png").suffix or ".png"
+        ref_dest = task_upload_dir / f"ref{ref_ext}"
+        with open(ref_dest, "wb") as f:
+            shutil.copyfileobj(ref_image.file, f)
+        ref_dest_str = str(ref_dest.resolve())
+    elif ref_image_path and Path(ref_image_path).exists():
+        ref_dest_str = str(Path(ref_image_path).resolve())
+
+    task = Task(
+        id=task_id,
+        prompt=prompt.strip(),
+        start_image_path=ref_dest_str,
+        end_image_path="",
+        engine="flow",
+        task_type="image",
+        model=model.strip() if model else "nano-pro",
+        aspect_ratio=aspect_ratio,
+        duration_sec=0,
+        status="queued",
+        priority=priority,
+        assigned_profile_id=assigned_profile_id or None
+    )
+    
+    db.add_task(task, DB_PATH)
+    mode_desc = "图生图 (i2i)" if ref_dest_str else "文生图 (t2i)"
+    db.log_task_event(task_id, "TASK_CREATED_WEB", f"通过Web控制台提交图像任务 ({mode_desc})，模型: {task.model}", db_path=DB_PATH)
+    return {"id": task_id, "status": "queued", "task_type": "image", "message": f"图像任务创建成功，已提交调度排队"}
 
 class BatchShotItem(BaseModel):
     prompt: str
@@ -823,11 +902,15 @@ def get_system_info():
 # ==================== Media & Static Serving ====================
 
 @app.get("/media/outputs/{filename}")
-def serve_output_video(filename: str):
+def serve_output_file(filename: str):
     p = (OUTPUTS_DIR / filename).resolve()
     if not p.exists() or OUTPUTS_DIR not in p.parents:
-        raise HTTPException(status_code=404, detail="视频文件未找到")
-    return FileResponse(str(p), media_type="video/mp4")
+        raise HTTPException(status_code=404, detail="文件未找到")
+    if p.suffix.lower() == ".mp4":
+        return FileResponse(str(p), media_type="video/mp4")
+    elif p.suffix.lower() in (".png", ".jpg", ".jpeg", ".webp"):
+        return FileResponse(str(p), media_type="image/png")
+    return FileResponse(str(p), media_type="application/octet-stream")
 
 @app.get("/media/qa/{task_id}/{filename}")
 def serve_qa_file(task_id: str, filename: str):
