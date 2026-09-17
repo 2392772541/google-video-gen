@@ -479,3 +479,7 @@ def get_next_queued_task(db_path: Path = DEFAULT_DB_PATH) -> Optional[Task]:
             return row_to_task(row) if row else None
     finally:
         conn.close()
+
+# Backward compatibility aliases
+get_task = get_task_by_id
+get_profile = get_profile_by_id
