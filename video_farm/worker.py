@@ -1,12 +1,110 @@
 from __future__ import annotations
+
 import os
 import sys
 import json
 import subprocess
+import sqlite3
 import threading
 from pathlib import Path
 from typing import Dict, Any, Optional
 from .models import Task, Profile
+
+def heal_profile_flow_ui(profile_name: str, project_id: Optional[str] = None) -> bool:
+    """
+    自动自愈 Google Flow 界面阻断状态：
+    1. 确保写入 .gflow_browser_strategy 为 chrome
+    2. 关闭可能遮挡底栏的会话侧边栏 (.header-action)
+    3. 自动点击并消除 '您正在使用我们最新的视频模型...' 引导浮层 (button: '知道了' / 'Got it')
+    4. 若智能体 (Agent mode) 被选中，自动点击解除选中状态，确保经典底栏 (.settings-trigger-button) 显示
+    """
+    try:
+        from playwright.sync_api import sync_playwright
+        appdata = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
+        gflow_base = Path(appdata) / "ffroliva" / "gflow-cli"
+        profile_dir = gflow_base / f"profile_{profile_name}"
+        
+        marker = profile_dir / ".gflow_browser_strategy"
+        marker.write_text("chrome", encoding="utf-8")
+        
+        if not project_id:
+            gflow_db = gflow_base / "gflow.db"
+            if gflow_db.exists():
+                with sqlite3.connect(str(gflow_db)) as conn:
+                    row = conn.execute(
+                        "SELECT flow_project_id FROM projects WHERE profile_name = ? ORDER BY rowid DESC LIMIT 1",
+                        (profile_name,)
+                    ).fetchone()
+                    if row and row[0]:
+                        project_id = row[0]
+                        
+        url = f"https://flow.google.com/project/{project_id}" if project_id else "https://flow.google.com/"
+        
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch_persistent_context(
+                user_data_dir=str(profile_dir),
+                channel="chrome",
+                headless=True,
+                args=["--disable-blink-features=AutomationControlled", "--no-sandbox"]
+            )
+            page = browser.pages[0] if browser.pages else browser.new_page()
+            try:
+                page.goto(url, timeout=30000, wait_until="domcontentloaded")
+                page.wait_for_timeout(3500)
+                
+                # 1. 消除前置协议遮罩
+                for _ in range(3):
+                    pane = page.query_selector(".cdk-overlay-pane")
+                    if not pane:
+                        break
+                    next_btn = pane.query_selector("button:has-text('下一步'), button:has-text('Next')")
+                    if next_btn and not next_btn.evaluate("el => el.disabled"):
+                        next_btn.click()
+                        page.wait_for_timeout(1500)
+                        continue
+                    page.evaluate("""() => {
+                        const el = document.querySelector('.privacy-content') || document.querySelector('.cdk-overlay-pane div[style*="overflow"]');
+                        if (el) { el.scrollTop = el.scrollHeight; el.dispatchEvent(new Event('scroll')); }
+                    }""")
+                    cont_btn = pane.query_selector("button:has-text('继续'), button:has-text('Continue'), button:has-text('完成'), button:has-text('开始')")
+                    if cont_btn and not cont_btn.evaluate("el => el.disabled || el.getAttribute('disabled')"):
+                        cont_btn.click()
+                        page.wait_for_timeout(2000)
+                        
+                # 2. 关闭右侧会话栏
+                close_btn = page.query_selector("button.header-action:has-text('close'), button[aria-label='关闭'], button[aria-label='Close']")
+                if close_btn:
+                    try:
+                        close_btn.click()
+                        page.wait_for_timeout(1000)
+                    except Exception:
+                        pass
+                        
+                # 3. 消除引导气泡
+                got_it = page.query_selector("button:has-text('知道了'), button:has-text('Got it')")
+                if got_it:
+                    try:
+                        got_it.click()
+                        page.wait_for_timeout(1000)
+                    except Exception:
+                        pass
+                        
+                # 4. 关闭智能体模式
+                chip = page.query_selector("button.agent-mode-chip[aria-pressed='true']")
+                if chip:
+                    try:
+                        chip.click()
+                        page.wait_for_timeout(1500)
+                    except Exception:
+                        pass
+                        
+                btn = page.query_selector(".settings-trigger-button")
+                return btn.is_visible() if btn else False
+            finally:
+                browser.close()
+    except Exception as exc:
+        print(f"[heal_profile_flow_ui] 自动修复 profile [{profile_name}] 异常: {exc}")
+        return False
 
 class VideoWorker:
     def __init__(
@@ -26,12 +124,24 @@ class VideoWorker:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.timeout_sec = timeout_sec
 
+    def _ensure_profile_marker(self, profile_name: str):
+        try:
+            appdata = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
+            profile_dir = Path(appdata) / "ffroliva" / "gflow-cli" / f"profile_{profile_name}"
+            profile_dir.mkdir(parents=True, exist_ok=True)
+            marker = profile_dir / ".gflow_browser_strategy"
+            if not marker.exists() or marker.read_text(encoding="utf-8").strip() != "chrome":
+                marker.write_text("chrome", encoding="utf-8")
+        except Exception:
+            pass
+
     def execute_task(self, task: Task, profile: Profile) -> Dict[str, Any]:
         """
         Executes gflow-cli video i2v for a given task and profile.
         Returns execution result dictionary.
         """
         worker_name = threading.current_thread().name
+        self._ensure_profile_marker(profile.name)
         if self.mock_sample_video:
             import time, shutil
             time.sleep(1.0)
@@ -78,7 +188,7 @@ class VideoWorker:
                     import sqlite3
                     with sqlite3.connect(str(gflow_db)) as c_conn:
                         row = c_conn.execute(
-                            "SELECT flow_project_id FROM projects WHERE profile_name = ? ORDER BY id DESC LIMIT 1",
+                            "SELECT flow_project_id FROM projects WHERE profile_name = ? ORDER BY rowid DESC LIMIT 1",
                             (profile.name,)
                         ).fetchone()
                         if row and row[0]:
@@ -145,6 +255,13 @@ class VideoWorker:
                 if proc.returncode == 11 or any(k in stderr.lower() for k in ["profilelocked", "already in use", "is locked", "lockfile"]):
                     err_code = "PROFILE_LOCKED"
                     err_msg = f"Profile [{profile.name}] 被当前打开的 Chrome 窗口独占锁定。请在桌面关闭 Chrome 窗口或在控制台点击【⏹ 关闭占用 Chrome】后系统将自动恢复任务。"
+                elif proc.returncode == 25 or any(k in stderr.lower() for k in ["flowagentuierror", "agentic ui", "settings-trigger-button"]):
+                    err_code = "AGENTIC_UI_BLOCKED"
+                    err_msg = f"Google Flow 处于智能体或遮罩状态。系统已执行自动去遮罩自愈，请重试。"
+                    try:
+                        heal_profile_flow_ui(profile.name, project_id)
+                    except Exception:
+                        pass
                 elif "renders no duration control" in stderr.lower() or "configuration error" in stderr.lower():
                     err_code = "CONFIG_ERROR"
                     err_msg = f"Google Flow 界面未开放该时长选项，建议使用 Flow 默认时长生成。"
@@ -221,6 +338,7 @@ class VideoWorker:
         Returns execution result dictionary with output_image_paths list.
         """
         worker_name = threading.current_thread().name
+        self._ensure_profile_marker(profile.name)
         is_i2i = bool(task.start_image_path and Path(task.start_image_path).exists())
         subcmd = "i2i" if is_i2i else "t2i"
 
@@ -234,7 +352,7 @@ class VideoWorker:
                     import sqlite3
                     with sqlite3.connect(str(gflow_db)) as c_conn:
                         row = c_conn.execute(
-                            "SELECT flow_project_id FROM projects WHERE profile_name = ? ORDER BY id DESC LIMIT 1",
+                            "SELECT flow_project_id FROM projects WHERE profile_name = ? ORDER BY rowid DESC LIMIT 1",
                             (profile.name,)
                         ).fetchone()
                         if row and row[0]:
@@ -297,6 +415,13 @@ class VideoWorker:
                 if proc.returncode == 36 or "FlowHostMigratedError" in stdout or "not ported yet" in stdout or "not ported yet" in stderr:
                     err_code = "UNSUPPORTED_FEATURE"
                     err_msg = "Google Flow (flow.google.com) 当前仅支持 Nano Banana Pro (nano-pro) 与 Nano Banana 2 (nano2) 生图模型；Imagen 3.5 官方尚未适配，请切换模型为 Nano Banana Pro。"
+                elif proc.returncode == 25 or any(k in stderr.lower() for k in ["flowagentuierror", "agentic ui", "settings-trigger-button"]):
+                    err_code = "AGENTIC_UI_BLOCKED"
+                    err_msg = f"Google Flow 处于智能体或遮罩状态。系统已执行自动去遮罩自愈，请重试。"
+                    try:
+                        heal_profile_flow_ui(profile.name, project_id)
+                    except Exception:
+                        pass
                 elif proc.returncode == 11 or any(k in stderr.lower() for k in ["profilelocked", "already in use", "is locked", "lockfile"]):
                     err_code = "PROFILE_LOCKED"
                     err_msg = f"Profile [{profile.name}] 被当前打开的 Chrome 窗口独占锁定。请在桌面关闭 Chrome 窗口或在控制台点击【⏹ 关闭占用 Chrome】后系统将自动恢复任务。"

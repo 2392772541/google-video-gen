@@ -354,26 +354,16 @@ def api_verify_auth(profile_id: str):
                 except Exception:
                     gemini_ok = False
 
-                # 2. 探测 Flow 状态并自动桥接单点登录
+                # 2. 探测 Flow 状态 (优先 flow.google.com，兼容 labs.google)
                 flow_ok = False
                 try:
-                    r = page.request.get("https://labs.google/fx/api/auth/session")
-                    if r.status == 200 and '"email"' in r.text():
+                    page.goto("https://flow.google.com/", timeout=25000, wait_until="domcontentloaded")
+                    page.wait_for_timeout(2000)
+                    if "accounts.google.com" not in page.url and ("flow.google.com" in page.url or "project" in page.url):
                         flow_ok = True
                     else:
-                        # 尝试通过页面点击补齐单点登录
-                        page.goto("https://labs.google/fx/", timeout=20000)
-                        page.wait_for_timeout(2000)
-                        outer_btn = page.query_selector('header button:has-text("Sign in with Google"), button:has-text("Sign in with Google")')
-                        if outer_btn:
-                            outer_btn.click()
-                            page.wait_for_timeout(2000)
-                        dialog_btn = page.locator('div[role="dialog"] button')
-                        if dialog_btn.count() > 0:
-                            dialog_btn.first.click(force=True)
-                            page.wait_for_timeout(4000)
-                        r2 = page.request.get("https://labs.google/fx/api/auth/session")
-                        if r2.status == 200 and '"email"' in r2.text():
+                        r = page.request.get("https://labs.google/fx/api/auth/session")
+                        if r.status == 200 and '"email"' in r.text():
                             flow_ok = True
                 except Exception:
                     flow_ok = False

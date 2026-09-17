@@ -1,6 +1,7 @@
 from __future__ import annotations
 import time
 import json
+import re
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
@@ -36,6 +37,17 @@ def classify_failure(err_code: str, err_msg: str, logs: str) -> tuple[str, str, 
             "PROFILE_LOCKED",
             "Chrome Profile 正在被外部浏览器窗口独占占用，请关闭桌面 Chrome 窗口后系统将自动继续执行",
             10,
+            False
+        )
+
+    # 0.5 界面遮罩/智能体模式阻断
+    if code_up in ("AGENTIC_UI_BLOCKED", "EXIT_25") or any(k in content for k in [
+        "agentic_ui_blocked", "flowagentuierror", "google flow agentic ui detected", "settings-trigger-button"
+    ]):
+        return (
+            "AGENTIC_UI_BLOCKED",
+            "Google Flow 处于遮罩或智能体状态，已触发自愈并重新排队",
+            15,
             False
         )
 
