@@ -1021,6 +1021,14 @@ document.addEventListener("DOMContentLoaded", () => {
               🌐 登录 Gemini
             </button>
           </div>
+          <div style="display:flex; gap:6px; width:100%;">
+            <button class="btn btn-secondary btn-sm btn-verify-profile" data-id="${p.id}" data-name="${p.name}" style="flex:1; border-color:var(--blue-primary); color:var(--blue-primary);" title="无头检测登录凭据状态，有效则直接恢复空闲就绪">
+              🔍 验证登录
+            </button>
+            <button class="btn btn-secondary btn-sm btn-kill-chrome" data-id="${p.id}" data-name="${p.name}" style="flex:1; border-color:var(--orange-warn); color:var(--orange-warn);" title="强制关闭占用该 Profile 的 Chrome 进程并解除锁定">
+              ⏹ 关占用 Chrome
+            </button>
+          </div>
           
           ${(p.status === "cooldown" || p.status === "auth_expired") ? `
             <button class="btn btn-warning btn-sm btn-reset-profile" data-id="${p.id}" data-name="${p.name}" style="width:100%; margin-bottom:4px;" title="清除冷却或异常标记，立即恢复为空闲就绪">
@@ -1034,6 +1042,54 @@ document.addEventListener("DOMContentLoaded", () => {
       `;
 
       container.appendChild(box);
+    });
+
+
+    // 绑定验证登录
+    container.querySelectorAll(".btn-verify-profile").forEach(b => {
+      b.addEventListener("click", async () => {
+        const id = b.getAttribute("data-id");
+        const name = b.getAttribute("data-name");
+        b.disabled = true;
+        b.innerText = "⏳ 正在验证...";
+        try {
+          const resp = await fetch("/api/profiles/" + id + "/verify-auth", { method: "POST" });
+          const d = await resp.json();
+          if (resp.ok && d.valid) {
+            showToast(d.message || "账号登录有效，已重置为空闲就绪！", "success");
+          } else {
+            showToast(d.message || "登录态验证未通过", "error");
+          }
+          fetchProfiles();
+          fetchOverview();
+        } catch (e) {
+          showToast("验证请求异常: " + e.message, "error");
+        } finally {
+          b.disabled = false;
+          b.innerText = "🔍 验证登录";
+        }
+      });
+    });
+
+    // 绑定关闭 Chrome
+    container.querySelectorAll(".btn-kill-chrome").forEach(b => {
+      b.addEventListener("click", async () => {
+        const id = b.getAttribute("data-id");
+        const name = b.getAttribute("data-name");
+        try {
+          const resp = await fetch("/api/profiles/" + id + "/close-chrome", { method: "POST" });
+          const d = await resp.json();
+          if (resp.ok) {
+            showToast(d.message || ("已释放账号 [" + name + "] 的 Chrome 占用"), "success");
+            fetchProfiles();
+            fetchOverview();
+          } else {
+            showToast(d.detail || "关闭失败", "error");
+          }
+        } catch (e) {
+          showToast("错误: " + e.message, "error");
+        }
+      });
     });
 
     // 绑定账号登录 Flow

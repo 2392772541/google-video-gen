@@ -115,11 +115,16 @@ class VideoWorker:
             logs = f"=== PID: {pid} ===\n=== STDOUT ===\n{stdout}\n=== STDERR ===\n{stderr}"
 
             if proc.returncode != 0:
+                err_code = f"EXIT_{proc.returncode}"
+                err_msg = f"Process exited with code {proc.returncode}\n{stderr[:400]}"
+                if proc.returncode == 11 or any(k in stderr.lower() for k in ["profilelocked", "already in use", "is locked", "lockfile"]):
+                    err_code = "PROFILE_LOCKED"
+                    err_msg = f"Profile [{profile.name}] 被当前打开的 Chrome 窗口独占锁定。请在桌面关闭 Chrome 窗口或在控制台点击【⏹ 关闭占用 Chrome】后系统将自动恢复任务。"
                 return {
                     "success": False,
                     "pid": pid,
-                    "error_code": f"EXIT_{proc.returncode}",
-                    "error_message": f"Process exited with code {proc.returncode}\n{stderr[:400]}",
+                    "error_code": err_code,
+                    "error_message": err_msg,
                     "output_video_path": None,
                     "logs": logs
                 }

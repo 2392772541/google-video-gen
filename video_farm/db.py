@@ -1,22 +1,21 @@
 from __future__ import annotations
 import sqlite3
-import json
 from pathlib import Path
+from typing import List, Optional, Dict, Any
 from datetime import datetime
-from typing import Optional, List, Dict, Any
-from .models import Profile, Task
+from .models import Task, Profile
 
 DEFAULT_DB_PATH = Path("video_farm_data/tasks.db")
 
 def get_db_connection(db_path: Path = DEFAULT_DB_PATH) -> sqlite3.Connection:
-    db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(db_path), timeout=30.0)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode = WAL;")
-    conn.execute("PRAGMA synchronous = NORMAL;")
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
     return conn
 
 def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
+    db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = get_db_connection(db_path)
     try:
         with conn:
@@ -26,17 +25,17 @@ def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
                 name TEXT UNIQUE NOT NULL,
                 profile_path TEXT,
                 account_label TEXT,
-                status TEXT NOT NULL DEFAULT 'idle',
-                watermark_mode TEXT NOT NULL DEFAULT 'unknown',
+                status TEXT DEFAULT 'idle', -- 'idle', 'busy', 'cooldown', 'auth_expired', 'restricted', 'disabled'
+                watermark_mode TEXT DEFAULT 'unknown', -- 'unknown', 'clean', 'forced_visible'
                 last_heartbeat_at TEXT,
                 last_success_at TEXT,
                 last_failure_at TEXT,
                 cooldown_until TEXT,
-                enabled INTEGER NOT NULL DEFAULT 1,
+                enabled INTEGER DEFAULT 1,
                 notes TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
-            );
+            )
             """)
 
             conn.execute("""
@@ -46,15 +45,14 @@ def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
                 prompt TEXT NOT NULL,
                 start_image_path TEXT NOT NULL,
                 end_image_path TEXT NOT NULL,
-                engine TEXT NOT NULL DEFAULT 'flow',
-                aspect_ratio TEXT NOT NULL DEFAULT '9:16',
-                duration_sec INTEGER NOT NULL DEFAULT 8,
-                status TEXT NOT NULL DEFAULT 'queued',
+                aspect_ratio TEXT DEFAULT '9:16',
+                duration_sec INTEGER DEFAULT 5,
+                status TEXT DEFAULT 'queued', -- 'queued', 'dispatching', 'running', 'verifying', 'completed', 'failed', 'retry_wait', 'cancelled'
                 assigned_profile_id TEXT,
-                priority INTEGER NOT NULL DEFAULT 10,
-                retry_count INTEGER NOT NULL DEFAULT 0,
-                max_retries INTEGER NOT NULL DEFAULT 2,
-                require_clean_watermark INTEGER NOT NULL DEFAULT 0,
+                priority INTEGER DEFAULT 10,
+                retry_count INTEGER DEFAULT 0,
+                max_retries INTEGER DEFAULT 3,
+                require_clean_watermark INTEGER DEFAULT 0,
                 submit_time TEXT NOT NULL,
                 start_time TEXT,
                 finish_time TEXT,
@@ -64,45 +62,107 @@ def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
                 last_vs_start_ncc REAL,
                 first_frame_matched INTEGER,
                 last_frame_matched INTEGER,
-                watermark_check TEXT DEFAULT 'unknown',
+                watermark_check TEXT,
                 error_code TEXT,
                 error_message TEXT,
                 logs TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
-                FOREIGN KEY (assigned_profile_id) REFERENCES profiles (id)
-            );
+                engine TEXT DEFAULT 'flow', -- 'flow', 'gemini'
+                FOREIGN KEY(assigned_profile_id) REFERENCES profiles(id)
+            )
             """)
 
             conn.execute("""
             CREATE TABLE IF NOT EXISTS task_events (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 task_id TEXT NOT NULL,
-                timestamp TEXT NOT NULL,
                 event_type TEXT NOT NULL,
-                message TEXT,
-                payload_json TEXT,
-                FOREIGN KEY (task_id) REFERENCES tasks (id)
-            );
+                detail TEXT,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(task_id) REFERENCES tasks(id)
+            )
             """)
 
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks (status);")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_profiles_status ON profiles (status, enabled);")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_task_events_task ON task_events (task_id);")
+            # Ensure 'engine' column exists in tasks for backwards compatibility
+            cols = [r["name"] for r in conn.execute("PRAGMA table_info(tasks)").fetchall()]
+            if "engine" not in cols:
+                conn.execute("ALTER TABLE tasks ADD COLUMN engine TEXT DEFAULT 'flow'")
 
-            # Auto-migrate: check if engine column exists in tasks table
-            cursor = conn.execute("PRAGMA table_info(tasks);")
-            columns = [row[1] for row in cursor.fetchall()]
-            if 'engine' not in columns:
-                conn.execute("ALTER TABLE tasks ADD COLUMN engine TEXT NOT NULL DEFAULT 'flow';")
+            event_cols = [r["name"] for r in conn.execute("PRAGMA table_info(task_events)").fetchall()]
+            if "detail" not in event_cols:
+                conn.execute("ALTER TABLE task_events ADD COLUMN detail TEXT")
+            if "created_at" not in event_cols:
+                conn.execute("ALTER TABLE task_events ADD COLUMN created_at TEXT")
+            if "message" not in event_cols:
+                conn.execute("ALTER TABLE task_events ADD COLUMN message TEXT")
+            if "timestamp" not in event_cols:
+                conn.execute("ALTER TABLE task_events ADD COLUMN timestamp TEXT")
+
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_priority ON tasks(priority DESC, submit_time ASC)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_profiles_status ON profiles(status, enabled)")
     finally:
         conn.close()
+
+def row_to_profile(row: sqlite3.Row) -> Profile:
+    return Profile(
+        id=row["id"],
+        name=row["name"],
+        profile_path=row["profile_path"] or "",
+        account_label=row["account_label"] or "",
+        status=row["status"] or "idle",
+        watermark_mode=row["watermark_mode"] or "unknown",
+        last_heartbeat_at=row["last_heartbeat_at"],
+        last_success_at=row["last_success_at"],
+        last_failure_at=row["last_failure_at"],
+        cooldown_until=row["cooldown_until"],
+        enabled=bool(row["enabled"]),
+        notes=row["notes"] or "",
+        created_at=row["created_at"],
+        updated_at=row["updated_at"]
+    )
+
+def row_to_task(row: sqlite3.Row) -> Task:
+    row_dict = dict(row)
+    engine = row_dict.get("engine", "flow") or "flow"
+    t = Task(
+        id=row["id"],
+        project_id=row["project_id"] or "",
+        prompt=row["prompt"],
+        start_image_path=row["start_image_path"],
+        end_image_path=row["end_image_path"],
+        aspect_ratio=row["aspect_ratio"],
+        duration_sec=row["duration_sec"],
+        status=row["status"],
+        assigned_profile_id=row["assigned_profile_id"],
+        priority=row["priority"],
+        retry_count=row["retry_count"],
+        max_retries=row["max_retries"],
+        require_clean_watermark=bool(row["require_clean_watermark"]),
+        submit_time=row["submit_time"],
+        start_time=row["start_time"],
+        finish_time=row["finish_time"],
+        output_video_path=row["output_video_path"],
+        first_frame_ncc=row["first_frame_ncc"],
+        last_frame_ncc=row["last_frame_ncc"],
+        last_vs_start_ncc=row["last_vs_start_ncc"],
+        first_frame_matched=bool(row["first_frame_matched"]) if row["first_frame_matched"] is not None else None,
+        last_frame_matched=bool(row["last_frame_matched"]) if row["last_frame_matched"] is not None else None,
+        watermark_check=row["watermark_check"],
+        error_code=row["error_code"],
+        error_message=row["error_message"],
+        logs=row["logs"],
+        created_at=row["created_at"],
+        updated_at=row["updated_at"]
+    )
+    t.engine = engine
+    return t
 
 # --- Profile operations ---
 
 def add_profile(profile: Profile, db_path: Path = DEFAULT_DB_PATH) -> None:
     conn = get_db_connection(db_path)
-    now = datetime.now().astimezone().isoformat()
     try:
         with conn:
             conn.execute("""
@@ -111,47 +171,39 @@ def add_profile(profile: Profile, db_path: Path = DEFAULT_DB_PATH) -> None:
                 last_heartbeat_at, last_success_at, last_failure_at, cooldown_until,
                 enabled, notes, created_at, updated_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(name) DO UPDATE SET
-                profile_path = excluded.profile_path,
-                account_label = excluded.account_label,
-                watermark_mode = excluded.watermark_mode,
-                enabled = excluded.enabled,
-                notes = excluded.notes,
-                updated_at = excluded.updated_at
             """, (
                 profile.id, profile.name, profile.profile_path, profile.account_label,
                 profile.status, profile.watermark_mode, profile.last_heartbeat_at,
                 profile.last_success_at, profile.last_failure_at, profile.cooldown_until,
-                1 if profile.enabled else 0, profile.notes, profile.created_at or now, now
+                1 if profile.enabled else 0, profile.notes, profile.created_at, profile.updated_at
             ))
-    finally:
-        conn.close()
-
-def get_profile_by_name(name: str, db_path: Path = DEFAULT_DB_PATH) -> Optional[Profile]:
-    conn = get_db_connection(db_path)
-    try:
-        row = conn.execute("SELECT * FROM profiles WHERE name = ?", (name,)).fetchone()
-        if not row:
-            return None
-        return row_to_profile(row)
-    finally:
-        conn.close()
-
-def get_profile_by_id(profile_id: str, db_path: Path = DEFAULT_DB_PATH) -> Optional[Profile]:
-    conn = get_db_connection(db_path)
-    try:
-        row = conn.execute("SELECT * FROM profiles WHERE id = ?", (profile_id,)).fetchone()
-        if not row:
-            return None
-        return row_to_profile(row)
     finally:
         conn.close()
 
 def list_profiles(db_path: Path = DEFAULT_DB_PATH) -> List[Profile]:
     conn = get_db_connection(db_path)
     try:
-        rows = conn.execute("SELECT * FROM profiles ORDER BY name ASC").fetchall()
-        return [row_to_profile(r) for r in rows]
+        with conn:
+            rows = conn.execute("SELECT * FROM profiles ORDER BY name ASC").fetchall()
+            return [row_to_profile(r) for r in rows]
+    finally:
+        conn.close()
+
+def get_profile_by_id(profile_id: str, db_path: Path = DEFAULT_DB_PATH) -> Optional[Profile]:
+    conn = get_db_connection(db_path)
+    try:
+        with conn:
+            row = conn.execute("SELECT * FROM profiles WHERE id = ?", (profile_id,)).fetchone()
+            return row_to_profile(row) if row else None
+    finally:
+        conn.close()
+
+def get_profile_by_name(name: str, db_path: Path = DEFAULT_DB_PATH) -> Optional[Profile]:
+    conn = get_db_connection(db_path)
+    try:
+        with conn:
+            row = conn.execute("SELECT * FROM profiles WHERE name = ?", (name,)).fetchone()
+            return row_to_profile(row) if row else None
     finally:
         conn.close()
 
@@ -162,19 +214,22 @@ def update_profile_status(
     success: Optional[bool] = None,
     db_path: Path = DEFAULT_DB_PATH
 ) -> None:
-    now = datetime.now().astimezone().isoformat()
     conn = get_db_connection(db_path)
+    now = datetime.now().astimezone().isoformat()
     try:
         with conn:
             updates = ["status = ?", "updated_at = ?"]
             params = [status, now]
+
             if cooldown_until is not None:
                 updates.append("cooldown_until = ?")
                 params.append(cooldown_until)
+            elif status == "idle":
+                updates.append("cooldown_until = NULL")
+
             if success is True:
                 updates.append("last_success_at = ?")
                 params.append(now)
-                updates.append("cooldown_until = NULL")
             elif success is False:
                 updates.append("last_failure_at = ?")
                 params.append(now)
@@ -184,7 +239,11 @@ def update_profile_status(
     finally:
         conn.close()
 
-def acquire_idle_profile(require_clean: bool = False, db_path: Path = DEFAULT_DB_PATH) -> Optional[Profile]:
+def acquire_idle_profile(
+    require_clean: bool = False,
+    profile_id: Optional[str] = None,
+    db_path: Path = DEFAULT_DB_PATH
+) -> Optional[Profile]:
     now = datetime.now().astimezone().isoformat()
     conn = get_db_connection(db_path)
     try:
@@ -196,7 +255,10 @@ def acquire_idle_profile(require_clean: bool = False, db_path: Path = DEFAULT_DB
               AND (cooldown_until IS NULL OR cooldown_until <= ?)
             """
             params = [now]
-            if require_clean:
+            if profile_id:
+                query += " AND id = ?"
+                params.append(profile_id)
+            elif require_clean:
                 query += " AND watermark_mode = 'clean'"
 
             query += """
@@ -224,59 +286,48 @@ def acquire_idle_profile(require_clean: bool = False, db_path: Path = DEFAULT_DB
 def add_task(task: Task, db_path: Path = DEFAULT_DB_PATH) -> None:
     conn = get_db_connection(db_path)
     now = datetime.now().astimezone().isoformat()
+    engine = getattr(task, "engine", "flow") or "flow"
     try:
         with conn:
             conn.execute("""
             INSERT INTO tasks (
-                id, project_id, prompt, start_image_path, end_image_path, engine,
-                aspect_ratio, duration_sec, status, assigned_profile_id, priority,
-                retry_count, max_retries, require_clean_watermark, submit_time,
-                output_video_path, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                id, project_id, prompt, start_image_path, end_image_path, aspect_ratio,
+                duration_sec, status, assigned_profile_id, priority, retry_count,
+                max_retries, require_clean_watermark, submit_time, created_at, updated_at, engine
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
-                task.id, task.project_id, task.prompt, task.start_image_path, task.end_image_path, getattr(task, 'engine', 'flow'),
-                task.aspect_ratio, task.duration_sec, task.status, task.assigned_profile_id, task.priority,
-                task.retry_count, task.max_retries, 1 if task.require_clean_watermark else 0,
-                task.submit_time or now, task.output_video_path, task.created_at or now, now
+                task.id, task.project_id, task.prompt, task.start_image_path, task.end_image_path,
+                task.aspect_ratio, task.duration_sec, task.status, task.assigned_profile_id,
+                task.priority, task.retry_count, task.max_retries, 1 if task.require_clean_watermark else 0,
+                task.submit_time, task.created_at, task.updated_at, engine
             ))
-            log_task_event(task.id, "TASK_CREATED", f"Task created: {task.prompt[:40]}...", conn=conn)
     finally:
         conn.close()
 
-def get_task(task_id: str, db_path: Path = DEFAULT_DB_PATH) -> Optional[Task]:
-    conn = get_db_connection(db_path)
-    try:
-        row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
-        if not row:
-            return None
-        return row_to_task(row)
-    finally:
-        conn.close()
-
-def list_tasks(status: Optional[str] = None, limit: int = 50, db_path: Path = DEFAULT_DB_PATH) -> List[Task]:
-    conn = get_db_connection(db_path)
-    try:
-        if status:
-            rows = conn.execute("SELECT * FROM tasks WHERE status = ? ORDER BY priority DESC, submit_time ASC LIMIT ?", (status, limit)).fetchall()
-        else:
-            rows = conn.execute("SELECT * FROM tasks ORDER BY priority DESC, submit_time DESC LIMIT ?", (limit,)).fetchall()
-        return [row_to_task(r) for r in rows]
-    finally:
-        conn.close()
-
-def get_next_queued_task(db_path: Path = DEFAULT_DB_PATH) -> Optional[Task]:
+def get_task_by_id(task_id: str, db_path: Path = DEFAULT_DB_PATH) -> Optional[Task]:
     conn = get_db_connection(db_path)
     try:
         with conn:
-            row = conn.execute("""
-            SELECT * FROM tasks
-            WHERE status = 'queued'
-            ORDER BY priority DESC, submit_time ASC
-            LIMIT 1
-            """).fetchone()
-            if not row:
-                return None
-            return row_to_task(row)
+            row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+            return row_to_task(row) if row else None
+    finally:
+        conn.close()
+
+def list_tasks(status: Optional[str] = None, limit: int = 100, db_path: Path = DEFAULT_DB_PATH) -> List[Task]:
+    conn = get_db_connection(db_path)
+    try:
+        with conn:
+            if status:
+                rows = conn.execute(
+                    "SELECT * FROM tasks WHERE status = ? ORDER BY submit_time DESC LIMIT ?",
+                    (status, limit)
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM tasks ORDER BY submit_time DESC LIMIT ?",
+                    (limit,)
+                ).fetchall()
+            return [row_to_task(r) for r in rows]
     finally:
         conn.close()
 
@@ -291,165 +342,140 @@ def update_task_status(
     logs: Optional[str] = None,
     db_path: Path = DEFAULT_DB_PATH
 ) -> None:
-    now = datetime.now().astimezone().isoformat()
     conn = get_db_connection(db_path)
+    now = datetime.now().astimezone().isoformat()
     try:
         with conn:
             updates = ["status = ?", "updated_at = ?"]
             params = [status, now]
+
             if status == "running":
                 updates.append("start_time = ?")
                 params.append(now)
             elif status in ("completed", "failed", "cancelled"):
                 updates.append("finish_time = ?")
                 params.append(now)
-            
+
             if clear_assigned_profile:
                 updates.append("assigned_profile_id = NULL")
-            elif assigned_profile_id is not None:
+            elif assigned_profile_id:
                 updates.append("assigned_profile_id = ?")
                 params.append(assigned_profile_id)
-            if output_video_path is not None:
+
+            if output_video_path:
                 updates.append("output_video_path = ?")
                 params.append(output_video_path)
+
             if error_code is not None:
                 updates.append("error_code = ?")
                 params.append(error_code)
+
             if error_message is not None:
                 updates.append("error_message = ?")
                 params.append(error_message)
+
             if logs is not None:
                 updates.append("logs = ?")
                 params.append(logs)
-                
+
             params.append(task_id)
             conn.execute(f"UPDATE tasks SET {', '.join(updates)} WHERE id = ?", params)
-            log_task_event(task_id, f"STATUS_{status.upper()}", f"Status updated to {status}", conn=conn)
     finally:
         conn.close()
 
 def record_task_verification(
     task_id: str,
-    first_frame_ncc: float,
-    last_frame_ncc: float,
-    last_vs_start_ncc: float,
-    first_frame_matched: bool,
-    last_frame_matched: bool,
-    watermark_check: str,
+    first_frame_ncc: Optional[float],
+    first_frame_matched: Optional[bool],
+    last_frame_ncc: Optional[float],
+    last_frame_matched: Optional[bool],
+    last_vs_start_ncc: Optional[float],
+    watermark_check: Optional[str],
     db_path: Path = DEFAULT_DB_PATH
 ) -> None:
-    now = datetime.now().astimezone().isoformat()
     conn = get_db_connection(db_path)
+    now = datetime.now().astimezone().isoformat()
     try:
         with conn:
             conn.execute("""
             UPDATE tasks SET
                 first_frame_ncc = ?,
-                last_frame_ncc = ?,
-                last_vs_start_ncc = ?,
                 first_frame_matched = ?,
+                last_frame_ncc = ?,
                 last_frame_matched = ?,
+                last_vs_start_ncc = ?,
                 watermark_check = ?,
                 updated_at = ?
             WHERE id = ?
             """, (
-                first_frame_ncc, last_frame_ncc, last_vs_start_ncc,
-                1 if first_frame_matched else 0, 1 if last_frame_matched else 0,
-                watermark_check, now, task_id
+                first_frame_ncc,
+                1 if first_frame_matched else 0 if first_frame_matched is not None else None,
+                last_frame_ncc,
+                1 if last_frame_matched else 0 if last_frame_matched is not None else None,
+                last_vs_start_ncc,
+                watermark_check,
+                now,
+                task_id
             ))
-            log_task_event(
-                task_id, "VERIFICATION_COMPLETED",
-                f"First NCC: {first_frame_ncc:.4f}, Last NCC: {last_frame_ncc:.4f}, Watermark: {watermark_check}",
-                payload={"first_ncc": first_frame_ncc, "last_ncc": last_frame_ncc, "watermark": watermark_check},
-                conn=conn
-            )
     finally:
         conn.close()
 
-def log_task_event(
-    task_id: str,
-    event_type: str,
-    message: str,
-    payload: Optional[Dict[str, Any]] = None,
-    conn: Optional[sqlite3.Connection] = None,
-    db_path: Path = DEFAULT_DB_PATH
-) -> None:
+def log_task_event(task_id: str, event_type: str, detail: str = "", db_path: Path = DEFAULT_DB_PATH) -> None:
+    conn = get_db_connection(db_path)
     now = datetime.now().astimezone().isoformat()
-    payload_str = json.dumps(payload, ensure_ascii=False) if payload else None
-    if conn is not None:
-        conn.execute("""
-        INSERT INTO task_events (task_id, timestamp, event_type, message, payload_json)
-        VALUES (?, ?, ?, ?, ?)
-        """, (task_id, now, event_type, message, payload_str))
-    else:
-        c = get_db_connection(db_path)
-        try:
-            with c:
-                c.execute("""
-                INSERT INTO task_events (task_id, timestamp, event_type, message, payload_json)
-                VALUES (?, ?, ?, ?, ?)
-                """, (task_id, now, event_type, message, payload_str))
-        finally:
-            c.close()
+    try:
+        with conn:
+            cols = [r["name"] for r in conn.execute("PRAGMA table_info(task_events)").fetchall()]
+            data = {"task_id": task_id, "event_type": event_type}
+            if "detail" in cols:
+                data["detail"] = detail
+            if "message" in cols:
+                data["message"] = detail
+            if "created_at" in cols:
+                data["created_at"] = now
+            if "timestamp" in cols:
+                data["timestamp"] = now
+            
+            keys = list(data.keys())
+            placeholders = ", ".join(["?"] * len(keys))
+            col_names = ", ".join(keys)
+            conn.execute(f"INSERT INTO task_events ({col_names}) VALUES ({placeholders})", [data[k] for k in keys])
+    finally:
+        conn.close()
 
 def list_task_events(task_id: str, db_path: Path = DEFAULT_DB_PATH) -> List[Dict[str, Any]]:
     conn = get_db_connection(db_path)
     try:
-        rows = conn.execute("SELECT * FROM task_events WHERE task_id = ? ORDER BY id ASC", (task_id,)).fetchall()
-        return [dict(r) for r in rows]
+        with conn:
+            rows = conn.execute("SELECT * FROM task_events WHERE task_id = ? ORDER BY id ASC", (task_id,)).fetchall()
+            res = []
+            for r in rows:
+                keys = r.keys()
+                created = r["created_at"] if "created_at" in keys and r["created_at"] else (r["timestamp"] if "timestamp" in keys else "")
+                msg = r["detail"] if "detail" in keys and r["detail"] else (r["message"] if "message" in keys else "")
+                res.append({
+                    "id": r["id"],
+                    "task_id": r["task_id"],
+                    "event_type": r["event_type"],
+                    "message": msg,
+                    "detail": msg,
+                    "timestamp": created,
+                    "created_at": created
+                })
+            return res
     finally:
         conn.close()
 
-# --- Helpers ---
-
-def row_to_profile(r: sqlite3.Row) -> Profile:
-    return Profile(
-        id=r["id"],
-        name=r["name"],
-        profile_path=r["profile_path"] or "",
-        account_label=r["account_label"] or "",
-        status=r["status"],
-        watermark_mode=r["watermark_mode"],
-        last_heartbeat_at=r["last_heartbeat_at"],
-        last_success_at=r["last_success_at"],
-        last_failure_at=r["last_failure_at"],
-        cooldown_until=r["cooldown_until"],
-        enabled=bool(r["enabled"]),
-        notes=r["notes"] or "",
-        created_at=r["created_at"],
-        updated_at=r["updated_at"]
-    )
-
-def row_to_task(r: sqlite3.Row) -> Task:
-    col_keys = r.keys()
-    return Task(
-        id=r["id"],
-        project_id=r["project_id"] or "",
-        prompt=r["prompt"],
-        start_image_path=r["start_image_path"] or "",
-        end_image_path=r["end_image_path"] or "",
-        engine=r["engine"] if "engine" in col_keys else "flow",
-        aspect_ratio=r["aspect_ratio"],
-        duration_sec=r["duration_sec"],
-        status=r["status"],
-        assigned_profile_id=r["assigned_profile_id"],
-        priority=r["priority"],
-        retry_count=r["retry_count"],
-        max_retries=r["max_retries"],
-        require_clean_watermark=bool(r["require_clean_watermark"]),
-        submit_time=r["submit_time"],
-        start_time=r["start_time"],
-        finish_time=r["finish_time"],
-        output_video_path=r["output_video_path"],
-        first_frame_ncc=r["first_frame_ncc"],
-        last_frame_ncc=r["last_frame_ncc"],
-        last_vs_start_ncc=r["last_vs_start_ncc"],
-        first_frame_matched=bool(r["first_frame_matched"]) if r["first_frame_matched"] is not None else None,
-        last_frame_matched=bool(r["last_frame_matched"]) if r["last_frame_matched"] is not None else None,
-        watermark_check=r["watermark_check"] or "unknown",
-        error_code=r["error_code"],
-        error_message=r["error_message"],
-        logs=r["logs"] or "",
-        created_at=r["created_at"],
-        updated_at=r["updated_at"]
-    )
+def get_next_queued_task(db_path: Path = DEFAULT_DB_PATH) -> Optional[Task]:
+    conn = get_db_connection(db_path)
+    try:
+        with conn:
+            row = conn.execute("""
+            SELECT * FROM tasks
+            WHERE status = 'queued'
+            ORDER BY priority DESC, submit_time ASC
+            LIMIT 1
+            """).fetchone()
+            return row_to_task(row) if row else None
+    finally:
+        conn.close()

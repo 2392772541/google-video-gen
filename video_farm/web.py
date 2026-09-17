@@ -7,6 +7,7 @@ import uuid
 import shutil
 import threading
 import subprocess
+import psutil
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 
@@ -32,6 +33,55 @@ GFLOW_DIR = BASE_DIR / "gflow-cli"
 
 for d in [DATA_DIR, OUTPUTS_DIR, QA_DIR, UPLOADS_DIR, STATIC_DIR]:
     d.mkdir(parents=True, exist_ok=True)
+
+
+def close_chrome_for_profile(profile_name: str) -> int:
+    closed_count = 0
+    target_substr = f"profile_{profile_name}".lower()
+    for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+        try:
+            if proc.info['name'] and 'chrome' in proc.info['name'].lower():
+                cmdline = proc.info.get('cmdline') or []
+                cmd_str = " ".join(cmdline).lower()
+                if target_substr in cmd_str:
+                    proc.terminate()
+                    closed_count += 1
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+            pass
+    if closed_count > 0:
+        time.sleep(1.0)
+    return closed_count
+
+def check_chrome_running_for_profile(profile_name: str) -> bool:
+    target_substr = f"profile_{profile_name}".lower()
+    for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+        try:
+            if proc.info['name'] and 'chrome' in proc.info['name'].lower():
+                cmdline = proc.info.get('cmdline') or []
+                cmd_str = " ".join(cmdline).lower()
+                if target_substr in cmd_str:
+                    return True
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+            pass
+    return False
+
+def watch_chrome_login_exit(profile_id: str, profile_name: str, db_path: Path):
+    def _worker():
+        time.sleep(5.0)
+        while True:
+            if not check_chrome_running_for_profile(profile_name):
+                p = db.get_profile_by_id(profile_id, db_path)
+                if p and p.status in ("cooldown", "busy", "auth_expired"):
+                    db.update_profile_status(profile_id, status="idle", cooldown_until=None, db_path=db_path)
+                    conn = db.get_db_connection(db_path)
+                    with conn:
+                        conn.execute("UPDATE profiles SET cooldown_until = NULL WHERE id = ?", (profile_id,))
+                    conn.close()
+                    print(f"[LoginWatcher] 检测到 Chrome 窗口已关闭，账号 [{profile_name}] 自动恢复为空闲就绪")
+                break
+            time.sleep(3.0)
+    t = threading.Thread(target=_worker, daemon=True, name=f"LoginWatcher-{profile_name}")
+    t.start()
 
 # Scheduler background controller
 class SchedulerManager:
@@ -227,7 +277,7 @@ def toggle_profile(profile_id: str, req: ToggleProfileReq):
 def reset_profile_status(profile_id: str):
     p = db.get_profile_by_id(profile_id, DB_PATH)
     if not p:
-        raise HTTPException(status_code=404, detail="Profile???")
+        raise HTTPException(status_code=404, detail="Profile未找到")
     db.update_profile_status(profile_id, status="idle", cooldown_until=None, db_path=DB_PATH)
     conn = db.get_db_connection(DB_PATH)
     try:
@@ -235,7 +285,146 @@ def reset_profile_status(profile_id: str):
             conn.execute("UPDATE profiles SET cooldown_until = NULL WHERE id = ?", (profile_id,))
     finally:
         conn.close()
-    return {"id": profile_id, "status": "idle", "message": f"?? [{p.name}] ????????"}
+    return {"id": profile_id, "status": "idle", "message": f"账号 [{p.name}] 状态已重置为空闲就绪"}
+
+
+@app.post("/api/profiles/{profile_id}/close-chrome")
+def api_close_chrome(profile_id: str):
+    p = db.get_profile_by_id(profile_id, DB_PATH)
+    if not p:
+        raise HTTPException(status_code=404, detail="Profile未找到")
+    count = close_chrome_for_profile(p.name)
+    db.update_profile_status(profile_id, status="idle", cooldown_until=None, db_path=DB_PATH)
+    conn = db.get_db_connection(DB_PATH)
+    try:
+        with conn:
+            conn.execute("UPDATE profiles SET cooldown_until = NULL WHERE id = ?", (profile_id,))
+    finally:
+        conn.close()
+    return {
+        "success": True,
+        "closed_count": count,
+        "message": f"已关闭 {count} 个 Chrome 进程，账号 [{p.name}] 已重置为空闲就绪！"
+    }
+
+@app.post("/api/profiles/{profile_id}/verify-auth")
+def api_verify_auth(profile_id: str):
+    p = db.get_profile_by_id(profile_id, DB_PATH)
+    if not p:
+        raise HTTPException(status_code=404, detail="Profile未找到")
+    
+    if check_chrome_running_for_profile(p.name):
+        return {
+            "valid": False,
+            "error_code": "PROFILE_LOCKED",
+            "message": f"账号 [{p.name}] 的 Chrome 窗口当前正在桌面上运行，请先在桌面关闭该 Chrome 窗口，或点击【⏹ 关占用 Chrome】后重试验证。"
+        }
+
+    # 使用无头浏览器综合探测 Gemini 网页版与 Google Flow 登录状态
+    appdata = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
+    profile_dir = Path(appdata) / "ffroliva" / "gflow-cli" / f"profile_{p.name}"
+    
+    from playwright.sync_api import sync_playwright
+    try:
+        with sync_playwright() as pw:
+            launch_args = [
+                "--disable-blink-features=AutomationControlled",
+                "--no-sandbox"
+            ]
+            browser = pw.chromium.launch_persistent_context(
+                user_data_dir=str(profile_dir.resolve()),
+                channel="chrome",
+                headless=True,
+                args=launch_args
+            )
+            try:
+                page = browser.new_page()
+                
+                # 1. 探测 Gemini 状态
+                gemini_ok = False
+                try:
+                    page.goto("https://gemini.google.com/app", timeout=20000)
+                    page.wait_for_timeout(2000)
+                    input_selector = 'div.ql-editor[contenteditable="true"], rich-textarea div[contenteditable="true"], textarea'
+                    try:
+                        page.wait_for_selector(input_selector, timeout=6000)
+                        gemini_ok = True
+                    except Exception:
+                        gemini_ok = False
+                except Exception:
+                    gemini_ok = False
+
+                # 2. 探测 Flow 状态并自动桥接单点登录
+                flow_ok = False
+                try:
+                    r = page.request.get("https://labs.google/fx/api/auth/session")
+                    if r.status == 200 and '"email"' in r.text():
+                        flow_ok = True
+                    else:
+                        # 尝试通过页面点击补齐单点登录
+                        page.goto("https://labs.google/fx/", timeout=20000)
+                        page.wait_for_timeout(2000)
+                        outer_btn = page.query_selector('header button:has-text("Sign in with Google"), button:has-text("Sign in with Google")')
+                        if outer_btn:
+                            outer_btn.click()
+                            page.wait_for_timeout(2000)
+                        dialog_btn = page.locator('div[role="dialog"] button')
+                        if dialog_btn.count() > 0:
+                            dialog_btn.first.click(force=True)
+                            page.wait_for_timeout(4000)
+                        r2 = page.request.get("https://labs.google/fx/api/auth/session")
+                        if r2.status == 200 and '"email"' in r2.text():
+                            flow_ok = True
+                except Exception:
+                    flow_ok = False
+                
+                if gemini_ok or flow_ok:
+                    # 至少有一路就绪，重置为空闲可用状态
+                    db.update_profile_status(profile_id, status="idle", cooldown_until=None, db_path=DB_PATH)
+                    conn = db.get_db_connection(DB_PATH)
+                    try:
+                        with conn:
+                            conn.execute("UPDATE profiles SET cooldown_until = NULL WHERE id = ?", (profile_id,))
+                    finally:
+                        conn.close()
+                    
+                    status_parts = []
+                    if gemini_ok:
+                        status_parts.append("Gemini: ✅已登录")
+                    else:
+                        status_parts.append("Gemini: ⚠️未登录")
+                    if flow_ok:
+                        status_parts.append("Google Flow: ✅已登录")
+                    else:
+                        status_parts.append("Google Flow: ⚠️未登录")
+
+                    return {
+                        "valid": True,
+                        "status": "idle",
+                        "message": f"🎉 验证成功！账号 [{p.name}] 授权有效 ({', '.join(status_parts)})，已重置为空闲就绪！"
+                    }
+                else:
+                    db.update_profile_status(profile_id, status="auth_expired", cooldown_until=None, db_path=DB_PATH)
+                    return {
+                        "valid": False,
+                        "error_code": "AUTH_EXPIRED",
+                        "message": f"未检测到登录凭证，请点击【🌐 登录 Gemini】或【🔑 登录 Flow】完成 Google 账号登录。"
+                    }
+            finally:
+                browser.close()
+    except Exception as e:
+        err_str = str(e).lower()
+        if any(k in err_str for k in ["target closed", "lock", "singleton", "already running", "in use"]):
+            return {
+                "valid": False,
+                "error_code": "PROFILE_LOCKED",
+                "message": f"Chrome Profile 正在被独占打开，请先关闭桌面 Chrome 窗口或点击【⏹ 关占用 Chrome】后再试。"
+            }
+        return {
+            "valid": False,
+            "error_code": "VERIFY_ERROR",
+            "message": f"探测登录态时发生异常: {e}"
+        }
 
 @app.post("/api/profiles/{profile_id}/launch-gemini-login")
 def launch_gemini_login(profile_id: str):
@@ -273,6 +462,7 @@ def launch_gemini_login(profile_id: str):
             cmd,
             creationflags=subprocess.CREATE_NEW_CONSOLE if sys.platform == "win32" else 0
         )
+        watch_chrome_login_exit(profile_id, p.name, DB_PATH)
         return {"success": True, "message": f"已启动独立 Chrome 打开 Gemini 网页版 [{p.name}]，请完成 Google 登录授权"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"启动登录窗口失败: {e}")
@@ -295,6 +485,7 @@ def launch_login(profile_id: str):
             cwd=str(GFLOW_DIR),
             creationflags=subprocess.CREATE_NEW_CONSOLE if sys.platform == "win32" else 0
         )
+        watch_chrome_login_exit(profile_id, p.name, DB_PATH)
         return {"success": True, "message": f"已启动独立 Chrome 窗口进行账号 [{p.name}] 登录"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"启动登录窗口失败: {e}")
