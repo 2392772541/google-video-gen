@@ -1,0 +1,18 @@
+[
+  {
+    "prompt": "镜头01：主体从初态生长，镜头缓慢推进，保持材质与细节一致收束至尾帧",
+    "start": "start.png",
+    "end": "end.png",
+    "aspect": "9:16",
+    "duration": 8,
+    "priority": 20
+  },
+  {
+    "prompt": "镜头02：细胞结构吸收养分，微观视角稳定过渡，色彩均匀演化至尾帧状态",
+    "start": "start.png",
+    "end": "end.png",
+    "aspect": "9:16",
+    "duration": 8,
+    "priority": 10
+  }
+]

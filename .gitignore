@@ -1,0 +1,59 @@
+﻿# ====================================================================
+# Video Farm (视频工坊) - Git 忽略规则
+# ====================================================================
+
+# 1. Python 编译缓存与虚拟环境
+__pycache__/
+*.py[cod]
+*.class
+*.so
+.venv/
+*/.venv/
+venv/
+ENV/
+env/
+node_modules/
+
+# 2. 视频工坊运行时数据与产物（严禁提交数据库与大体积音视频）
+video_farm_data/
+output/
+qa_output/
+*.db
+*.sqlite
+*.sqlite3
+*.mp4
+*.mkv
+*.avi
+*.mov
+
+# 3. 浏览器配置与登录凭证（P0 严防凭证与 Session 泄露）
+*profile*
+*Profile*
+ChromeProfile/
+gflow-test/
+cookies/
+*.session
+*.token
+*.key
+*.pem
+.env
+.env.*
+
+# 4. 调试日志与系统临时文件
+*.log
+*.tmp
+.DS_Store
+Thumbs.db
+.codex-handoff/
+*.png.bak
+tmp_handoff.md
+after_close.png
+more_options.png
+project_view.png
+settings_tune.png
+
+# 5. 同级独立工程与外部子系统（各具独立 Git 或专用环境）
+gflow-cli/
+MotionClone/
+video-talkcraft/
+astra-skills-optimization-20260912/

@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Video Farm · 首尾帧视频工坊控制台</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <!-- 顶部常驻导航栏 -->
+  <header class="navbar">
+    <div class="nav-brand">
+      <div class="brand-badge">🎬</div>
+      <div class="brand-info">
+        <h1>Video Farm · 视频工坊</h1>
+        <p>Google Flow 9:16 首尾帧约束视频生成与分布式调度台</p>
+      </div>
+    </div>
+
+    <div class="nav-center">
+      <div class="scheduler-status-pill" id="scheduler-pill" title="点击切换调度器状态">
+        <span class="status-dot" id="scheduler-dot"></span>
+        <span id="scheduler-status-text">检查中...</span>
+        <button class="btn btn-secondary btn-sm" id="btn-toggle-scheduler" style="margin-left:6px; padding:2px 8px;">暂停</button>
+      </div>
+
+      <div class="nav-stats">
+        <div class="stat-chip">空闲账号 <b id="stat-idle-prof">0</b></div>
+        <div class="stat-chip">进行中 <b id="stat-running-task" style="color:var(--blue-primary);">0</b></div>
+        <div class="stat-chip">等待中 <b id="stat-queued-task" style="color:var(--orange-warn);">0</b></div>
+        <div class="stat-chip">已完成 <b id="stat-completed-task" style="color:var(--green-ok);">0</b></div>
+      </div>
+    </div>
+
+    <div class="nav-actions">
+      <button class="btn btn-secondary btn-sm" id="btn-open-outputs">
+        📂 成片目录
+      </button>
+      <button class="btn btn-secondary btn-sm" id="btn-open-sysinfo">
+        ⚙️ 系统信息
+      </button>
+    </div>
+  </header>
+
+  <!-- 主体工作区 -->
+  <main class="main-wrapper">
+    <!-- 主导航 Tabs -->
+    <div class="tabs-bar">
+      <div class="tabs-nav">
+        <button class="tab-button active" data-target="view-generate">
+          <span>🎬 生成视频</span>
+        </button>
+        <button class="tab-button" data-target="view-tasks">
+          <span>📊 任务与成片</span>
+          <span class="pill-count" id="badge-total-tasks">0</span>
+        </button>
+        <button class="tab-button" data-target="view-profiles">
+          <span>👥 账号管理</span>
+          <span class="pill-count" id="badge-total-profiles">0</span>
+        </button>
+      </div>
+      <div>
+        <span id="last-refresh-time" style="font-size:12px; color:var(--text-muted);">自动更新中</span>
+      </div>
+    </div>
+
+    <!-- ================= 视图 1: 生成视频 ================= -->
+    <section class="view-pane active" id="view-generate">
+      <!-- 双生成引擎选择 -->
+      <div class="engine-switch-group">
+        <button class="engine-btn active" id="btn-engine-flow" data-engine="flow">
+          <span class="engine-icon">🎬</span>
+          <div>
+            <div class="engine-title">Google Flow (首尾帧插值)</div>
+            <div class="engine-sub">首帧 + 尾帧刚性约束 · 9:16 物理平滑运镜收束</div>
+          </div>
+        </button>
+        <button class="engine-btn" id="btn-engine-gemini" data-engine="gemini">
+          <span class="engine-icon">🌐</span>
+          <div>
+            <div class="engine-title">Gemini 网页版 (对话框视频生成)</div>
+            <div class="engine-sub">官方 gemini.google.com 驱动 · 单图/文生视频 · 额度自动切换</div>
+          </div>
+        </button>
+      </div>
+
+      <div class="mode-switch-row">
+        <div class="sub-pill-switch">
+          <button class="sub-pill-btn active" id="btn-mode-single">单镜头创作</button>
+          <button class="sub-pill-btn" id="btn-mode-batch">批量分镜导入</button>
+        </div>
+      </div>
+
+      <!-- 单镜头模式 -->
+      <div id="single-shot-panel" class="studio-grid">
+        <!-- 首尾帧工作台 -->
+        <div class="stage-panel">
+          <div class="stage-title">
+            <span>🖼️ 首尾帧插值舞台 (9:16)</span>
+            <span style="font-size:12px; color:var(--text-muted);">拖入图片或点击选择</span>
+          </div>
+
+          <div class="frames-stage-row">
+            <!-- 首帧上传卡片 -->
+            <div class="drop-card" id="drop-start-frame">
+              <span class="frame-role-tag">首帧 (Start)</span>
+              <span class="aspect-check-tag" id="aspect-tag-start">9:16 ✓</span>
+              <div class="drop-placeholder" id="placeholder-start">
+                <span class="drop-icon">➕</span>
+                <span class="drop-text">上传首帧图片</span>
+                <span class="drop-subtext">推荐 9:16 (如 720x1280)</span>
+              </div>
+              <img class="preview-img" id="img-preview-start" style="display:none;" alt="首帧预览">
+              <input type="file" id="file-input-start" accept="image/*" style="display:none;">
+            </div>
+
+            <!-- 交换首尾帧按钮 -->
+            <button class="swap-button-circle" id="btn-swap-frames" title="⇄ 一键交换首尾帧">
+              ⇄
+            </button>
+
+            <!-- 尾帧上传卡片 -->
+            <div class="drop-card" id="drop-end-frame">
+              <span class="frame-role-tag">尾帧 (End)</span>
+              <span class="aspect-check-tag" id="aspect-tag-end">9:16 ✓</span>
+              <div class="drop-placeholder" id="placeholder-end">
+                <span class="drop-icon">➕</span>
+                <span class="drop-text">上传尾帧图片</span>
+                <span class="drop-subtext">推荐 9:16 (如 720x1280)</span>
+              </div>
+              <img class="preview-img" id="img-preview-end" style="display:none;" alt="尾帧预览">
+              <input type="file" id="file-input-end" accept="image/*" style="display:none;">
+            </div>
+          </div>
+
+          <div style="font-size:11px; color:var(--text-muted); text-align:center; margin-top:4px;" id="stage-hint-text">
+            💡 Google Flow 模式：尾帧将作为刚性约束送入模型，视频将在最后一刻精准收束于该画面。
+          </div>
+        </div>
+
+        <!-- 提示词与参数面板 -->
+        <div class="config-panel">
+          <div class="prompt-group">
+            <div class="prompt-header">
+              <label for="input-prompt">🎬 动态运镜与物理过渡提示词</label>
+              <button class="btn btn-secondary btn-sm" id="btn-use-default-prompt">填入默认提示词</button>
+            </div>
+            <textarea class="prompt-area" id="input-prompt" placeholder="描述画面如何从首帧稳定、自然、符合物理规律地过渡收束到尾帧..."></textarea>
+            
+            <div class="quick-prompts-bar">
+              <span style="font-size:11px; color:var(--text-muted); align-self:center;">常用预设:</span>
+              <button class="chip-btn" data-text="保持主体身份、形状、材质和环境一致。镜头自然稳定地从首帧状态过渡到尾帧状态。中间动作符合真实物理逻辑，不突然变形，不增加无关物体。最终准确收束到提供的尾帧构图。">稳定物理收束</button>
+              <button class="chip-btn" data-text="镜头缓慢前推，主体材质由透明渐变向深色凝固，动态平稳流畅，无突变跳跃。">缓慢平滑推进</button>
+              <button class="chip-btn" data-text="微风吹拂，环境光影自然流转，动作柔和连续，画面精准过渡并最终停留在尾帧。">柔和光影流转</button>
+            </div>
+          </div>
+
+          <!-- 折叠高级设置 -->
+          <div class="advanced-accordion">
+            <div class="accordion-title" id="accordion-toggle-adv">
+              <span>⚙️ 高级生成参数 (画幅、时长、账号偏好)</span>
+              <span id="adv-arrow">▼</span>
+            </div>
+            <div class="accordion-body" id="accordion-body-adv" style="display:none;">
+              <div class="field-group">
+                <label>画幅比例</label>
+                <select class="select-control" id="select-aspect" disabled>
+                  <option value="9:16" selected>9:16 (竖屏短视频 · 已锁定)</option>
+                </select>
+              </div>
+
+              <div class="field-group">
+                <label>生成视频时长</label>
+                <select class="select-control" id="select-duration">
+                  <option value="8" selected>8 秒 (标准推荐)</option>
+                  <option value="6">6 秒</option>
+                  <option value="10">10 秒</option>
+                  <option value="4">4 秒</option>
+                </select>
+              </div>
+
+              <div class="field-group">
+                <label>任务优先级</label>
+                <select class="select-control" id="select-priority">
+                  <option value="10" selected>正常优先级 (10)</option>
+                  <option value="20">高优先级 (20 - 插队生成)</option>
+                  <option value="5">低优先级 (5 - 后台排队)</option>
+                </select>
+              </div>
+
+              <div class="field-group">
+                <label>指定执行账号 (可选)</label>
+                <select class="select-control" id="select-assigned-profile">
+                  <option value="">自动轮询空闲账号 (推荐)</option>
+                </select>
+              </div>
+
+              <div class="field-group" style="grid-column: span 2;">
+                <label class="checkbox-label">
+                  <input type="checkbox" id="check-require-clean">
+                  <span>强制要求无水印账号 (若无无水印账号，将在队列中等待，不落入带水印账号)</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <!-- 提交动作按钮 -->
+          <div style="margin-top:auto; display:flex; gap:12px;">
+            <button class="btn btn-primary btn-lg" id="btn-submit-task" style="flex:1;">
+              🚀 提交到生成队列
+            </button>
+            <button class="btn btn-secondary btn-lg" id="btn-reset-form">
+              重置
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 批量分镜导入面板 (默认隐藏) -->
+      <div id="batch-shot-panel" class="batch-studio-panel" style="display:none;">
+        <div>
+          <h3>📋 批量分镜 JSON 投递</h3>
+          <p style="font-size:12px; color:var(--text-muted); margin-top:4px;">
+            支持直接粘贴分镜数组或加载 JSON 文件。自动校验首尾帧本地路径是否存在。
+          </p>
+        </div>
+
+        <textarea class="batch-input-area" id="input-batch-json" placeholder='[
+  {
+    "prompt": "镜头1：由全景缓慢切近...",
+    "start_image_path": "D:/素材/shot1_start.png",
+    "end_image_path": "D:/素材/shot1_end.png",
+    "duration_sec": 8
+  }
+]'></textarea>
+
+        <div style="display:flex; gap:10px;">
+          <button class="btn btn-secondary btn-sm" id="btn-load-sample-batch">加载示例分镜</button>
+          <button class="btn btn-primary btn-sm" id="btn-submit-batch">解析并批量加入队列</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 视图 2: 任务与成片 ================= -->
+    <section class="view-pane" id="view-tasks">
+      <div class="tasks-toolbar">
+        <div class="filter-group">
+          <button class="filter-btn active" data-filter="all">全部 <span id="count-all">0</span></button>
+          <button class="filter-btn" data-filter="running">⚡ 生成中 <span id="count-running">0</span></button>
+          <button class="filter-btn" data-filter="queued">⏳ 排队中 <span id="count-queued">0</span></button>
+          <button class="filter-btn" data-filter="completed">✅ 已完成 <span id="count-completed">0</span></button>
+          <button class="filter-btn" data-filter="failed">❌ 失败 <span id="count-failed">0</span></button>
+        </div>
+
+        <div style="display:flex; gap:10px;">
+          <button class="btn btn-secondary btn-sm" id="btn-refresh-tasks">🔄 刷新列表</button>
+        </div>
+      </div>
+
+      <!-- 任务卡片网格 -->
+      <div class="tasks-grid" id="tasks-container">
+        <!-- 由 JS 渲染 -->
+      </div>
+    </section>
+
+    <!-- ================= 视图 3: 账号管理 ================= -->
+    <section class="view-pane" id="view-profiles">
+      <div class="profiles-toolbar">
+        <div>
+          <h3>👥 Google Flow 独立 Profile 账号池</h3>
+          <p style="font-size:12px; color:var(--text-muted); margin-top:4px;">
+            每个账号在本地独立 Chrome Profile 运行，互不干扰，零 Cookie 泄露风险。
+          </p>
+        </div>
+        <div style="display:flex; gap:10px;">
+          <button class="btn btn-primary btn-sm" id="btn-open-add-profile">➕ 添加新账号</button>
+          <button class="btn btn-secondary btn-sm" id="btn-refresh-profiles">🔄 刷新状态</button>
+        </div>
+      </div>
+
+      <div class="profiles-grid" id="profiles-container">
+        <!-- 由 JS 渲染 -->
+      </div>
+    </section>
+  </main>
+
+  <!-- ================= 模态弹窗 1: 9:16 视频播放器 ================= -->
+  <div class="modal-backdrop" id="modal-video-player">
+    <div class="modal-panel video-modal-panel">
+      <div class="modal-panel-header">
+        <h3 id="player-title">成片播放</h3>
+        <button class="close-x" data-modal="modal-video-player">&times;</button>
+      </div>
+      <div class="modal-panel-body" style="padding:16px;">
+        <div class="player-box">
+          <video id="html5-video" controls autoplay loop playsinline></video>
+        </div>
+        <div style="margin-top:12px; display:flex; justify-content:space-between; align-items:center;">
+          <span id="player-meta" style="font-size:12px; color:var(--text-muted);">9:16 · MP4</span>
+          <button class="btn btn-secondary btn-sm" id="btn-open-task-file">📂 在文件夹中查看</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= 模态弹窗 2: 质检与抽帧对比抽屉 ================= -->
+  <div class="modal-backdrop" id="modal-qa-detail">
+    <div class="modal-panel" style="max-width: 860px;">
+      <div class="modal-panel-header">
+        <div>
+          <h3 id="qa-modal-title">首尾帧约束与可见水印质检报告</h3>
+          <p id="qa-modal-sub" style="font-size:11px; color:var(--text-muted); margin-top:2px;">Task ID</p>
+        </div>
+        <button class="close-x" data-modal="modal-qa-detail">&times;</button>
+      </div>
+      <div class="modal-panel-body">
+        <div class="qa-detail-grid">
+          <!-- 首帧比对卡片 -->
+          <div class="qa-card-box">
+            <div class="qa-card-title">
+              <span>首帧对比 (Start Frame vs 第1帧)</span>
+              <span id="qa-first-ncc-badge" class="badge-completed" style="font-size:11px; padding:2px 6px;">匹配优秀</span>
+            </div>
+            <div class="qa-images-split">
+              <div class="qa-split-item">
+                <img id="qa-img-start-origin" alt="原始首帧">
+                <span class="qa-split-tag">原始首图</span>
+              </div>
+              <div class="qa-split-item">
+                <img id="qa-img-first-extracted" alt="提取首帧">
+                <span class="qa-split-tag">视频第1帧</span>
+              </div>
+            </div>
+            <div style="margin-top:8px; font-size:11px; color:var(--text-sub);" id="qa-first-desc">
+              相关性分数: --
+            </div>
+          </div>
+
+          <!-- 尾帧比对卡片 -->
+          <div class="qa-card-box">
+            <div class="qa-card-title">
+              <span>尾帧对比 (End Frame vs 最终帧)</span>
+              <span id="qa-last-ncc-badge" class="badge-completed" style="font-size:11px; padding:2px 6px;">匹配优秀</span>
+            </div>
+            <div class="qa-images-split">
+              <div class="qa-split-item">
+                <img id="qa-img-end-origin" alt="原始尾帧">
+                <span class="qa-split-tag">原始尾图</span>
+              </div>
+              <div class="qa-split-item">
+                <img id="qa-img-last-extracted" alt="提取尾帧">
+                <span class="qa-split-tag">视频最终帧</span>
+              </div>
+            </div>
+            <div style="margin-top:8px; font-size:11px; color:var(--text-sub);" id="qa-last-desc">
+              相关性分数: --
+            </div>
+          </div>
+        </div>
+
+        <!-- 水印分析区 -->
+        <div class="watermark-inspect-row">
+          <div class="watermark-img-wrap">
+            <img id="qa-img-watermark-corner" alt="右下角水印截取">
+          </div>
+          <div style="flex:1;">
+            <div style="font-weight:600; font-size:13px;" id="qa-watermark-title">右下角可见水印检测</div>
+            <div style="font-size:12px; color:var(--text-sub); margin-top:4px;" id="qa-watermark-detail">
+              正在分析右下角区域像素特征...
+            </div>
+          </div>
+        </div>
+
+        <!-- 详细事件日志展开 -->
+        <div style="margin-top:16px;">
+          <h4 style="font-size:12px; color:var(--text-sub); margin-bottom:6px;">执行过程关键事件</h4>
+          <div id="qa-events-list" style="background:var(--bg-input); padding:10px; border-radius:6px; font-family:monospace; font-size:11px; max-height:140px; overflow-y:auto;">
+            暂无事件
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  
+  <!-- ================= 模态弹窗 2.5: 任务运行与错误日志 ================= -->
+  <div class="modal-backdrop" id="modal-task-log">
+    <div class="modal-panel" style="max-width: 780px;">
+      <div class="modal-panel-header">
+        <div>
+          <h3 id="log-modal-title">任务运行与调度日志</h3>
+          <p id="log-modal-sub" style="font-size:11px; color:var(--text-muted); margin-top:2px;">Task ID</p>
+        </div>
+        <button class="close-x" data-modal="modal-task-log">&times;</button>
+      </div>
+      <div class="modal-panel-body">
+        <div id="log-modal-content" style="background:var(--bg-input); color:#e2e8f0; padding:14px; border-radius:6px; font-family:Consolas, Monaco, monospace; font-size:12px; max-height:450px; overflow-y:auto; white-space:pre-wrap; word-break:break-all; line-height:1.6;">正在读取日志...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= 模态弹窗 3: 添加新账号 ================= -->
+  <div class="modal-backdrop" id="modal-add-profile">
+    <div class="modal-panel" style="max-width:480px;">
+      <div class="modal-panel-header">
+        <h3>添加新 Google Flow 账号</h3>
+        <button class="close-x" data-modal="modal-add-profile">&times;</button>
+      </div>
+      <div class="modal-panel-body" style="display:flex; flex-direction:column; gap:14px;">
+        <div class="field-group">
+          <label for="input-prof-name">Profile 目录英文标识 (如 gflow-acc2)</label>
+          <input type="text" class="input-control" id="input-prof-name" placeholder="仅限小写英文和数字">
+        </div>
+        <div class="field-group">
+          <label for="input-prof-label">账号中文标签/备注 (可选)</label>
+          <input type="text" class="input-control" id="input-prof-label" placeholder="如：备用账号 02 (订阅版)">
+        </div>
+        <div class="field-group">
+          <label for="input-prof-notes">说明/备注 (可选)</label>
+          <input type="text" class="input-control" id="input-prof-notes" placeholder="如：用于草稿测试">
+        </div>
+
+        <div style="font-size:12px; color:var(--text-muted); background:var(--bg-card); padding:10px; border-radius:6px;">
+          📌 创建后系统将为其建立独立 Chrome 用户环境。点击卡片上的<b>“登录”</b>即可弹出原生 Chrome 登录 Google，安全不丢 Cookie。
+        </div>
+
+        <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:8px;">
+          <button class="btn btn-secondary btn-sm" data-modal="modal-add-profile">取消</button>
+          <button class="btn btn-primary btn-sm" id="btn-confirm-add-profile">确定添加</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= 模态弹窗 4: 系统信息 ================= -->
+  <div class="modal-backdrop" id="modal-sysinfo">
+    <div class="modal-panel" style="max-width:540px;">
+      <div class="modal-panel-header">
+        <h3>系统运行环境与内核信息</h3>
+        <button class="close-x" data-modal="modal-sysinfo">&times;</button>
+      </div>
+      <div class="modal-panel-body">
+        <div class="profile-meta-list" id="sysinfo-content">
+          <div class="meta-item"><span>系统服务</span><b>Video Farm Studio</b></div>
+          <div class="meta-item"><span>gflow-cli 内核</span><b id="sys-gflow-ver">加载中...</b></div>
+          <div class="meta-item"><span>Git Commit</span><b id="sys-commit">--</b></div>
+          <div class="meta-item"><span>Python 版本</span><b id="sys-py-ver">--</b></div>
+          <div class="meta-item"><span>运行平台</span><b id="sys-platform">--</b></div>
+          <div class="meta-item"><span>数据库位置</span><b id="sys-db" style="word-break:break-all;">--</b></div>
+          <div class="meta-item"><span>输出成片目录</span><b id="sys-output" style="word-break:break-all;">--</b></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast 悬浮提示架 -->
+  <div class="toast-shelf" id="toast-shelf"></div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
