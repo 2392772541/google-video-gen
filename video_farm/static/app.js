@@ -1689,6 +1689,151 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
+  
+  // ==================== 一键成片流水线 (Pipeline) ====================
+  const btnStartPipeline = document.getElementById("btn-start-pipeline");
+  const pipeMatDir = document.getElementById("pipe-mat-dir");
+  const pipeScriptText = document.getElementById("pipe-script-text");
+  const pipeDuration = document.getElementById("pipe-duration");
+  const pipeBgmPath = document.getElementById("pipe-bgm-path");
+  const pipeStatusTag = document.getElementById("pipe-status-tag");
+  const pipeProgressBar = document.getElementById("pipe-progress-bar");
+  const pipeLogBox = document.getElementById("pipe-log-box");
+  const pipeResultBox = document.getElementById("pipe-result-box");
+  const pipeVideoLink = document.getElementById("pipe-video-link");
+  const pipeOpenFolderBtn = document.getElementById("pipe-open-folder-btn");
+
+  let activePipelineJobId = null;
+  let pipelinePollTimer = null;
+
+  function updatePipelineStepNodes(step) {
+    const nodes = {
+      "切图解析": "step-crop",
+      "配音对齐": "step-tts",
+      "运镜渲染": "step-motion",
+      "混音字幕": "step-mix",
+      "完成": "step-done"
+    };
+    document.querySelectorAll(".pipe-step-node").forEach(el => {
+      el.style.background = "#1e293b";
+      el.style.color = "#94a3b8";
+      el.style.border = "none";
+    });
+    const targetId = nodes[step];
+    if (targetId) {
+      const activeEl = document.getElementById(targetId);
+      if (activeEl) {
+        activeEl.style.background = "rgba(59, 130, 246, 0.25)";
+        activeEl.style.color = "#60a5fa";
+        activeEl.style.border = "1px solid #3b82f6";
+      }
+    }
+  }
+
+  if (btnStartPipeline) {
+    btnStartPipeline.addEventListener("click", async () => {
+      const matDir = pipeMatDir.value.trim();
+      const scriptText = pipeScriptText.value.trim();
+      const duration = parseFloat(pipeDuration.value) || 45.0;
+      const bgmPath = pipeBgmPath.value.trim();
+
+      if (!matDir) {
+        alert("请输入素材文件夹路径！");
+        return;
+      }
+
+      btnStartPipeline.disabled = true;
+      btnStartPipeline.innerHTML = "<span>⏳ 流水线全力生产中...</span>";
+      pipeStatusTag.innerText = "运行中";
+      pipeStatusTag.style.background = "#2563eb";
+      pipeStatusTag.style.color = "#fff";
+      pipeProgressBar.style.width = "5%";
+      pipeLogBox.innerHTML = "<div>[提交] 正在创建流水线作业...</div>";
+      pipeResultBox.style.display = "none";
+
+      try {
+        const res = await fetch("/api/pipeline/storyboard/run", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            material_dir: matDir,
+            script_text: scriptText,
+            target_duration: duration,
+            bgm_path: bgmPath || null
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.detail || "创建流水线作业失败");
+        }
+
+        activePipelineJobId = data.job_id;
+        pipeLogBox.innerHTML += `<div>[作业ID] ${activePipelineJobId} 已派发至后台流水线</div>`;
+
+        if (pipelinePollTimer) clearInterval(pipelinePollTimer);
+        pipelinePollTimer = setInterval(async () => {
+          try {
+            const jRes = await fetch(`/api/pipeline/job/${activePipelineJobId}`);
+            if (!jRes.ok) return;
+            const jData = await jRes.json();
+            const job = jData.job;
+            if (!job) return;
+
+            pipeProgressBar.style.width = `${job.progress}%`;
+            updatePipelineStepNodes(job.step);
+            pipeStatusTag.innerText = `${job.step} (${job.progress}%)`;
+
+            // 渲染最新日志
+            if (job.logs && job.logs.length > 0) {
+              const logHtml = job.logs.map(l => `<div><span style="color:#64748b;">[${l.time}]</span> <b style="color:#38bdf8;">[${l.step}]</b> ${l.message}</div>`).join("");
+              pipeLogBox.innerHTML = logHtml;
+              pipeLogBox.scrollTop = pipeLogBox.scrollHeight;
+            }
+
+            if (job.status === "completed") {
+              clearInterval(pipelinePollTimer);
+              btnStartPipeline.disabled = false;
+              btnStartPipeline.innerHTML = "<span>🚀 再次启动全自动流水线</span>";
+              pipeStatusTag.innerText = "已完成";
+              pipeStatusTag.style.background = "#10b981";
+              pipeStatusTag.style.color = "#fff";
+              updatePipelineStepNodes("完成");
+              pipeResultBox.style.display = "block";
+              pipeVideoLink.href = `/api/pipeline/video/${activePipelineJobId}`;
+              if (pipeOpenFolderBtn) {
+                pipeOpenFolderBtn.onclick = () => {
+                  fetch("/api/system/open-folder", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ folder_path: matDir + "/output" })
+                  });
+                };
+              }
+            } else if (job.status === "failed") {
+              clearInterval(pipelinePollTimer);
+              btnStartPipeline.disabled = false;
+              btnStartPipeline.innerHTML = "<span>🚀 重试全自动流水线</span>";
+              pipeStatusTag.innerText = "失败";
+              pipeStatusTag.style.background = "#ef4444";
+              pipeStatusTag.style.color = "#fff";
+              pipeLogBox.innerHTML += `<div style="color:#ef4444;">[错误] ${job.error || "未知故障"}</div>`;
+              pipeLogBox.scrollTop = pipeLogBox.scrollHeight;
+            }
+          } catch (err) {
+            console.error(err);
+          }
+        }, 1000);
+
+      } catch (err) {
+        alert("启动失败: " + err.message);
+        btnStartPipeline.disabled = false;
+        btnStartPipeline.innerHTML = "<span>🚀 启动全自动流水线生成成片</span>";
+        pipeStatusTag.innerText = "失败";
+        pipeStatusTag.style.background = "#ef4444";
+      }
+    });
+  }
+
   // ==================== 初始化与自动轮询 ====================
   applyEngineMode("flow");
   fetchOverview();

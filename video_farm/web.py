@@ -891,6 +891,116 @@ def get_system_info():
 
 # ==================== Media & Static Serving ====================
 
+
+# ==========================================
+# Production Pipeline (全自动流水线 API)
+# ==========================================
+from .pipeline import PIPELINE_MANAGER, start_storyboard_pipeline_async
+
+class StoryboardPipelineReq(BaseModel):
+    material_dir: Optional[str] = None
+    image_paths: Optional[List[str]] = None
+    script_text: Optional[str] = None
+    bgm_path: Optional[str] = None
+    target_duration: float = 45.0
+    output_name: Optional[str] = "master_video_1080p.mp4"
+
+@app.post("/api/pipeline/storyboard/run")
+def api_run_storyboard_pipeline(req: StoryboardPipelineReq):
+    img_list = req.image_paths or []
+    mat_dir = Path(req.material_dir) if req.material_dir else None
+    
+    if mat_dir and mat_dir.exists():
+        if not img_list:
+            # 优先检查 images 子目录与当前目录
+            candidate_dirs = [mat_dir]
+            for sub in ("images", "storyboard", "storyboards", "素材", "分镜"):
+                if (mat_dir / sub).exists():
+                    candidate_dirs.append(mat_dir / sub)
+            
+            for cdir in candidate_dirs:
+                for ext in ("*.png", "*.jpg", "*.jpeg", "*.webp"):
+                    for p in cdir.glob(ext):
+                        ps = str(p).lower()
+                        if "output" not in ps and "temp" not in ps and "build" not in ps:
+                            img_list.append(str(p.resolve()))
+                if img_list:
+                    break
+            
+            # 只保留故事板大图或主要图片
+            img_list = sorted(list(set(img_list)))
+            # 如果存在 Storyboard_ 前缀的图，优先选用故事板
+            sb_imgs = [x for x in img_list if "storyboard" in Path(x).name.lower()]
+            if sb_imgs:
+                img_list = sorted(sb_imgs)
+        
+        if not req.script_text:
+            for txt_name in ("Narration_VO.txt", "voice.txt", "script.txt", "旁白.txt", "台词.txt", "文案.txt", "Narration.txt"):
+                tf = mat_dir / txt_name
+                if tf.exists():
+                    try:
+                        req.script_text = tf.read_text(encoding="utf-8")
+                        break
+                    except Exception:
+                        pass
+            if not req.script_text:
+                for tf in mat_dir.glob("*.txt"):
+                    if "output" not in str(tf).lower():
+                        try:
+                            req.script_text = tf.read_text(encoding="utf-8")
+                            break
+                        except Exception:
+                            pass
+
+    if not img_list:
+        raise HTTPException(status_code=400, detail="未找到可用分镜图片素材，请检查目录或传入图片路径")
+
+    script_lines = [line.strip() for line in (req.script_text or "").splitlines() if line.strip()]
+    if not script_lines:
+        script_lines = ["科学纪录片视觉呈现", "微观机制与应用效果解析"]
+
+    if mat_dir and mat_dir.exists():
+        out_dir = mat_dir / "output"
+        work_dir = mat_dir / "pipeline_temp"
+    else:
+        out_dir = OUTPUTS_DIR / "pipeline_masters"
+        work_dir = DATA_DIR / "pipeline_temp"
+    
+    out_dir.mkdir(parents=True, exist_ok=True)
+    work_dir.mkdir(parents=True, exist_ok=True)
+    out_mp4 = out_dir / (req.output_name or "master_video_1080p.mp4")
+
+    job_id = start_storyboard_pipeline_async(
+        grid_images=img_list,
+        script_sentences=script_lines,
+        bgm_path=req.bgm_path,
+        output_master_mp4=out_mp4,
+        work_dir=work_dir,
+        total_duration=req.target_duration
+    )
+    return {"status": "ok", "job_id": job_id, "output_path": str(out_mp4)}
+
+@app.get("/api/pipeline/jobs")
+def api_list_pipeline_jobs():
+    return {"status": "ok", "jobs": PIPELINE_MANAGER.list_jobs()}
+
+@app.get("/api/pipeline/job/{job_id}")
+def api_get_pipeline_job(job_id: str):
+    job = PIPELINE_MANAGER.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="流水线作业未找到")
+    return {"status": "ok", "job": job}
+
+@app.get("/api/pipeline/video/{job_id}")
+def api_serve_pipeline_video(job_id: str):
+    job = PIPELINE_MANAGER.get_job(job_id)
+    if not job or not job.get("output_video"):
+        raise HTTPException(status_code=404, detail="视频尚未生成")
+    vp = Path(job["output_video"]).resolve()
+    if not vp.exists():
+        raise HTTPException(status_code=404, detail="视频文件不存在")
+    return FileResponse(str(vp), media_type="video/mp4")
+
 @app.get("/media/outputs/{filename}")
 def serve_output_file(filename: str):
     p = (OUTPUTS_DIR / filename).resolve()
