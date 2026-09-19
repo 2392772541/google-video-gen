@@ -480,6 +480,48 @@ def launch_login(profile_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"启动登录窗口失败: {e}")
 
+def _resolve_output_images(task: Task) -> tuple[List[str], List[str]]:
+    paths: List[str] = []
+    urls: List[str] = []
+    raw_json = getattr(task, "output_image_paths", None)
+    if raw_json:
+        try:
+            raw = json.loads(raw_json)
+            if isinstance(raw, list):
+                paths = [str(Path(p).resolve()) for p in raw]
+            elif isinstance(raw, str) and raw:
+                paths = [str(Path(raw).resolve())]
+        except Exception:
+            pass
+    for p_str in paths:
+        p = Path(p_str)
+        if OUTPUTS_DIR in p.parents or p.parent == OUTPUTS_DIR:
+            urls.append(f"/media/outputs/{p.name}")
+        else:
+            urls.append(f"/media/file?path={p.as_posix()}")
+    return paths, urls
+
+def _resolve_image_url(path_str: str, task_id: str, kind: str) -> Optional[str]:
+    if not path_str:
+        return None
+    p = Path(path_str)
+    if not p.exists():
+        # Maybe inside uploads?
+        up_path = UPLOADS_DIR / task_id / f"{kind}.png"
+        if up_path.exists():
+            return f"/media/uploads/{task_id}/{kind}.png"
+        return None
+    try:
+        # Check if inside uploads
+        if UPLOADS_DIR in p.resolve().parents:
+            rel = p.resolve().relative_to(UPLOADS_DIR)
+            return f"/media/uploads/{rel.as_posix()}"
+        # If relative to BASE_DIR or workspace
+        return f"/media/file?path={p.resolve().as_posix()}"
+    except Exception:
+        return f"/media/file?path={p.resolve().as_posix()}"
+
+
 @app.get("/api/tasks")
 def get_tasks(status: Optional[str] = None, limit: int = 100):
     tasks = db.list_tasks(status=status, limit=limit, db_path=DB_PATH)
@@ -506,6 +548,12 @@ def get_tasks(status: Optional[str] = None, limit: int = 100):
         video_filename = Path(t.output_video_path).name if has_video else None
         img_paths, img_urls = _resolve_output_images(t)
         
+        qa_task_dir = QA_DIR / t.id
+        first_frame_url = f"/media/qa/{t.id}/first_frame.png" if (qa_task_dir / "first_frame.png").exists() else None
+        last_frame_url = f"/media/qa/{t.id}/last_frame.png" if (qa_task_dir / "last_frame.png").exists() else None
+        start_img_url = _resolve_image_url(t.start_image_path, t.id, "start")
+        end_img_url = _resolve_image_url(t.end_image_path, t.id, "end")
+
         res.append({
             "id": t.id,
             "prompt": t.prompt,
@@ -527,6 +575,10 @@ def get_tasks(status: Optional[str] = None, limit: int = 100):
             "finish_time": t.finish_time,
             "has_video": has_video,
             "video_url": f"/media/outputs/{video_filename}" if video_filename else None,
+            "first_frame_url": first_frame_url,
+            "last_frame_url": last_frame_url,
+            "start_image_url": start_img_url,
+            "end_image_url": end_img_url,
             "first_frame_ncc": t.first_frame_ncc,
             "last_frame_ncc": t.last_frame_ncc,
             "last_vs_start_ncc": t.last_vs_start_ncc,
@@ -594,47 +646,6 @@ def get_task_detail(task_id: str):
         "events": events
     }
 
-
-def _resolve_output_images(task: Task) -> tuple[List[str], List[str]]:
-    paths: List[str] = []
-    urls: List[str] = []
-    raw_json = getattr(task, "output_image_paths", None)
-    if raw_json:
-        try:
-            raw = json.loads(raw_json)
-            if isinstance(raw, list):
-                paths = [str(Path(p).resolve()) for p in raw]
-            elif isinstance(raw, str) and raw:
-                paths = [str(Path(raw).resolve())]
-        except Exception:
-            pass
-    for p_str in paths:
-        p = Path(p_str)
-        if OUTPUTS_DIR in p.parents or p.parent == OUTPUTS_DIR:
-            urls.append(f"/media/outputs/{p.name}")
-        else:
-            urls.append(f"/media/file?path={p.as_posix()}")
-    return paths, urls
-
-def _resolve_image_url(path_str: str, task_id: str, kind: str) -> Optional[str]:
-    if not path_str:
-        return None
-    p = Path(path_str)
-    if not p.exists():
-        # Maybe inside uploads?
-        up_path = UPLOADS_DIR / task_id / f"{kind}.png"
-        if up_path.exists():
-            return f"/media/uploads/{task_id}/{kind}.png"
-        return None
-    try:
-        # Check if inside uploads
-        if UPLOADS_DIR in p.resolve().parents:
-            rel = p.resolve().relative_to(UPLOADS_DIR)
-            return f"/media/uploads/{rel.as_posix()}"
-        # If relative to BASE_DIR or workspace
-        return f"/media/file?path={p.resolve().as_posix()}"
-    except Exception:
-        return f"/media/file?path={p.resolve().as_posix()}"
 
 @app.post("/api/tasks/create")
 async def create_task(

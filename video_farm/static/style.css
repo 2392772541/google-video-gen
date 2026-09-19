@@ -1150,14 +1150,16 @@ body {
   border-radius: 4px;
   font-size: 11px;
 }
-/* 图像生成成果画廊网格与卡片 */
+/* 图像生成成果画廊网格与卡片 (防塌陷与高清回显优化) */
 .image-gallery-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  grid-auto-rows: max-content;
+  align-content: start;
   gap: 16px;
-  max-height: 580px;
+  max-height: 750px;
   overflow-y: auto;
-  padding-right: 6px;
+  padding-right: 8px;
 }
 
 .gallery-card {
@@ -1167,18 +1169,22 @@ body {
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  transition: transform 0.2s, border-color 0.2s;
+  min-height: 285px;
+  transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
 }
 
 .gallery-card:hover {
   border-color: var(--blue-primary);
   transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
 }
 
 .gallery-img-box {
   width: 100%;
-  aspect-ratio: 9/16;
-  background: #000;
+  height: 160px;
+  flex-shrink: 0;
+  background: #050811;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1269,4 +1275,115 @@ body {
   border-radius: 4px;
   font-size: 11px;
   font-weight: 500;
+}
+
+
+/* ==================== 任务列表成片/生图卡片直观画面回显 ==================== */
+.task-media-box {
+  position: relative;
+  width: 100%;
+  height: 175px;
+  background: #050811;
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  margin: 6px 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.task-media-box:hover {
+  border-color: var(--blue-primary);
+  box-shadow: 0 4px 16px rgba(59, 130, 246, 0.25);
+}
+
+.task-media-box:hover .task-media-thumb {
+  transform: scale(1.03);
+}
+
+.task-media-box:hover .play-btn-circle {
+  transform: scale(1.15);
+  background: var(--blue-primary);
+  box-shadow: 0 0 16px rgba(59, 130, 246, 0.6);
+  border-color: #fff;
+}
+
+.task-media-thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: transform 0.3s ease;
+}
+
+.task-media-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s ease;
+}
+
+.task-media-box:hover .task-media-overlay {
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.play-btn-circle {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  background: rgba(16, 22, 35, 0.88);
+  backdrop-filter: blur(8px);
+  border: 2px solid rgba(255, 255, 255, 0.85);
+  color: #fff;
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-left: 3px;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.6);
+}
+
+.task-media-badge-group {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  display: flex;
+  gap: 6px;
+}
+
+.task-media-badge {
+  background: rgba(0, 0, 0, 0.8);
+  backdrop-filter: blur(4px);
+  color: #f3f4f6;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 7px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+/* 刷新按钮旋转动效 */
+@keyframes spin-refresh {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.spin-icon {
+  display: inline-block;
+  animation: spin-refresh 0.6s linear infinite;
+}
+
+.btn-spinning {
+  pointer-events: none;
+  opacity: 0.85;
 }

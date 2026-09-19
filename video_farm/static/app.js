@@ -204,6 +204,31 @@ document.addEventListener("DOMContentLoaded", () => {
       .replace(/'/g, "&#039;");
   }
 
+  // 统一刷新按钮动效与防抖辅助函数
+  async function triggerRefreshButton(btn, asyncAction, toastMsg) {
+    if (!btn || btn.classList.contains("btn-spinning")) return;
+    btn.classList.add("btn-spinning");
+    const origHtml = btn.innerHTML;
+    btn.innerHTML = `<span class="spin-icon">🔄</span> ${origHtml.replace(/🔄\s*/, "")}`;
+    const startTime = Date.now();
+    try {
+      await asyncAction();
+      const elapsed = Date.now() - startTime;
+      if (elapsed < 400) {
+        await new Promise(r => setTimeout(r, 400 - elapsed));
+      }
+      if (typeof fetchOverview === "function") {
+        fetchOverview();
+      }
+      if (toastMsg) showToast(toastMsg, "info");
+    } catch (e) {
+      showToast("刷新失败: " + e.message, "error");
+    } finally {
+      btn.innerHTML = origHtml;
+      btn.classList.remove("btn-spinning");
+    }
+  }
+
   // ==================== Tab 切换 ====================
   el.tabs.forEach(btn => {
     btn.addEventListener("click", () => {
@@ -615,13 +640,15 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   el.btnRefreshTasks.addEventListener("click", () => {
-    fetchTasks();
-    showToast("任务列表已刷新", "info");
+    triggerRefreshButton(el.btnRefreshTasks, async () => {
+      await fetchTasks(true);
+    }, "任务列表已刷新 (" + (state.tasks ? state.tasks.length : 0) + " 个任务)");
   });
 
-  async function fetchTasks() {
+  async function fetchTasks(force = false) {
     try {
-      const resp = await fetch("/api/tasks?limit=100");
+      const url = `/api/tasks?limit=100&_t=${Date.now()}`;
+      const resp = await fetch(url);
       if (!resp.ok) return;
       state.tasks = await resp.json();
       updateTaskFilterCounts();
@@ -786,18 +813,37 @@ document.addEventListener("DOMContentLoaded", () => {
 
           ${errorNoticeHtml}
 
+          ${!isImageTask && t.has_video ? `
+            <div class="task-media-box btn-play-video-box" data-id="${t.id}" data-url="${t.video_url}" title="点击直接播放成片视频">
+              ${t.first_frame_url || t.start_image_url ? `
+                <img src="${t.first_frame_url || t.start_image_url}" class="task-media-thumb" loading="lazy" alt="成片封面">
+              ` : `
+                <video src="${t.video_url}#t=0.5" preload="metadata" class="task-media-thumb" muted playsinline></video>
+              `}
+              <div class="task-media-overlay">
+                <div class="play-btn-circle">▶</div>
+              </div>
+              <div class="task-media-badge-group">
+                <span class="task-media-badge">${t.aspect_ratio || "16:9"}</span>
+                <span class="task-media-badge">${t.duration_sec || 8}s</span>
+              </div>
+            </div>
+          ` : ""}
+
           ${isImageTask && t.status === "completed" && t.image_urls && t.image_urls.length > 0 ? `
-            <div style="margin-top:10px; display:flex; gap:10px; align-items:center; background:rgba(0,0,0,0.25); padding:8px; border-radius:6px; border:1px solid rgba(255,255,255,0.05);">
-              <div style="width:65px; height:85px; border-radius:4px; overflow:hidden; background:#000; cursor:pointer; flex-shrink:0;" onclick="openImageViewer('${escapeJs(t.image_paths[0] || "")}', '${escapeJs(t.image_urls[0])}', '${escapeJs(t.prompt)}')">
-                <img src="${t.image_urls[0]}" style="width:100%; height:100%; object-fit:cover;" title="点击查看大图">
+            <div class="task-media-box" onclick="openImageViewer('${escapeJs(t.image_paths[0] || "")}', '${escapeJs(t.image_urls[0])}', '${escapeJs(t.prompt)}')" title="点击查看高清大图">
+              <img src="${t.image_urls[0]}" class="task-media-thumb" loading="lazy" alt="生成图像">
+              <div class="task-media-overlay" style="background: rgba(0,0,0,0.15);">
+                <div class="play-btn-circle" style="font-size: 20px;">🔍</div>
               </div>
-              <div style="display:flex; flex-direction:column; gap:6px; flex:1; min-width:0;">
-                <span style="font-size:11px; color:var(--text-sub);">✅ 图像已生成就绪，可一键填入视频工作台：</span>
-                <div style="display:flex; gap:6px;">
-                  <button class="gallery-btn-action" style="flex:1;" onclick="setAsStartFrame('${escapeJs(t.image_paths[0] || "")}', '${escapeJs(t.image_urls[0])}')">📌 设为首帧</button>
-                  <button class="gallery-btn-action" style="flex:1;" onclick="setAsEndFrame('${escapeJs(t.image_paths[0] || "")}', '${escapeJs(t.image_urls[0])}')">📌 设为尾帧</button>
-                </div>
+              <div class="task-media-badge-group">
+                <span class="task-media-badge">${t.aspect_ratio || "16:9"}</span>
+                <span class="task-media-badge">${t.model || "Nano Pro"}</span>
               </div>
+            </div>
+            <div style="display:flex; gap:6px; margin: 4px 0 6px 0;">
+              <button class="gallery-btn-action" style="flex:1;" onclick="setAsStartFrame('${escapeJs(t.image_paths[0] || "")}', '${escapeJs(t.image_urls[0])}')">📌 设为首帧</button>
+              <button class="gallery-btn-action" style="flex:1;" onclick="setAsEndFrame('${escapeJs(t.image_paths[0] || "")}', '${escapeJs(t.image_urls[0])}')">📌 设为尾帧</button>
             </div>
           ` : ""}
 
@@ -835,7 +881,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     // 绑定卡片动作事件
-    container.querySelectorAll(".btn-play-video").forEach(b => {
+    container.querySelectorAll(".btn-play-video, .btn-play-video-box").forEach(b => {
       b.addEventListener("click", () => {
         openVideoPlayer(b.getAttribute("data-id"), b.getAttribute("data-url"));
       });
@@ -1000,10 +1046,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
   if (el.btnRefreshImages) {
     el.btnRefreshImages.addEventListener("click", () => {
-      fetchTasks().then(() => {
+      triggerRefreshButton(el.btnRefreshImages, async () => {
+        await fetchTasks(true);
         renderImageGallery();
-        showToast("成果库已更新", "info");
-      });
+      }, "图片成果库已刷新");
     });
   }
 
@@ -1290,13 +1336,15 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // ==================== 账号管理视图 ====================
   el.btnRefreshProfiles.addEventListener("click", () => {
-    fetchProfiles();
-    showToast("账号状态已刷新", "info");
+    triggerRefreshButton(el.btnRefreshProfiles, async () => {
+      await fetchProfiles(true);
+    }, "账号状态已刷新 (" + (state.profiles ? state.profiles.length : 0) + " 个账号)");
   });
 
-  async function fetchProfiles() {
+  async function fetchProfiles(force = false) {
     try {
-      const resp = await fetch("/api/profiles");
+      const url = `/api/profiles?_t=${Date.now()}`;
+      const resp = await fetch(url);
       if (!resp.ok) return;
       state.profiles = await resp.json();
       el.badgeTotalProfiles.textContent = state.profiles.length;
