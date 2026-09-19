@@ -3,6 +3,7 @@ import os
 import sys
 import time
 import json
+import base64
 import urllib.request
 import threading
 from pathlib import Path
@@ -12,10 +13,14 @@ from .models import Task, Profile
 
 class GeminiWebWorker:
     """
-    Worker for orchestrating video generation on gemini.google.com via persistent Chrome profiles.
+    Worker for orchestrating video generation on gemini.google.com/videos via persistent Chrome profiles.
     - Zero cookie leakage: uses local isolated Chrome profile directories.
-    - Automatic error classification: PROFILE_LOCKED, AUTH_EXPIRED, QUOTA_EXHAUSTED, RATE_LIMITED.
-    - Automatic downloading and saving of generated videos.
+    - Automatic overlay / discovery-card dismissal to prevent pointer event interception.
+    - Direct navigation to https://gemini.google.com/videos with native [Videos] mode capsule.
+    - Native UI aspect ratio selection: Landscape (16:9) vs Portrait (9:16).
+    - Native UI model selection: 3.8 Flash, 3.1 Pro, Extended thinking, etc.
+    - Early refusal / text-script detection to prevent idle timeout loops.
+    - Dual-track video extraction: authenticated in-page blob fetch & native download button capture.
     """
     def __init__(
         self,
@@ -31,16 +36,48 @@ class GeminiWebWorker:
     def _resolve_profile_dir(self, profile: Profile) -> Path:
         if profile.profile_path and Path(profile.profile_path).exists():
             return Path(profile.profile_path).resolve()
-        # Default gflow / chrome profile location
         appdata = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
         return Path(appdata) / "ffroliva" / "gflow-cli" / f"profile_{profile.name}"
+
+    def _dismiss_overlays(self, page, logs: list) -> None:
+        """主动检测并关闭欢迎弹窗、条款提示、新功能推荐遮罩层，防止拦截输入与点击。"""
+        dismiss_selectors = [
+            "mat-dialog-container button[aria-label*='Close']",
+            "mat-dialog-container button[aria-label*='close']",
+            "[role='dialog'] button:has-text('Got it')",
+            "[role='dialog'] button:has-text('Dismiss')",
+            "[role='dialog'] button:has-text('Not now')",
+            "[role='dialog'] button:has-text('Close')",
+            "[role='dialog'] button:has-text('知道了')",
+            "[role='dialog'] button:has-text('关闭')",
+            "[role='dialog'] button:has-text('稍后再说')",
+            "[role='dialog'] button:has-text('Accept all')",
+            "[role='dialog'] button:has-text('I agree')",
+            "[role='dialog'] button:has-text('同意')",
+            ".cdk-overlay-container button[aria-label*='Close']",
+            ".cdk-overlay-container button:has-text('Got it')",
+            ".cdk-overlay-backdrop"
+        ]
+        for sel in dismiss_selectors:
+            try:
+                btn = page.query_selector(sel)
+                if btn and btn.is_visible():
+                    logs.append(f"检测到页面弹出浮层遮罩 ({sel})，自动点击关闭...")
+                    btn.click(force=True)
+                    page.wait_for_timeout(600)
+            except Exception:
+                pass
+        try:
+            page.keyboard.press("Escape")
+        except Exception:
+            pass
 
     def execute_task(self, task: Task, profile: Profile) -> Dict[str, Any]:
         worker_name = threading.current_thread().name
         profile_dir = self._resolve_profile_dir(profile)
         
         logs = []
-        logs.append(f"[{worker_name}] 启动 Gemini 网页版生成引擎 (Profile: {profile.name})")
+        logs.append(f"[{worker_name}] 启动 Gemini 网页版原生视频生成引擎 (Profile: {profile.name})")
         logs.append(f"Profile 目录: {profile_dir}")
         logs.append(f"Prompt: {task.prompt}")
 
@@ -56,7 +93,7 @@ class GeminiWebWorker:
             with sync_playwright() as p:
                 launch_args = [
                     "--disable-blink-features=AutomationControlled",
-                                        "--no-sandbox"
+                    "--no-sandbox"
                 ]
                 
                 logs.append("正在拉起 Chrome 浏览器会话...")
@@ -84,16 +121,46 @@ class GeminiWebWorker:
 
                 try:
                     page = browser.new_page()
-                    logs.append("正在打开 https://gemini.google.com/app ...")
-                    page.goto("https://gemini.google.com/app", timeout=35000)
+                    
+                    # 1. 优先直达原生视频生成工作台
+                    logs.append("正在打开 Gemini 视频工作区 https://gemini.google.com/videos ...")
+                    try:
+                        page.goto("https://gemini.google.com/videos", timeout=35000)
+                    except Exception as ge:
+                        logs.append(f"直接打开 /videos 超时或异常，尝试主入口 /app ... ({ge})")
+                        page.goto("https://gemini.google.com/app", timeout=35000)
+
                     page.wait_for_timeout(3000)
+                    self._dismiss_overlays(page, logs)
 
                     cur_url = page.url
                     page_title = page.title()
                     logs.append(f"页面加载完成: Title='{page_title}', URL='{cur_url}'")
 
-                    # 1. 登录状态核验：优先寻找对话输入框
-                    input_selector = 'div.ql-editor[contenteditable="true"], rich-textarea div[contenteditable="true"], textarea'
+                    # 若被重定向到 /app，主动点击左侧导航栏的 Videos 进入视频模式
+                    if "/videos" not in cur_url:
+                        logs.append("当前未在 /videos 路径，正在尝试切换至左侧【Videos】专属工作区...")
+                        video_nav_selectors = [
+                            'a[href="/videos"]',
+                            'a[href*="videos"]',
+                            'gem-nav-list-item:has-text("Videos")',
+                            'button:has-text("Videos")',
+                            '[data-test-id*="video"]'
+                        ]
+                        for nav_sel in video_nav_selectors:
+                            try:
+                                vnav = page.query_selector(nav_sel)
+                                if vnav and vnav.is_visible():
+                                    vnav.click(force=True)
+                                    page.wait_for_timeout(2000)
+                                    self._dismiss_overlays(page, logs)
+                                    logs.append(f"成功切换至视频工作区: URL='{page.url}'")
+                                    break
+                            except Exception:
+                                pass
+
+                    # 2. 登录状态核验：优先寻找输入框
+                    input_selector = 'rich-textarea div[contenteditable="true"], div.ql-editor[contenteditable="true"], [contenteditable="true"], textarea'
                     has_input = False
                     try:
                         page.wait_for_selector(input_selector, timeout=8000)
@@ -103,10 +170,9 @@ class GeminiWebWorker:
 
                     is_unauth = False
                     if not has_input:
-                        if "accounts.google.com" in cur_url:
+                        if "accounts.google.com" in page.url:
                             is_unauth = True
                         else:
-                            # 仅在页面明确包含登录入口按钮且无输入框时认定为未登录
                             sign_in_btns = page.query_selector_all('a[href*="accounts.google.com/signin"], a[href*="accounts.google.com/ServiceLogin"], a:has-text("Sign in"), a:has-text("登录"), button:has-text("Sign in"), button:has-text("登录")')
                             if len(sign_in_btns) > 0:
                                 is_unauth = True
@@ -122,13 +188,10 @@ class GeminiWebWorker:
                             "logs": "\n".join(logs)
                         }
 
-                    # 2. 定位聊天输入框
-                    try:
-                        if not has_input:
-                            page.wait_for_selector(input_selector, timeout=12000)
-                    except Exception:
+                    # 3. 定位输入框
+                    input_el = page.query_selector(input_selector)
+                    if not input_el:
                         logs.append("未能找到输入框，正在分析页面结构...")
-                        # 检查是否有可见的错误警告
                         for err_sel in ["div[role='alert']", ".error-message", "gemini-quota-banner"]:
                             el = page.query_selector(err_sel)
                             if el and el.is_visible():
@@ -151,7 +214,58 @@ class GeminiWebWorker:
                             "logs": "\n".join(logs)
                         }
 
-                    # 3. 如果有参考图输入，附加参考图
+                    # 4. 原生画幅比例设置 (Landscape 16:9 vs Portrait 9:16)
+                    aspect = getattr(task, "aspect_ratio", "16:9") or "16:9"
+                    try:
+                        aspect_btn = page.query_selector('button:has-text("Landscape"), button:has-text("Portrait"), button:has-text("16:9"), button:has-text("9:16")')
+                        if aspect_btn and aspect_btn.is_visible():
+                            btn_text = aspect_btn.inner_text()
+                            need_switch = False
+                            target_kw = "Landscape (16:9)" if aspect == "16:9" else "Portrait (9:16)"
+                            if aspect == "9:16" and "portrait" not in btn_text.lower():
+                                need_switch = True
+                            elif aspect == "16:9" and "landscape" not in btn_text.lower():
+                                need_switch = True
+                            
+                            if need_switch:
+                                logs.append(f"检测到原生比例调节按钮 (当前: {btn_text.strip()})，正在切换至目标比例 [{target_kw}]...")
+                                aspect_btn.click(force=True)
+                                page.wait_for_timeout(600)
+                                opt = page.query_selector(f'[role="menuitem"]:has-text("{target_kw}"), [role="option"]:has-text("{target_kw}"), mat-option:has-text("{target_kw}"), span:has-text("{target_kw}")')
+                                if opt and opt.is_visible():
+                                    opt.click(force=True)
+                                    logs.append(f"成功将画幅切换为: {target_kw}")
+                                    page.wait_for_timeout(500)
+                                else:
+                                    logs.append(f"未直接点击到 [{target_kw}] 选项，关闭菜单继续")
+                                    page.keyboard.press("Escape")
+                            else:
+                                logs.append(f"当前画幅设置已与任务目标匹配: {btn_text.strip()}")
+                    except Exception as ae:
+                        logs.append(f"画幅设置容错处理: {ae}")
+
+                    # 5. 原生模型选择 (Flash vs 3.8 Flash vs 3.1 Pro 等)
+                    model_info = getattr(task, "model", "auto") or "auto"
+                    if model_info and model_info != "auto":
+                        try:
+                            model_btn = page.query_selector('button:has-text("Flash"), button:has-text("Pro"), button[aria-label*="model"], [data-test-id="model-selector-button"]')
+                            if model_btn and model_btn.is_visible():
+                                logs.append(f"正在匹配 Gemini 页面模型选择 [{model_info}] ...")
+                                model_btn.click(force=True)
+                                page.wait_for_timeout(800)
+                                kw = "3.8" if "3.8" in model_info else ("pro" if "pro" in model_info.lower() else ("flash" if "flash" in model_info.lower() else model_info))
+                                opt_el = page.query_selector(f'[role="menuitem"]:has-text("{kw}"), [role="option"]:has-text("{kw}"), mat-option:has-text("{kw}"), button:has-text("{kw}")')
+                                if opt_el and opt_el.is_visible():
+                                    opt_el.click(force=True)
+                                    logs.append(f"已成功切换模型至目标模式 [{kw}]")
+                                    page.wait_for_timeout(800)
+                                else:
+                                    logs.append(f"模型下拉选项中未直接匹配到 [{kw}]，已采用默认就绪模型")
+                                    page.keyboard.press("Escape")
+                        except Exception as me:
+                            logs.append(f"切换模型提示 (不阻断主流程): {me}")
+
+                    # 6. 如果有参考图输入，附加参考图
                     if task.start_image_path and Path(task.start_image_path).exists():
                         ref_img = Path(task.start_image_path).resolve()
                         logs.append(f"正在准备附加参考图素材: {ref_img.name}")
@@ -161,83 +275,56 @@ class GeminiWebWorker:
                             logs.append("已通过文件输入口上传参考图")
                             page.wait_for_timeout(2000)
                         else:
-                            logs.append("未发现独立 file input，尝试剪贴板或直接提示词附带说明")
+                            logs.append("未发现独立 file input，尝试通过提示词上下文协同")
 
-                    # 4. 填充提示词并提交 (动态支持 16:9 / 9:16 / 1:1 画幅与时长规格)
-                    input_el = page.query_selector(input_selector)
-                    if input_el:
-                        final_prompt = task.prompt.strip()
-                        aspect = getattr(task, "aspect_ratio", "16:9") or "16:9"
-                        aspect_desc = "16:9横屏高清视频" if aspect == "16:9" else ("1:1方形视频" if aspect == "1:1" else "9:16竖屏短视频")
-                        duration_desc = f"，时长约{task.duration_sec}秒" if getattr(task, "duration_sec", None) else ""
-                        
-                        has_aspect = any(k in final_prompt.lower() for k in ["16:9", "9:16", "1:1", "横屏", "竖屏", "方形"])
-                        has_video = any(k in final_prompt.lower() for k in ["video", "视频", "veo", "生视频", "生成视频"])
-                        
-                        prefix = ""
-                        if not has_video and not has_aspect:
-                            prefix = f"生成一段{aspect_desc}{duration_desc}："
-                        elif not has_aspect:
-                            prefix = f"[{aspect_desc}{duration_desc}] "
-                        
-                        if prefix:
-                            final_prompt = f"{prefix}{final_prompt}"
+                    # 7. 填充提示词并安全提交
+                    final_prompt = task.prompt.strip()
+                    self._dismiss_overlays(page, logs)
 
-                        model_info = getattr(task, "model", "auto") or "auto"
-                        # 如果指定了具体模型（如 gemini-3.8-pro / gemini-3.8-flash），尝试在页面切换模型
-                        if model_info and model_info != "auto":
+                    # 聚焦并输入，避免被浮层截获 pointer events
+                    input_el.scroll_into_view_if_needed()
+                    input_el.click(force=True)
+                    page.wait_for_timeout(300)
+                    input_el.fill(final_prompt)
+                    logs.append(f"已填入生成提示词: {final_prompt} (引擎: Gemini网页版, 指定模型: {model_info}, 画幅: {aspect})")
+                    page.wait_for_timeout(1000)
+
+                    # 发送提交
+                    send_selectors = [
+                        'button[aria-label="Send message"]',
+                        'button[aria-label*="Send"]',
+                        'button[aria-label*="发送"]',
+                        '.send-button-container button',
+                        '[data-test-id="send-button"]',
+                        'button.send-button'
+                    ]
+                    submitted = False
+                    for s_sel in send_selectors:
+                        s_btn = page.query_selector(s_sel)
+                        if s_btn and s_btn.is_visible():
                             try:
-                                model_btn = page.query_selector('button[aria-label*="model"], button[aria-label*="Model"], button[aria-label*="模型"], [data-test-id="model-selector-button"], .model-picker-trigger')
-                                if model_btn and model_btn.is_visible():
-                                    logs.append(f"检测到 Gemini 页面模型切换入口，尝试匹配目标模型 [{model_info}] ...")
-                                    model_btn.click()
-                                    page.wait_for_timeout(800)
-                                    kw = "3.8" if "3.8" in model_info else ("pro" if "pro" in model_info.lower() else ("flash" if "flash" in model_info.lower() else model_info))
-                                    opt_el = page.query_selector(f'[role="menuitem"]:has-text("{kw}"), [role="option"]:has-text("{kw}"), button:has-text("{kw}")')
-                                    if opt_el and opt_el.is_visible():
-                                        opt_el.click()
-                                        logs.append(f"已成功切换模型至目标模式 [{kw}]")
-                                        page.wait_for_timeout(800)
-                                    else:
-                                        logs.append(f"模型下拉选项中未直接匹配到 [{kw}]，已关闭菜单并继续采用当前账号就绪模型")
-                                        page.keyboard.press("Escape")
-                            except Exception as me:
-                                logs.append(f"尝试切换模型时提示 (不阻断主流程): {me}")
+                                s_btn.click(force=True)
+                                submitted = True
+                                logs.append(f"已成功通过发送按钮 ({s_sel}) 提交生成任务")
+                                break
+                            except Exception:
+                                pass
+                    if not submitted:
+                        page.keyboard.press("Enter")
+                        logs.append("已通过回车键 (Enter) 提交任务")
 
-                        input_el.click()
-                        input_el.fill(final_prompt)
-                        model_info = getattr(task, "model", "auto") or "auto"
-                        logs.append(f"已填入生成提示词: {final_prompt} (引擎: Gemini网页版, 指定模型: {model_info}, 画幅: {aspect})")
-                        page.wait_for_timeout(1000)
+                    page.wait_for_timeout(3000)
 
-                        # 发送消息
-                        send_btn = page.query_selector('button[aria-label*="Send"], button[aria-label*="发送"], .send-button')
-                        if send_btn and send_btn.is_enabled():
-                            send_btn.click()
-                            logs.append("已点击发送按钮提交生成任务")
-                        else:
-                            page.keyboard.press("Enter")
-                            logs.append("已通过回车键提交任务")
-                    else:
-                        return {
-                            "success": False,
-                            "pid": os.getpid(),
-                            "error_code": "INPUT_ERROR",
-                            "error_message": "未能激活 Gemini 输入框",
-                            "output_video_path": None,
-                            "logs": "\n".join(logs)
-                        }
-
-                    # 5. 等待视频生成完毕并捕获视频元素
+                    # 8. 智能轮询等待视频渲染结果
                     logs.append("任务已提交，开始轮询等待视频生成渲染结果...")
                     start_wait_t = time.time()
                     video_found = False
 
                     while (time.time() - start_wait_t) < self.timeout_sec:
-                        time.sleep(3.0)
+                        time.sleep(4.0)
                         elapsed = int(time.time() - start_wait_t)
 
-                        # 检查是否有真实可见的异常提示（仅检查可见 DOM 节点，禁止全量 HTML 字符串盲匹）
+                        # A. 检查额度与频控提示
                         for err_sel in ["gemini-quota-banner", ".quota-exceeded-message", "div[role='alert']", "model-response:last-child"]:
                             el = page.query_selector(err_sel)
                             if el and el.is_visible():
@@ -263,13 +350,36 @@ class GeminiWebWorker:
                                         "logs": "\n".join(logs)
                                     }
 
-                        # 检查是否有新生成的 video 元素
+                        # B. 检查是否有明确的文本拒答（提前阻断，杜绝无休止死等）
+                        model_responses = page.query_selector_all("model-response")
+                        if len(model_responses) > 0:
+                            last_resp = model_responses[-1]
+                            last_txt = last_resp.inner_text().strip()
+                            # 如果回答已结束且包含拒答词
+                            refusal_keywords = [
+                                "无法直接生成视频", "作为语言模型", "我不能生成视频", "我无法制作视频",
+                                "i cannot create videos", "i am unable to generate video", "i can't generate video",
+                                "i cannot generate video", "don't have the ability to generate video"
+                            ]
+                            is_refusal = any(rw in last_txt.lower() for rw in refusal_keywords)
+                            if is_refusal:
+                                logs.append(f"【智能拒答阻断】Gemini 明确返回了文本拒答: {last_txt[:100]}...")
+                                return {
+                                    "success": False,
+                                    "pid": os.getpid(),
+                                    "error_code": "FEATURE_REFUSED",
+                                    "error_message": f"Gemini 网页端当前账号回复了纯文本拒答而非视频内容。建议切换至更成熟的 Google Flow (Veo) 引擎直接生成成片视频。",
+                                    "output_video_path": None,
+                                    "logs": "\n".join(logs)
+                                }
+
+                        # C. 检查生成的 video 元素
                         videos = page.query_selector_all('video')
                         for v in videos:
                             src = v.get_attribute("src")
                             if src and (src.startswith("http") or src.startswith("blob:")):
                                 logs.append(f"发现生成的视频元素: src={src[:80]}...")
-                                logs.append("正在通过已登录浏览器安全上下文提取完整视频流...")
+                                logs.append("正在提取完整视频成片...")
                                 try:
                                     b64_data = page.evaluate("""
                                         async (video) => {
@@ -288,7 +398,6 @@ class GeminiWebWorker:
                                         }
                                     """, v)
                                     if b64_data and "," in b64_data:
-                                        import base64
                                         raw_bytes = base64.b64decode(b64_data.split(",", 1)[1])
                                         if len(raw_bytes) > 20000 and not raw_bytes.startswith(b"<!doctype") and not raw_bytes.startswith(b"<html"):
                                             with open(output_video_path, "wb") as vf:
@@ -297,9 +406,28 @@ class GeminiWebWorker:
                                             video_found = True
                                             break
                                         else:
-                                            logs.append(f"上下文返回内容未就绪或为错误页 (大小: {len(raw_bytes)} 字节)，继续等待渲染...")
+                                            logs.append(f"上下文返回内容未就绪 (大小: {len(raw_bytes)} 字节)，继续等待渲染...")
                                 except Exception as e_ev:
-                                    logs.append(f"页面内视频流提取异常: {e_ev}")
+                                    logs.append(f"页面内视频流提取提示: {e_ev}")
+
+                        # D. 兜底方案：通过页面原生下载按钮
+                        if not video_found:
+                            dl_btns = page.query_selector_all("a[download], button[aria-label*='Download video'], button[aria-label*='Download'], button[aria-label*='下载视频']")
+                            if dl_btns and len(dl_btns) > 0:
+                                dl_btn = dl_btns[-1]
+                                if dl_btn.is_visible():
+                                    try:
+                                        logs.append("检测到成片下载按钮，尝试直接触发原生文件下载...")
+                                        with page.expect_download(timeout=8000) as dl_info:
+                                            dl_btn.click(force=True)
+                                        download = dl_info.value
+                                        download.save_as(str(output_video_path))
+                                        if output_video_path.exists() and output_video_path.stat().st_size > 20000:
+                                            logs.append(f"已成功通过下载通道获取成片 ({output_video_path.stat().st_size} 字节)")
+                                            video_found = True
+                                            break
+                                    except Exception as de:
+                                        logs.append(f"原生下载尝试提示: {de}")
 
                         if video_found:
                             break

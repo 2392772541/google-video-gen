@@ -113,6 +113,7 @@ class SchedulerManager:
             max_workers=4,
             worker_timeout_sec=360
         )
+        self.scheduler.recover_orphans()
         self.scheduler.running = True  # Default running
         self.stop_event.clear()
         self.thread = threading.Thread(target=self._run_loop, daemon=True, name="WebSchedulerLoop")
