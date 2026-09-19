@@ -1576,3 +1576,209 @@ body {
   color: #34d399 !important;
   border-color: rgba(16, 185, 129, 0.5) !important;
 }
+
+/* ==================== 核心生成参数与动态画幅控制 ==================== */
+.core-params-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-md);
+  padding: 14px;
+  margin-top: 4px;
+}
+
+.core-params-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+@media (max-width: 900px) {
+  .core-params-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+.param-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.param-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.param-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-main);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.param-badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-muted);
+}
+
+/* 比例药丸切换卡片 */
+.aspect-pill-group {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.aspect-pill-btn {
+  background: var(--bg-input);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  padding: 8px 6px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.2s ease;
+}
+
+.aspect-pill-btn:hover {
+  border-color: rgba(59, 130, 246, 0.5);
+  color: var(--text-main);
+  transform: translateY(-1px);
+}
+
+.aspect-pill-btn.active {
+  border-color: var(--blue-primary);
+  background: rgba(59, 130, 246, 0.14);
+  color: #fff;
+  box-shadow: 0 0 12px rgba(59, 130, 246, 0.25);
+}
+
+.aspect-icon-rect {
+  display: inline-block;
+  border: 1.5px solid currentColor;
+  border-radius: 2px;
+}
+
+.aspect-16-9 {
+  width: 20px;
+  height: 11px;
+}
+
+.aspect-9-16 {
+  width: 11px;
+  height: 20px;
+}
+
+.aspect-1-1 {
+  width: 14px;
+  height: 14px;
+}
+
+.aspect-name {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.aspect-desc {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.aspect-pill-btn.active .aspect-desc {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+/* 视频时长胶囊切换组 */
+.duration-pill-group {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+
+.duration-pill-btn {
+  background: var(--bg-input);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  padding: 7px 0;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.2s ease;
+}
+
+.duration-pill-btn:hover {
+  border-color: rgba(59, 130, 246, 0.5);
+  color: var(--text-main);
+}
+
+.duration-pill-btn.active {
+  border-color: var(--blue-primary);
+  background: rgba(59, 130, 246, 0.16);
+  color: #fff;
+  font-weight: 600;
+  box-shadow: 0 0 8px rgba(59, 130, 246, 0.25);
+}
+
+/* 模型选择器高亮 */
+.highlight-select {
+  background: var(--bg-input);
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  color: var(--text-main);
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: var(--radius-sm);
+  padding: 9px 12px;
+  outline: none;
+  transition: border-color 0.2s ease;
+  width: 100%;
+}
+
+.highlight-select:focus {
+  border-color: var(--blue-primary);
+  box-shadow: 0 0 10px rgba(59, 130, 246, 0.35);
+}
+
+/* 舞台卡片动态比例联动 */
+.drop-card.aspect-16-9 {
+  width: 240px !important;
+  height: 135px !important; /* 16:9 ratio */
+}
+
+.drop-card.aspect-9-16 {
+  width: 180px !important;
+  height: 320px !important; /* 9:16 ratio */
+}
+
+.drop-card.aspect-1-1 {
+  width: 180px !important;
+  height: 180px !important; /* 1:1 ratio */
+}
+
+/* Gemini 模式单张参考图自适应 */
+.gemini-single-card.aspect-16-9 {
+  width: 320px !important;
+  height: 180px !important;
+}
+
+.gemini-single-card.aspect-9-16 {
+  width: 200px !important;
+  height: 355px !important;
+}
+
+.gemini-single-card.aspect-1-1 {
+  width: 240px !important;
+  height: 240px !important;
+}

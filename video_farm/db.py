@@ -394,10 +394,14 @@ def update_task_status(
             if error_code is not None:
                 updates.append("error_code = ?")
                 params.append(error_code)
+            elif status == "completed":
+                updates.append("error_code = NULL")
 
             if error_message is not None:
                 updates.append("error_message = ?")
                 params.append(error_message)
+            elif status == "completed":
+                updates.append("error_message = NULL")
 
             if logs is not None:
                 updates.append("logs = ?")

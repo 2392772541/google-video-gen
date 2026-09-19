@@ -163,17 +163,30 @@ class GeminiWebWorker:
                         else:
                             logs.append("未发现独立 file input，尝试剪贴板或直接提示词附带说明")
 
-                    # 4. 填充提示词并提交
+                    # 4. 填充提示词并提交 (动态支持 16:9 / 9:16 / 1:1 画幅与时长规格)
                     input_el = page.query_selector(input_selector)
                     if input_el:
-                        # 构造增强提示词
                         final_prompt = task.prompt.strip()
-                        if not any(k in final_prompt.lower() for k in ["video", "视频", "veo", "生视频", "生成视频"]):
-                            final_prompt = f"生成一段9:16竖屏短视频：{final_prompt}"
+                        aspect = getattr(task, "aspect_ratio", "16:9") or "16:9"
+                        aspect_desc = "16:9横屏高清视频" if aspect == "16:9" else ("1:1方形视频" if aspect == "1:1" else "9:16竖屏短视频")
+                        duration_desc = f"，时长约{task.duration_sec}秒" if getattr(task, "duration_sec", None) else ""
+                        
+                        has_aspect = any(k in final_prompt.lower() for k in ["16:9", "9:16", "1:1", "横屏", "竖屏", "方形"])
+                        has_video = any(k in final_prompt.lower() for k in ["video", "视频", "veo", "生视频", "生成视频"])
+                        
+                        prefix = ""
+                        if not has_video and not has_aspect:
+                            prefix = f"生成一段{aspect_desc}{duration_desc}："
+                        elif not has_aspect:
+                            prefix = f"[{aspect_desc}{duration_desc}] "
+                        
+                        if prefix:
+                            final_prompt = f"{prefix}{final_prompt}"
 
                         input_el.click()
                         input_el.fill(final_prompt)
-                        logs.append(f"已填入生成提示词: {final_prompt}")
+                        model_info = getattr(task, "model", "auto") or "auto"
+                        logs.append(f"已填入生成提示词: {final_prompt} (引擎: Gemini网页版, 指定模型: {model_info}, 画幅: {aspect})")
                         page.wait_for_timeout(1000)
 
                         # 发送消息

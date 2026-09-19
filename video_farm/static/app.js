@@ -8,6 +8,8 @@ document.addEventListener("DOMContentLoaded", () => {
     profiles: [],
     tasks: [],
     currentFilter: "all",
+    currentAspect: "16:9",
+    currentDuration: 8,
     startFile: null,
     startImagePath: null,
     endFile: null,
@@ -75,6 +77,12 @@ document.addEventListener("DOMContentLoaded", () => {
     btnSubmitTask: document.getElementById("btn-submit-task"),
     btnResetForm: document.getElementById("btn-reset-form"),
     selectVideoModel: document.getElementById("select-video-model"),
+    stagePanelTitle: document.getElementById("stage-panel-title"),
+    badgeAspectInfo: document.getElementById("badge-aspect-info"),
+    badgeDurationInfo: document.getElementById("badge-duration-info"),
+    badgeModelTag: document.getElementById("badge-model-tag"),
+    labelModelTitle: document.getElementById("label-model-title"),
+    modelDescHint: document.getElementById("model-desc-hint"),
 
     // 图像工坊 DOM 映射
     inputImagePrompt: document.getElementById("input-image-prompt"),
@@ -245,6 +253,136 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
+  // ==================== 模型数据字典与动态联动 ====================
+  const VIDEO_ENGINE_MODELS = {
+    flow: [
+      { value: "veo-lite", label: "Veo 3.1 Lite (推荐 · 经济稳定 · 默认)", desc: "Google Flow 默认模型，综合效果稳定，生成速度快，抗风控好" },
+      { value: "veo-quality", label: "Veo 3.1 Quality (高精画质 · 商业旗舰)", desc: "更高分辨率与材质细节，适合高质感商业产品展示与宣传片" },
+      { value: "veo-fast", label: "Veo 3.1 Fast (快速响应模式)", desc: "出片速度优先，适合快速调试分镜、镜头轨迹与动态" },
+      { value: "omni-flash", label: "Omni Flash (首尾帧支持 · 解锁10秒)", desc: "支持10秒长镜头生成，首尾帧过渡连贯，多场景运动平滑" },
+      { value: "veo-lite-lp", label: "Veo 3.1 Lite LP (低功耗备份)", desc: "备用轻量模型，额度或并发紧张时自动分流" }
+    ],
+    gemini: [
+      { value: "auto", label: "Auto 智能优选 (官方推荐 · 默认)", desc: "根据提示词与参考图由 Gemini 网页对话框自动分流匹配最佳 Veo 引擎" },
+      { value: "gemini-2.5-flash", label: "Gemini 2.5 Flash (疾速出片 · 快速响应)", desc: "官方对话框极速响应，适合快速生成视频预览" },
+      { value: "gemini-2.5-pro", label: "Gemini 2.5 Pro (画质与光影增强 · 旗舰)", desc: "更强语义理解与材质逼真度，适合复杂多主体场景" }
+    ]
+  };
+
+  function updateModelOptions(engine, selectedValue) {
+    if (!el.selectVideoModel) return;
+    const models = VIDEO_ENGINE_MODELS[engine] || VIDEO_ENGINE_MODELS.flow;
+    el.selectVideoModel.innerHTML = "";
+    models.forEach((m, idx) => {
+      const opt = document.createElement("option");
+      opt.value = m.value;
+      opt.textContent = m.label;
+      if (selectedValue ? m.value === selectedValue : idx === 0) {
+        opt.selected = true;
+      }
+      el.selectVideoModel.appendChild(opt);
+    });
+    updateModelHint();
+  }
+
+  function updateModelHint() {
+    if (!el.selectVideoModel || !el.modelDescHint) return;
+    const engine = state.currentEngine || "flow";
+    const models = VIDEO_ENGINE_MODELS[engine] || [];
+    const curVal = el.selectVideoModel.value;
+    const found = models.find(m => m.value === curVal);
+    if (found) {
+      el.modelDescHint.textContent = `⚡ ${found.desc}`;
+    }
+  }
+
+  if (el.selectVideoModel) {
+    el.selectVideoModel.addEventListener("change", updateModelHint);
+  }
+
+  // ==================== 画幅比例与时长动态控制 ====================
+  const ASPECT_CONFIG = {
+    "16:9": { label: "16:9 横屏宽幅", stage: "16:9 横屏", resHint: "推荐 16:9 (如 1280x720 或 1920x1080)" },
+    "9:16": { label: "9:16 竖屏长幅", stage: "9:16 竖屏", resHint: "推荐 9:16 (如 720x1280 或 1080x1920)" },
+    "1:1":  { label: "1:1 方形画幅",  stage: "1:1 方形",  resHint: "推荐 1:1 (如 1080x1080)" }
+  };
+
+  function setAspectRatio(aspect) {
+    if (!ASPECT_CONFIG[aspect]) aspect = "16:9";
+    state.currentAspect = aspect;
+    if (el.selectAspect) el.selectAspect.value = aspect;
+    if (el.badgeAspectInfo) el.badgeAspectInfo.textContent = ASPECT_CONFIG[aspect].label;
+
+    document.querySelectorAll(".aspect-pill-btn").forEach(btn => {
+      if (btn.getAttribute("data-aspect") === aspect) {
+        btn.classList.add("active");
+      } else {
+        btn.classList.remove("active");
+      }
+    });
+
+    const aspectClass = aspect === "16:9" ? "aspect-16-9" : (aspect === "1:1" ? "aspect-1-1" : "aspect-9-16");
+    [el.dropStart, el.dropEnd].forEach(card => {
+      if (!card) return;
+      card.classList.remove("aspect-16-9", "aspect-9-16", "aspect-1-1");
+      card.classList.add(aspectClass);
+    });
+
+    if (el.aspectTagStart) el.aspectTagStart.textContent = `${aspect} ✓`;
+    if (el.aspectTagEnd) el.aspectTagEnd.textContent = `${aspect} ✓`;
+
+    updateStageTitle();
+
+    const subStart = el.placeholderStart ? el.placeholderStart.querySelector(".drop-subtext") : null;
+    if (subStart && state.currentEngine === "flow") {
+      subStart.textContent = ASPECT_CONFIG[aspect].resHint;
+    }
+    const subEnd = el.placeholderEnd ? el.placeholderEnd.querySelector(".drop-subtext") : null;
+    if (subEnd) {
+      subEnd.textContent = ASPECT_CONFIG[aspect].resHint;
+    }
+  }
+
+  function setDurationSec(sec) {
+    state.currentDuration = sec;
+    if (el.selectDuration) el.selectDuration.value = String(sec);
+    if (el.badgeDurationInfo) {
+      el.badgeDurationInfo.textContent = sec === 8 ? "8 秒 (推荐)" : `${sec} 秒`;
+    }
+    document.querySelectorAll(".duration-pill-btn").forEach(btn => {
+      if (parseInt(btn.getAttribute("data-sec")) === sec) {
+        btn.classList.add("active");
+      } else {
+        btn.classList.remove("active");
+      }
+    });
+  }
+
+  function updateStageTitle() {
+    if (!el.stagePanelTitle) return;
+    const aspect = state.currentAspect || "16:9";
+    const aspectName = ASPECT_CONFIG[aspect] ? ASPECT_CONFIG[aspect].stage : aspect;
+    if (state.currentEngine === "gemini") {
+      el.stagePanelTitle.textContent = `🖼️ Gemini 引导参考图 (${aspectName})`;
+    } else {
+      el.stagePanelTitle.textContent = `🖼️ 首尾帧插值舞台 (${aspectName})`;
+    }
+  }
+
+  document.querySelectorAll(".aspect-pill-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const asp = btn.getAttribute("data-aspect");
+      setAspectRatio(asp);
+    });
+  });
+
+  document.querySelectorAll(".duration-pill-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const sec = parseInt(btn.getAttribute("data-sec"));
+      setDurationSec(sec);
+    });
+  });
+
   // ==================== 双生成引擎切换 ====================
   function applyEngineMode(engine) {
     state.currentEngine = engine;
@@ -252,10 +390,20 @@ document.addEventListener("DOMContentLoaded", () => {
       if (el.btnEngineGemini) el.btnEngineGemini.classList.add("active", "gemini-active");
       if (el.btnEngineFlow) el.btnEngineFlow.classList.remove("active");
 
+      // 模型与标签切换为 Gemini
+      updateModelOptions("gemini", "auto");
+      if (el.labelModelTitle) el.labelModelTitle.innerHTML = `<span class="icon">🌐</span> Gemini 对话框模型`;
+      if (el.badgeModelTag) {
+        el.badgeModelTag.textContent = "Gemini 网页版";
+        el.badgeModelTag.style.background = "rgba(16,185,129,0.15)";
+        el.badgeModelTag.style.color = "#34d399";
+      }
+
       // 调整舞台显示：隐藏尾帧，首帧标为参考图
       if (el.dropEnd) el.dropEnd.style.display = "none";
       if (el.btnSwapFrames) el.btnSwapFrames.style.display = "none";
       if (el.dropStart) {
+        el.dropStart.classList.add("gemini-single-card");
         const roleTag = el.dropStart.querySelector(".frame-role-tag");
         if (roleTag) roleTag.textContent = "参考图 (可选 / Reference Image)";
         const dropTxt = el.placeholderStart.querySelector(".drop-text");
@@ -267,28 +415,40 @@ document.addEventListener("DOMContentLoaded", () => {
         el.stageHintText.textContent = "🌐 Gemini 网页版驱动：支持纯文字提示词生视频，或单张参考图生视频。额度耗尽自动切换备用账号。";
       }
       el.btnSubmitTask.textContent = "🌐 提交到 Gemini 网页版生成队列";
-      el.inputPrompt.placeholder = "输入视频描述提示词（例如：一只可爱的柴犬在阳光草坪上奔跑追逐泡泡，9:16竖屏，4K高质量摄影，毛发质感清晰细腻，动作自然流畅）...";
+      el.inputPrompt.placeholder = "输入视频描述提示词（例如：现代化农业种植大棚航拍，阳光透射绿叶生机盎然，16:9横屏，镜头平滑推进，4K质感）...";
     } else {
       if (el.btnEngineFlow) el.btnEngineFlow.classList.add("active");
       if (el.btnEngineGemini) el.btnEngineGemini.classList.remove("active", "gemini-active");
+
+      // 模型与标签切换为 Flow
+      updateModelOptions("flow", "veo-lite");
+      if (el.labelModelTitle) el.labelModelTitle.innerHTML = `<span class="icon">🤖</span> Google Flow 视频模型`;
+      if (el.badgeModelTag) {
+        el.badgeModelTag.textContent = "Google Flow";
+        el.badgeModelTag.style.background = "rgba(59,130,246,0.15)";
+        el.badgeModelTag.style.color = "#60a5fa";
+      }
 
       // 恢复 Flow 首尾帧模式
       if (el.dropEnd) el.dropEnd.style.display = "";
       if (el.btnSwapFrames) el.btnSwapFrames.style.display = "";
       if (el.dropStart) {
+        el.dropStart.classList.remove("gemini-single-card");
         const roleTag = el.dropStart.querySelector(".frame-role-tag");
         if (roleTag) roleTag.textContent = "首帧 (Start)";
         const dropTxt = el.placeholderStart.querySelector(".drop-text");
         if (dropTxt) dropTxt.textContent = "上传首帧图片";
         const dropSub = el.placeholderStart.querySelector(".drop-subtext");
-        if (dropSub) dropSub.textContent = "推荐 9:16 (如 720x1280)";
+        const asp = state.currentAspect || "16:9";
+        if (dropSub) dropSub.textContent = ASPECT_CONFIG[asp] ? ASPECT_CONFIG[asp].resHint : "推荐 16:9 (如 1280x720)";
       }
       if (el.stageHintText) {
-        el.stageHintText.textContent = "首帧 + 尾帧刚性约束 · 9:16 物理平滑运镜收束";
+        el.stageHintText.textContent = "💡 Google Flow 模式：首尾帧刚性物理约束，镜头从首帧开始平滑过渡并精确收束于尾帧。";
       }
       el.btnSubmitTask.textContent = "🚀 提交到 Flow 首尾帧生成队列";
       el.inputPrompt.placeholder = "描述从首帧到尾帧之间的运动轨迹、主体动作变化及镜头推拉摇移逻辑...";
     }
+    updateStageTitle();
   }
 
   if (el.btnEngineFlow) {
@@ -491,7 +651,14 @@ document.addEventListener("DOMContentLoaded", () => {
     el.aspectTagEnd.style.display = "none";
 
     el.inputPrompt.value = "";
-    showToast("表单已清空", "info");
+    setAspectRatio("16:9");
+    setDurationSec(8);
+    if (state.currentEngine === "gemini") {
+      updateModelOptions("gemini", "auto");
+    } else {
+      updateModelOptions("flow", "veo-lite");
+    }
+    showToast("表单已重置为默认规格 (16:9 / 8s / 默认模型)", "info");
   });
 
   // ==================== 提交生成任务 ====================
@@ -720,10 +887,13 @@ document.addEventListener("DOMContentLoaded", () => {
         const mLabel = t.model === "nano-pro" ? "Nano Banana Pro" : (t.model === "nano2" ? "Nano Banana 2" : (t.model === "imagen4" ? "Imagen 3.5" : (t.model || "Nano Pro")));
         engineBadge = `<span class="badge-task-image" style="margin-right:6px;">🖼️ ${escapeHtml(mLabel)}</span>`;
       } else if (t.engine === "gemini") {
-        engineBadge = `<span class="badge-engine-gemini" style="margin-right:6px;">🌐 Gemini 网页版</span>`;
+        const mLabel = t.model && t.model !== "auto" ? ` · ${t.model}` : "";
+        const aLabel = t.aspect_ratio ? ` · ${t.aspect_ratio}` : "";
+        engineBadge = `<span class="badge-engine-gemini" style="margin-right:6px;">🌐 Gemini${mLabel}${aLabel}</span>`;
       } else {
         const mLabel = t.model ? ` · ${t.model}` : "";
-        engineBadge = `<span class="badge-engine-flow" style="margin-right:6px;">🎬 Flow 首尾帧${mLabel}</span>`;
+        const aLabel = t.aspect_ratio ? ` · ${t.aspect_ratio}` : "";
+        engineBadge = `<span class="badge-engine-flow" style="margin-right:6px;">🎬 Flow${mLabel}${aLabel}</span>`;
       }
 
       // 质检人话化徽标
@@ -760,35 +930,37 @@ document.addEventListener("DOMContentLoaded", () => {
         watermarkClass = "qa-val-bad";
       }
 
-      // 智能异常提示展示
+      // 智能异常提示展示（仅失败任务展示，成功任务绝不展示异常信息）
       let errorNoticeHtml = "";
-      if (t.error_code === "AUTH_EXPIRED") {
-        errorNoticeHtml = `
-          <div style="margin-top:8px; padding:8px 10px; background:rgba(239,68,68,0.12); border-left:3px solid var(--red-err); border-radius:4px; font-size:12px; color:#fca5a5;">
-            <b>⚠️ 授权已失效 (401 UNAUTHORIZED)</b><br>
-            Google Flow / Gemini 会话凭据已过期。请前往【账号管理】点击<b>【🔑 登录 Flow】</b>或<b>【🌐 登录 Gemini】</b>完成重新授权。
-          </div>
-        `;
-      } else if (t.error_code === "QUOTA_EXHAUSTED") {
-        errorNoticeHtml = `
-          <div style="margin-top:8px; padding:8px 10px; background:rgba(245,158,11,0.12); border-left:3px solid var(--orange-warn); border-radius:4px; font-size:12px; color:#fde68a;">
-            <b>⚡ 账号额度耗尽</b><br>
-            原账号今日已用尽配额，系统已自动熔断冷却并将该任务无缝切换至下一个空闲账号。
-          </div>
-        `;
-      } else if (t.error_code === "RATE_LIMITED") {
-        errorNoticeHtml = `
-          <div style="margin-top:8px; padding:8px 10px; background:rgba(245,158,11,0.12); border-left:3px solid var(--orange-warn); border-radius:4px; font-size:12px; color:#fde68a;">
-            <b>⏳ 触发高频频控保护</b><br>
-            账号暂时触发 Google 异常活动限制，已自动切入 20 分钟休眠，任务已无缝移交。
-          </div>
-        `;
-      } else if (t.status === "failed" && t.error_message) {
-        errorNoticeHtml = `
-          <div style="margin-top:8px; padding:8px 10px; background:rgba(239,68,68,0.12); border-left:3px solid var(--red-err); border-radius:4px; font-size:12px; color:#fca5a5;">
-            ${escapeHtml(t.error_message.slice(0, 160))}
-          </div>
-        `;
+      if (t.status === "failed") {
+        if (t.error_code === "AUTH_EXPIRED") {
+          errorNoticeHtml = `
+            <div style="margin-top:8px; padding:8px 10px; background:rgba(239,68,68,0.12); border-left:3px solid var(--red-err); border-radius:4px; font-size:12px; color:#fca5a5;">
+              <b>⚠️ 授权已失效 (401 UNAUTHORIZED)</b><br>
+              Google Flow / Gemini 会话凭据已过期或未完成首次服务条款同意。请前往【账号管理】点击<b>【✨ 自动过协议】</b>或在 Chrome 中点一次【同意】后关闭。
+            </div>
+          `;
+        } else if (t.error_code === "QUOTA_EXHAUSTED") {
+          errorNoticeHtml = `
+            <div style="margin-top:8px; padding:8px 10px; background:rgba(245,158,11,0.12); border-left:3px solid var(--orange-warn); border-radius:4px; font-size:12px; color:#fde68a;">
+              <b>⚡ 账号额度耗尽</b><br>
+              原账号今日已用尽配额，系统已自动熔断冷却并将该任务无缝切换至下一个空闲账号。
+            </div>
+          `;
+        } else if (t.error_code === "RATE_LIMITED") {
+          errorNoticeHtml = `
+            <div style="margin-top:8px; padding:8px 10px; background:rgba(245,158,11,0.12); border-left:3px solid var(--orange-warn); border-radius:4px; font-size:12px; color:#fde68a;">
+              <b>⏳ 触发高频频控保护</b><br>
+              账号暂时触发 Google 异常活动限制，已自动切入 20 分钟休眠，任务已无缝移交。
+            </div>
+          `;
+        } else if (t.error_message) {
+          errorNoticeHtml = `
+            <div style="margin-top:8px; padding:8px 10px; background:rgba(239,68,68,0.12); border-left:3px solid var(--red-err); border-radius:4px; font-size:12px; color:#fca5a5;">
+              ${escapeHtml(t.error_message.slice(0, 160))}
+            </div>
+          `;
+        }
       }
 
       card.innerHTML = `
@@ -1335,6 +1507,32 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // ==================== 账号管理视图 ====================
+  const btnAutoAll = document.getElementById("btn-auto-onboard-all");
+  if (btnAutoAll) {
+    btnAutoAll.addEventListener("click", async () => {
+      btnAutoAll.disabled = true;
+      btnAutoAll.innerText = "⏳ 正在批量初始化...";
+      showToast("🚀 已开始后台批量处理所有未就绪账号的协议与默认工程...", "info");
+      try {
+        const resp = await fetch("/api/profiles/auto-onboard-all", { method: "POST" });
+        const d = await resp.json();
+        if (resp.ok) {
+          let succCount = (d.results || []).filter(r => r.result && r.result.success).length;
+          showToast(`✨ 批量初始化完成！成功激活 ${succCount} 个账号`, "success");
+        } else {
+          showToast("批量初始化失败", "error");
+        }
+      } catch (e) {
+        showToast("批量请求异常: " + e.message, "error");
+      } finally {
+        btnAutoAll.disabled = false;
+        btnAutoAll.innerText = "✨ 一键初始化全部账号";
+        fetchProfiles();
+        fetchOverview();
+      }
+    });
+  }
+
   el.btnRefreshProfiles.addEventListener("click", () => {
     triggerRefreshButton(el.btnRefreshProfiles, async () => {
       await fetchProfiles(true);
@@ -1399,9 +1597,12 @@ document.addEventListener("DOMContentLoaded", () => {
         </div>
 
         <div class="profile-bottom" style="display:flex; flex-direction:column; gap:8px;">
+          <button class="btn btn-primary btn-sm btn-auto-onboard" data-id="${p.id}" data-name="${p.name}" style="width:100%; background:linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); border:none; font-weight:600; color:#fff;" title="针对新添加账号：全自动模拟跳过一次性服务条款/欢迎弹窗，并自动创建默认工程">
+            ✨ 自动过协议与初始化
+          </button>
           <div style="display:flex; gap:6px; width:100%;">
-            <button class="btn btn-secondary btn-sm btn-login-flow" data-id="${p.id}" data-name="${p.name}" style="flex:1;" title="打开真实 Chrome 登录 Google Flow">
-              🔑 登录 Flow
+            <button class="btn btn-secondary btn-sm btn-login-flow" data-id="${p.id}" data-name="${p.name}" style="flex:1;" title="打开真实 Chrome 登录 Google Flow。若有弹窗点一次同意后关闭 Chrome 即可">
+              🔑 打开 Flow 点同意
             </button>
             <button class="btn btn-secondary btn-sm btn-login-gemini" data-id="${p.id}" data-name="${p.name}" style="flex:1;" title="打开真实 Chrome 登录 Gemini 网页版">
               🌐 登录 Gemini
@@ -1478,6 +1679,32 @@ document.addEventListener("DOMContentLoaded", () => {
       });
     });
 
+    // 绑定单账号自动过协议与初始化
+    container.querySelectorAll(".btn-auto-onboard").forEach(b => {
+      b.addEventListener("click", async () => {
+        const id = b.getAttribute("data-id");
+        const name = b.getAttribute("data-name");
+        b.disabled = true;
+        b.innerText = "⏳ 正在自动过协议...";
+        try {
+          const resp = await fetch("/api/profiles/" + id + "/auto-onboard", { method: "POST" });
+          const d = await resp.json();
+          if (resp.ok && d.success) {
+            showToast(d.message || "🎉 账号 [" + name + "] 协议同意与初始化成功，已就绪！", "success");
+          } else {
+            showToast(d.message || "自动过协议未能完全通过，可点击【🔑 打开 Flow 点同意】", "error");
+          }
+        } catch (e) {
+          showToast("初始化请求失败: " + e.message, "error");
+        } finally {
+          b.disabled = false;
+          b.innerText = "✨ 自动过协议与初始化";
+          fetchProfiles();
+          fetchOverview();
+        }
+      });
+    });
+
     // 绑定账号登录 Flow
     container.querySelectorAll(".btn-login-flow").forEach(b => {
       b.addEventListener("click", async () => {
@@ -1486,7 +1713,7 @@ document.addEventListener("DOMContentLoaded", () => {
         try {
           const resp = await fetch("/api/profiles/" + id + "/launch-login", { method: "POST" });
           if (resp.ok) {
-            showToast("已拉起 Google Flow 登录窗口 [" + name + "]，请在弹出的 Chrome 中登录并确认完成", "success");
+            showToast("已拉起 Chrome 窗口 [" + name + "]！若弹出【服务条款/欢迎使用】，点一次【同意/继续】后【关闭 Chrome 窗口】即可！", "success");
           } else {
             showToast("启动登录窗口失败", "error");
           }
@@ -2211,6 +2438,8 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // ==================== 初始化与自动轮询 ====================
+  setAspectRatio("16:9");
+  setDurationSec(8);
   applyEngineMode("flow");
   fetchOverview();
   fetchTasks();

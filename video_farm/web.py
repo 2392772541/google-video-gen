@@ -1,4 +1,5 @@
 from __future__ import annotations
+from .onboard import auto_onboard_profile
 import os
 import sys
 import time
@@ -394,12 +395,29 @@ def api_verify_auth(profile_id: str):
                         "message": f"🎉 验证成功！账号 [{p.name}] 授权有效 ({', '.join(status_parts)})，已重置为空闲就绪！"
                     }
                 else:
-                    db.update_profile_status(profile_id, status="auth_expired", cooldown_until=None, db_path=DB_PATH)
-                    return {
-                        "valid": False,
-                        "error_code": "AUTH_EXPIRED",
-                        "message": f"未检测到登录凭证，请点击【🌐 登录 Gemini】或【🔑 登录 Flow】完成 Google 账号登录。"
-                    }
+                    # 尝试自动消除一次性服务协议/引导弹窗并激活
+                    browser.close()
+                    onboard_res = auto_onboard_profile(p.name)
+                    if onboard_res.get("success"):
+                        db.update_profile_status(profile_id, status="idle", cooldown_until=None, db_path=DB_PATH)
+                        conn = db.get_db_connection(DB_PATH)
+                        try:
+                            with conn:
+                                conn.execute("UPDATE profiles SET cooldown_until = NULL WHERE id = ?", (profile_id,))
+                        finally:
+                            conn.close()
+                        return {
+                            "valid": True,
+                            "status": "idle",
+                            "message": f"🎉 自动完成服务条款同意与项目初始化！账号 [{p.name}] 已成功转为空闲就绪！"
+                        }
+                    else:
+                        db.update_profile_status(profile_id, status="auth_expired", cooldown_until=None, db_path=DB_PATH)
+                        return {
+                            "valid": False,
+                            "error_code": "AUTH_EXPIRED",
+                            "message": f"账号未检测到有效登录态或条款未同意。请点击【🔑 登录 Flow】在打开的 Chrome 中点击一次【同意/继续】，随后关闭 Chrome 即可。"
+                        }
             finally:
                 browser.close()
     except Exception as e:
@@ -415,6 +433,43 @@ def api_verify_auth(profile_id: str):
             "error_code": "VERIFY_ERROR",
             "message": f"探测登录态时发生异常: {e}"
         }
+
+
+@app.post("/api/profiles/{profile_id}/auto-onboard")
+def api_auto_onboard(profile_id: str):
+    p = db.get_profile_by_id(profile_id, DB_PATH)
+    if not p:
+        raise HTTPException(status_code=404, detail="Profile未找到")
+    
+    res = auto_onboard_profile(p.name)
+    if res.get("success"):
+        db.update_profile_status(profile_id, status="idle", cooldown_until=None, db_path=DB_PATH)
+        conn = db.get_db_connection(DB_PATH)
+        try:
+            with conn:
+                conn.execute("UPDATE profiles SET cooldown_until = NULL WHERE id = ?", (profile_id,))
+        finally:
+            conn.close()
+    return res
+
+@app.post("/api/profiles/auto-onboard-all")
+def api_auto_onboard_all():
+    profiles = db.list_profiles(DB_PATH)
+    results = []
+    for p in profiles:
+        if p.status == "busy":
+            continue
+        res = auto_onboard_profile(p.name)
+        if res.get("success"):
+            db.update_profile_status(p.id, status="idle", cooldown_until=None, db_path=DB_PATH)
+            conn = db.get_db_connection(DB_PATH)
+            try:
+                with conn:
+                    conn.execute("UPDATE profiles SET cooldown_until = NULL WHERE id = ?", (p.id,))
+            finally:
+                conn.close()
+        results.append({"profile_id": p.id, "name": p.name, "result": res})
+    return {"results": results}
 
 @app.post("/api/profiles/{profile_id}/launch-gemini-login")
 def launch_gemini_login(profile_id: str):

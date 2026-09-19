@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Video Farm · 首尾帧视频工坊控制台</title>
-  <link rel="stylesheet" href="/static/style.css?v=20260919_v2">
+  <link rel="stylesheet" href="/static/style.css?v=20260919_v3">
 </head>
 <body>
   <!-- 顶部常驻导航栏 -->
@@ -376,19 +376,19 @@
         <!-- 首尾帧工作台 -->
         <div class="stage-panel">
           <div class="stage-title">
-            <span>🖼️ 首尾帧插值舞台 (9:16)</span>
+            <span id="stage-panel-title">🖼️ 首尾帧插值舞台 (16:9 横屏)</span>
             <span style="font-size:12px; color:var(--text-muted);">拖入图片或点击选择</span>
           </div>
 
           <div class="frames-stage-row">
             <!-- 首帧上传卡片 -->
-            <div class="drop-card" id="drop-start-frame">
+            <div class="drop-card aspect-16-9" id="drop-start-frame">
               <span class="frame-role-tag">首帧 (Start)</span>
-              <span class="aspect-check-tag" id="aspect-tag-start">9:16 ✓</span>
+              <span class="aspect-check-tag" id="aspect-tag-start">16:9 ✓</span>
               <div class="drop-placeholder" id="placeholder-start">
                 <span class="drop-icon">➕</span>
                 <span class="drop-text">上传首帧图片</span>
-                <span class="drop-subtext">推荐 9:16 (如 720x1280)</span>
+                <span class="drop-subtext">推荐 16:9 (如 1280x720)</span>
               </div>
               <img class="preview-img" id="img-preview-start" style="display:none;" alt="首帧预览">
               <input type="file" id="file-input-start" accept="image/*" style="display:none;">
@@ -400,13 +400,13 @@
             </button>
 
             <!-- 尾帧上传卡片 -->
-            <div class="drop-card" id="drop-end-frame">
+            <div class="drop-card aspect-16-9" id="drop-end-frame">
               <span class="frame-role-tag">尾帧 (End)</span>
-              <span class="aspect-check-tag" id="aspect-tag-end">9:16 ✓</span>
+              <span class="aspect-check-tag" id="aspect-tag-end">16:9 ✓</span>
               <div class="drop-placeholder" id="placeholder-end">
                 <span class="drop-icon">➕</span>
                 <span class="drop-text">上传尾帧图片</span>
-                <span class="drop-subtext">推荐 9:16 (如 720x1280)</span>
+                <span class="drop-subtext">推荐 16:9 (如 1280x720)</span>
               </div>
               <img class="preview-img" id="img-preview-end" style="display:none;" alt="尾帧预览">
               <input type="file" id="file-input-end" accept="image/*" style="display:none;">
@@ -435,41 +435,88 @@
             </div>
           </div>
 
+          <!-- 核心生成参数工具栏（一级直观展示） -->
+          <div class="core-params-section">
+            <div class="core-params-row">
+              <!-- 1. 画幅比例选择器 -->
+              <div class="param-card">
+                <div class="param-header">
+                  <label class="param-label"><span class="icon">📐</span> 画幅比例</label>
+                  <span class="param-badge" id="badge-aspect-info">16:9 横屏宽幅</span>
+                </div>
+                <div class="aspect-pill-group" id="aspect-pill-group">
+                  <button type="button" class="aspect-pill-btn active" data-aspect="16:9" title="16:9 横屏，适合宣传片、展厅、宽屏展示">
+                    <span class="aspect-icon-rect aspect-16-9"></span>
+                    <span class="aspect-name">16:9 横屏</span>
+                    <span class="aspect-desc">宣传片宽幅</span>
+                  </button>
+                  <button type="button" class="aspect-pill-btn" data-aspect="9:16" title="9:16 竖屏，适合抖音、小红书、手机短视频">
+                    <span class="aspect-icon-rect aspect-9-16"></span>
+                    <span class="aspect-name">9:16 竖屏</span>
+                    <span class="aspect-desc">短视频/手机</span>
+                  </button>
+                  <button type="button" class="aspect-pill-btn" data-aspect="1:1" title="1:1 方形，适合产品细节与电商特写">
+                    <span class="aspect-icon-rect aspect-1-1"></span>
+                    <span class="aspect-name">1:1 方形</span>
+                    <span class="aspect-desc">产品特写</span>
+                  </button>
+                </div>
+                <!-- 隐藏的 select 控件保证最大兼容 -->
+                <select class="select-control" id="select-aspect" style="display:none;">
+                  <option value="16:9" selected>16:9 (横屏宽幅 · 宣传片标准)</option>
+                  <option value="9:16">9:16 (竖屏短视频)</option>
+                  <option value="1:1">1:1 (方形特写)</option>
+                </select>
+              </div>
+
+              <!-- 2. 视频时长选择 -->
+              <div class="param-card">
+                <div class="param-header">
+                  <label class="param-label"><span class="icon">⏱️</span> 生成时长</label>
+                  <span class="param-badge" id="badge-duration-info">8 秒 (推荐)</span>
+                </div>
+                <div class="duration-pill-group" id="duration-pill-group">
+                  <button type="button" class="duration-pill-btn" data-sec="4">4s</button>
+                  <button type="button" class="duration-pill-btn" data-sec="6">6s</button>
+                  <button type="button" class="duration-pill-btn active" data-sec="8">8s (推荐)</button>
+                  <button type="button" class="duration-pill-btn" data-sec="10">10s</button>
+                </div>
+                <!-- 隐藏的 select 控件保证最大兼容 -->
+                <select class="select-control" id="select-duration" style="display:none;">
+                  <option value="4">4 秒</option>
+                  <option value="6">6 秒</option>
+                  <option value="8" selected>8 秒 (标准推荐)</option>
+                  <option value="10">10 秒</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- 3. AI 生成模型选择（双引擎动态联动） -->
+            <div class="param-card" style="margin-top:2px;">
+              <div class="param-header">
+                <label class="param-label" id="label-model-title"><span class="icon">🤖</span> AI 视频模型</label>
+                <span class="param-badge" id="badge-model-tag" style="background:rgba(59,130,246,0.15); color:#60a5fa;">Google Flow</span>
+              </div>
+              <select class="highlight-select" id="select-video-model">
+                <option value="veo-lite" selected>Veo 3.1 Lite (推荐 · 经济稳定 · 默认)</option>
+                <option value="veo-quality">Veo 3.1 Quality (高精画质 · 商业旗舰)</option>
+                <option value="veo-fast">Veo 3.1 Fast (快速响应模式)</option>
+                <option value="omni-flash">Omni Flash (支持首尾帧 · 解锁10秒)</option>
+                <option value="veo-lite-lp">Veo 3.1 Lite LP (低功耗备份)</option>
+              </select>
+              <div class="model-hint-text" id="model-desc-hint" style="font-size:11px; color:var(--text-muted); margin-top:2px;">
+                ⚡ Google Flow 模式：采用 Veo 3.1 物理模拟运镜，支持首尾帧硬约束收束
+              </div>
+            </div>
+          </div>
+
           <!-- 折叠高级设置 -->
-          <div class="advanced-accordion">
+          <div class="advanced-accordion" style="margin-top:8px;">
             <div class="accordion-title" id="accordion-toggle-adv">
-              <span>⚙️ 高级生成参数 (画幅、时长、账号偏好)</span>
+              <span>⚙️ 更多高级策略 (调度优先级、指定账号、去水印要求)</span>
               <span id="adv-arrow">▼</span>
             </div>
             <div class="accordion-body" id="accordion-body-adv" style="display:none;">
-                <div class="field-group">
-                  <label for="select-video-model">Google Flow 视频模型</label>
-                  <select class="select-control" id="select-video-model">
-                    <option value="veo-lite" selected>Veo 3.1 Lite (推荐 · 经济稳定 · 默认)</option>
-                    <option value="veo-fast">Veo 3.1 Fast (快速响应模式)</option>
-                    <option value="veo-quality">Veo 3.1 Quality (高精画质)</option>
-                    <option value="omni-flash">Omni Flash (支持首尾帧 · 解锁10秒)</option>
-                    <option value="veo-lite-lp">Veo 3.1 Lite LP</option>
-                  </select>
-                </div>
-              <div class="field-group">
-                <label>画幅比例</label>
-                <select class="select-control" id="select-aspect">
-                  <option value="16:9" selected>16:9 (横屏宽幅 · 宣传片标准)</option>
-                  <option value="9:16">9:16 (竖屏短视频)</option>
-                </select>
-              </div>
-
-              <div class="field-group">
-                <label>生成视频时长</label>
-                <select class="select-control" id="select-duration">
-                  <option value="8" selected>8 秒 (标准推荐)</option>
-                  <option value="6">6 秒</option>
-                  <option value="10">10 秒</option>
-                  <option value="4">4 秒</option>
-                </select>
-              </div>
-
               <div class="field-group">
                 <label>任务优先级</label>
                 <select class="select-control" id="select-priority">
@@ -673,13 +720,16 @@
         </div>
         <div style="display:flex; gap:10px;">
           <button class="btn btn-primary btn-sm" id="btn-open-add-profile">➕ 添加新账号</button>
+          <button class="btn btn-secondary btn-sm" id="btn-auto-onboard-all" style="background:linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); color:#fff; border:none; font-weight:600;" title="对所有未就绪账号自动跳过一次性服务条款并初始化默认工程">✨ 一键初始化全部账号</button>
           <button class="btn btn-secondary btn-sm" id="btn-refresh-profiles">🔄 刷新状态</button>
         </div>
       </div>
 
       
       <div style="background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; font-size: 13px; line-height: 1.6; color: #bfdbfe;">
-        <strong>💡 账号使用指引：</strong> 点击【🔑 登录 Flow】或【🌐 登录 Gemini】后会在桌面拉起独立 Chrome 窗口。登录成功后，<strong>请务必关闭该 Chrome 窗口</strong>（Windows 独占锁解除后系统才能自动接管并生成视频）。如果发现账号显示锁定或异常，可点击卡片上的【🔍 验证登录】或【⏹ 关占用 Chrome】进行一键解除。
+        <strong>💡 首次使用与一次性协议说明：</strong> 新账号第一次进入 Google Flow 或 Gemini 时，Google 会弹出《服务条款/欢迎使用》等一次性协议。这种同意<strong>终生只需点一次</strong>！您可以：
+        <br>① 优先点击卡片上的<strong>【✨ 自动过协议】</strong>由系统后台自动模拟点击同意并建好默认项目；
+        <br>② 或点击<strong>【🔑 登录 Flow】</strong>在弹出的 Chrome 中亲手点一次【同意/继续】，随后<strong>关闭 Chrome 窗口</strong>（释放 Windows 独占锁后自动化才能接管）。
       </div>
 
       <div class="profiles-grid" id="profiles-container">
@@ -862,7 +912,7 @@
   <!-- Toast 悬浮提示架 -->
   <div class="toast-shelf" id="toast-shelf"></div>
 
-  <script src="/static/app.js?v=20260919_v2"></script>
+  <script src="/static/app.js?v=20260919_v3"></script>
 </body>
 </html>
 
