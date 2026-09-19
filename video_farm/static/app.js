@@ -77,6 +77,7 @@ document.addEventListener("DOMContentLoaded", () => {
     btnSubmitTask: document.getElementById("btn-submit-task"),
     btnResetForm: document.getElementById("btn-reset-form"),
     selectVideoModel: document.getElementById("select-video-model"),
+    inputCustomModel: document.getElementById("input-custom-model"),
     stagePanelTitle: document.getElementById("stage-panel-title"),
     badgeAspectInfo: document.getElementById("badge-aspect-info"),
     badgeDurationInfo: document.getElementById("badge-duration-info"),
@@ -260,12 +261,17 @@ document.addEventListener("DOMContentLoaded", () => {
       { value: "veo-quality", label: "Veo 3.1 Quality (高精画质 · 商业旗舰)", desc: "更高分辨率与材质细节，适合高质感商业产品展示与宣传片" },
       { value: "veo-fast", label: "Veo 3.1 Fast (快速响应模式)", desc: "出片速度优先，适合快速调试分镜、镜头轨迹与动态" },
       { value: "omni-flash", label: "Omni Flash (首尾帧支持 · 解锁10秒)", desc: "支持10秒长镜头生成，首尾帧过渡连贯，多场景运动平滑" },
-      { value: "veo-lite-lp", label: "Veo 3.1 Lite LP (低功耗备份)", desc: "备用轻量模型，额度或并发紧张时自动分流" }
+      { value: "veo-lite-lp", label: "Veo 3.1 Lite LP (低功耗备份)", desc: "备用轻量模型，额度或并发紧张时自动分流" },
+      { value: "custom", label: "🛠️ 自定义模型代码 (手动指定)...", desc: "自由输入任意已在 Google Flow 开放的内部模型代号" }
     ],
     gemini: [
-      { value: "auto", label: "Auto 智能优选 (官方推荐 · 默认)", desc: "根据提示词与参考图由 Gemini 网页对话框自动分流匹配最佳 Veo 引擎" },
-      { value: "gemini-2.5-flash", label: "Gemini 2.5 Flash (疾速出片 · 快速响应)", desc: "官方对话框极速响应，适合快速生成视频预览" },
-      { value: "gemini-2.5-pro", label: "Gemini 2.5 Pro (画质与光影增强 · 旗舰)", desc: "更强语义理解与材质逼真度，适合复杂多主体场景" }
+      { value: "auto", label: "✨ Auto 智能优选 (官方推荐 · 全自动分流)", desc: "由 Gemini 官方算法根据提示词与输入素材，自动分流匹配最佳 Veo 视频引擎" },
+      { value: "gemini-3.8-flash", label: "Gemini 3.8 Flash (疾速响应 · 推荐高频版)", desc: "最新 3.8 代高频极速多模态模型，响应极快，高画质生成与高效预览" },
+      { value: "gemini-3.8-pro", label: "Gemini 3.8 Pro / Advanced (画质与光影增强 · 商业旗舰)", desc: "最新 3.8 代旗舰架构，超强多模态理解与物理规律模拟，适合高质感视频与复杂镜头" },
+      { value: "gemini-3.8-thinking", label: "Gemini 3.8 Flash Thinking (深度物理推演 · 连贯动作)", desc: "具备深度思维链推演能力，强化镜头运动稳定性与物理逻辑一致性" },
+      { value: "gemini-3.0-flash", label: "Gemini 3.0 Flash (经典极速标准版)", desc: "经典 3.0 标准版模型，快速响应日常出片任务" },
+      { value: "gemini-3.0-pro", label: "Gemini 3.0 Pro (高精画质稳定版)", desc: "经典 3.0 旗舰基座，多模态综合能力均衡" },
+      { value: "custom", label: "🛠️ 自定义模型代码 (手动指定)...", desc: "支持输入任意前沿 Gemini 模型代号 (如 gemini-3.8-flash-preview 等)" }
     ]
   };
 
@@ -293,6 +299,14 @@ document.addEventListener("DOMContentLoaded", () => {
     const found = models.find(m => m.value === curVal);
     if (found) {
       el.modelDescHint.textContent = `⚡ ${found.desc}`;
+    }
+    if (el.inputCustomModel) {
+      if (curVal === "custom") {
+        el.inputCustomModel.style.display = "block";
+        el.inputCustomModel.focus();
+      } else {
+        el.inputCustomModel.style.display = "none";
+      }
     }
   }
 
@@ -399,6 +413,10 @@ document.addEventListener("DOMContentLoaded", () => {
         el.badgeModelTag.style.color = "#34d399";
       }
 
+      if (el.inputCustomModel) {
+        el.inputCustomModel.value = "";
+        el.inputCustomModel.style.display = "none";
+      }
       // 调整舞台显示：隐藏尾帧，首帧标为参考图
       if (el.dropEnd) el.dropEnd.style.display = "none";
       if (el.btnSwapFrames) el.btnSwapFrames.style.display = "none";
@@ -651,6 +669,10 @@ document.addEventListener("DOMContentLoaded", () => {
     el.aspectTagEnd.style.display = "none";
 
     el.inputPrompt.value = "";
+    if (el.inputCustomModel) {
+      el.inputCustomModel.value = "";
+      el.inputCustomModel.style.display = "none";
+    }
     setAspectRatio("16:9");
     setDurationSec(8);
     if (state.currentEngine === "gemini") {
@@ -681,7 +703,11 @@ document.addEventListener("DOMContentLoaded", () => {
     formData.append("priority", el.selectPriority.value);
     formData.append("require_clean_watermark", el.checkRequireClean.checked);
     if (el.selectVideoModel) {
-      formData.append("model", el.selectVideoModel.value);
+      let chosenModel = el.selectVideoModel.value;
+      if (chosenModel === "custom" && el.inputCustomModel && el.inputCustomModel.value.trim()) {
+        chosenModel = el.inputCustomModel.value.trim();
+      }
+      formData.append("model", chosenModel);
     }
 
     if (state.startFile) {

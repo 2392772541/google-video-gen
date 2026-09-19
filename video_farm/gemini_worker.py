@@ -183,6 +183,27 @@ class GeminiWebWorker:
                         if prefix:
                             final_prompt = f"{prefix}{final_prompt}"
 
+                        model_info = getattr(task, "model", "auto") or "auto"
+                        # 如果指定了具体模型（如 gemini-3.8-pro / gemini-3.8-flash），尝试在页面切换模型
+                        if model_info and model_info != "auto":
+                            try:
+                                model_btn = page.query_selector('button[aria-label*="model"], button[aria-label*="Model"], button[aria-label*="模型"], [data-test-id="model-selector-button"], .model-picker-trigger')
+                                if model_btn and model_btn.is_visible():
+                                    logs.append(f"检测到 Gemini 页面模型切换入口，尝试匹配目标模型 [{model_info}] ...")
+                                    model_btn.click()
+                                    page.wait_for_timeout(800)
+                                    kw = "3.8" if "3.8" in model_info else ("pro" if "pro" in model_info.lower() else ("flash" if "flash" in model_info.lower() else model_info))
+                                    opt_el = page.query_selector(f'[role="menuitem"]:has-text("{kw}"), [role="option"]:has-text("{kw}"), button:has-text("{kw}")')
+                                    if opt_el and opt_el.is_visible():
+                                        opt_el.click()
+                                        logs.append(f"已成功切换模型至目标模式 [{kw}]")
+                                        page.wait_for_timeout(800)
+                                    else:
+                                        logs.append(f"模型下拉选项中未直接匹配到 [{kw}]，已关闭菜单并继续采用当前账号就绪模型")
+                                        page.keyboard.press("Escape")
+                            except Exception as me:
+                                logs.append(f"尝试切换模型时提示 (不阻断主流程): {me}")
+
                         input_el.click()
                         input_el.fill(final_prompt)
                         model_info = getattr(task, "model", "auto") or "auto"
