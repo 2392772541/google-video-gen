@@ -1105,7 +1105,7 @@ class SmartPipelineReq(BaseModel):
     material_dir: Optional[str] = None
     image_paths: Optional[List[str]] = None
     script_text: Optional[str] = None
-    mode: str = "ai_commercial"  # ai_commercial | storyboard_motion | media_montage
+    mode: str = "custom"  # custom | ai_commercial | storyboard_motion | media_montage | veo_raw | post_wrap
     aspect_ratio: str = "16:9"   # 16:9 | 9:16 | 1:1
     duration_mode: str = "auto"  # auto | fixed
     total_duration: float = 30.0
@@ -1114,7 +1114,9 @@ class SmartPipelineReq(BaseModel):
     bgm_mode: str = "auto"       # auto | none | custom
     bgm_path: Optional[str] = None
     subtitle_mode: str = "auto"  # auto | none
-    engine_choice: str = "local" # local | flow_veo | gemini
+    engine_choice: str = "local" # local | flow_veo | gemini | direct_cut
+    grid_crop: Optional[bool] = None
+    enable_inspect: bool = True
     shots_override: Optional[List[Dict[str, Any]]] = None
 
 @app.post("/api/pipeline/smart-run")
@@ -1195,6 +1197,8 @@ def api_pipeline_smart_run(req: SmartPipelineReq):
         voice_name=req.voice_name,
         bgm_path=final_bgm,
         subtitle_mode=req.subtitle_mode,
+        engine_choice=req.engine_choice,
+        grid_crop=req.grid_crop,
         output_master_mp4=out_mp4,
         work_dir=work_dir,
         user_shots_override=req.shots_override

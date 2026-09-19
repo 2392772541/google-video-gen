@@ -235,7 +235,9 @@ class TimelineEngine:
             preset = motion_presets[preset_idx % len(motion_presets)]
             ptype = preset["type"]
 
-            if ptype == "zoom_in":
+            if shot.visual.provider == "direct_cut":
+                vf = f"scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,fps={fps}"
+            elif ptype == "zoom_in":
                 s0, s1 = preset["s_start"], preset["s_end"]
                 vf = f"scale='iw*({s0}+({s1}-{s0})*t/{dur_sec})':'ih*({s0}+({s1}-{s0})*t/{dur_sec})':eval=frame,crop={w}:{h}:'(in_w-{w})/2':'(in_h-{h})/2',fps={fps}"
             elif ptype == "zoom_out":
@@ -517,6 +519,19 @@ class StoryboardPipeline:
         self.crops_dir.mkdir(parents=True, exist_ok=True)
         self.log = self.engine.log
 
+    def prepare_adaptive_images(
+        self,
+        image_paths: List[Path | str],
+        force_crop_grid: bool = False,
+        target_res: tuple = (1920, 1080)
+    ) -> List[Path]:
+        valid_paths = [Path(p) for p in image_paths if Path(p).exists()]
+        if not valid_paths:
+            return []
+        if force_crop_grid:
+            return self.auto_crop_grid_images(valid_paths, rows=2, cols=3, target_res=target_res)
+        return valid_paths
+
     def auto_crop_grid_images(
         self,
         grid_image_paths: List[Path | str],
@@ -604,7 +619,7 @@ def start_storyboard_pipeline_async(
 def start_smart_pipeline_async(
     image_paths: List[str | Path],
     script_sentences: Optional[List[str]] = None,
-    mode: str = "ai_commercial",
+    mode: str = "custom",
     aspect_ratio: str = "16:9",
     duration_mode: str = "auto",
     total_duration: float = 30.0,
@@ -612,6 +627,8 @@ def start_smart_pipeline_async(
     voice_name: str = "zh-CN-YunxiNeural",
     bgm_path: Optional[str | Path] = None,
     subtitle_mode: str = "auto",
+    engine_choice: str = "local",
+    grid_crop: Optional[bool] = None,
     output_master_mp4: Optional[str | Path] = None,
     work_dir: Optional[str | Path] = None,
     user_shots_override: Optional[List[Dict[str, Any]]] = None
@@ -622,7 +639,8 @@ def start_smart_pipeline_async(
     res_map = {"16:9": (1920, 1080), "9:16": (1080, 1920), "1:1": (1080, 1080)}
     target_res = res_map.get(aspect_ratio, (1920, 1080))
     sb = StoryboardPipeline(work_dir)
-    force_crop = (mode == "storyboard_motion")
+    force_crop = grid_crop if grid_crop is not None else (mode == "storyboard_motion")
+    provider = "direct_cut" if engine_choice == "direct_cut" else ("veo" if engine_choice == "flow_veo" else "ken_burns")
     processed_imgs = sb.prepare_adaptive_images(image_paths, force_crop_grid=force_crop, target_res=target_res)
     if not processed_imgs and not user_shots_override:
         raise ValueError("没有可用的图片或镜头素材")
@@ -640,7 +658,7 @@ def start_smart_pipeline_async(
                 id=f"shot_{idx+1:02d}",
                 duration=dur,
                 timing_policy="voice_driven" if (voice_mode != "none" and duration_mode == "auto") else "fixed",
-                visual=VisualConfig(provider="ken_burns", start_image=str(img_p), motion_preset=motion),
+                visual=VisualConfig(provider=provider, start_image=str(img_p), motion_preset=motion),
                 voice_text=txt,
                 subtitle_text=txt
             ))
@@ -658,7 +676,7 @@ def start_smart_pipeline_async(
                 id=f"shot_{idx+1:02d}",
                 duration=base_dur,
                 timing_policy="voice_driven" if (voice_mode != "none" and duration_mode == "auto") else "fixed",
-                visual=VisualConfig(provider="ken_burns", start_image=str(cp), motion_preset=motion),
+                visual=VisualConfig(provider=provider, start_image=str(cp), motion_preset=motion),
                 voice_text=txt,
                 subtitle_text=txt
             ))
