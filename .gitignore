@@ -57,3 +57,12 @@ gflow-cli/
 MotionClone/
 video-talkcraft/
 astra-skills-optimization-20260912/
+# 6. 临时切图、调试图与临时构建目录
+build_6ba/
+temp_crops/
+temp_crops_16x9/
+temp_tts/
+debug_diff_*.png
+debug_diff.png
+test_85_rgba.png
+test_shot.mp4

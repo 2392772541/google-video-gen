@@ -1759,7 +1759,10 @@ document.addEventListener("DOMContentLoaded", () => {
             material_dir: matDir,
             script_text: scriptText,
             target_duration: duration,
-            bgm_path: bgmPath || null
+            bgm_path: bgmPath || null,
+            analysis_strategy: document.getElementById("pipe-strategy") ? document.getElementById("pipe-strategy").value : "AUTO",
+            voice_mode: document.getElementById("pipe-voice-mode") ? document.getElementById("pipe-voice-mode").value : "auto",
+            subtitle_mode: document.getElementById("pipe-sub-mode") ? document.getElementById("pipe-sub-mode").value : "auto"
           })
         });
         const data = await res.json();

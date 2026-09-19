@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 import os
 import sys
 import time
@@ -895,7 +895,8 @@ def get_system_info():
 # ==========================================
 # Production Pipeline (全自动流水线 API)
 # ==========================================
-from .pipeline import PIPELINE_MANAGER, start_storyboard_pipeline_async
+from .pipeline import PIPELINE_MANAGER, start_storyboard_pipeline_async, start_timeline_pipeline_async
+from .timeline_spec import TimelineSpec, IntentDetector
 
 class StoryboardPipelineReq(BaseModel):
     material_dir: Optional[str] = None
@@ -904,6 +905,10 @@ class StoryboardPipelineReq(BaseModel):
     bgm_path: Optional[str] = None
     target_duration: float = 45.0
     output_name: Optional[str] = "master_video_1080p.mp4"
+    analysis_strategy: Optional[str] = "AUTO"   # AUTO | PASSTHROUGH | REPLAN
+    voice_mode: Optional[str] = "auto"          # auto | none | tts
+    subtitle_mode: Optional[str] = "auto"       # auto | none | forced
+    aspect_ratio: Optional[str] = "16:9"        # 16:9 | 9:16
 
 @app.post("/api/pipeline/storyboard/run")
 def api_run_storyboard_pipeline(req: StoryboardPipelineReq):
@@ -926,6 +931,14 @@ def api_run_storyboard_pipeline(req: StoryboardPipelineReq):
                             img_list.append(str(p.resolve()))
                 if img_list:
                     break
+            
+            # 如果 candidate_dirs 没找到，自动递归深层查找
+            if not img_list and mat_dir.exists():
+                for ext in ("*.png", "*.jpg", "*.jpeg", "*.webp"):
+                    for p in mat_dir.rglob(ext):
+                        ps = str(p).lower()
+                        if "output" not in ps and "temp" not in ps and "build" not in ps:
+                            img_list.append(str(p.resolve()))
             
             # 只保留故事板大图或主要图片
             img_list = sorted(list(set(img_list)))
@@ -970,15 +983,44 @@ def api_run_storyboard_pipeline(req: StoryboardPipelineReq):
     work_dir.mkdir(parents=True, exist_ok=True)
     out_mp4 = out_dir / (req.output_name or "master_video_1080p.mp4")
 
+    # 多分支模式适配
+    final_script = script_lines
+    if req.voice_mode == "none":
+        final_script = []  # 纯音乐无配音模式：彻底关闭TTS
+
     job_id = start_storyboard_pipeline_async(
         grid_images=img_list,
-        script_sentences=script_lines,
+        script_sentences=final_script,
         bgm_path=req.bgm_path,
         output_master_mp4=out_mp4,
         work_dir=work_dir,
         total_duration=req.target_duration
     )
     return {"status": "ok", "job_id": job_id, "output_path": str(out_mp4)}
+
+
+class PipelineInspectReq(BaseModel):
+    target_path: str
+    user_instruction: Optional[str] = None
+
+@app.post("/api/pipeline/inspect")
+def api_pipeline_inspect(req: PipelineInspectReq):
+    p = Path(req.target_path)
+    if not p.exists():
+        raise HTTPException(status_code=404, detail="指定素材路径不存在")
+    report = IntentDetector.inspect_input(p, req.user_instruction)
+    return {"status": "ok", "report": report}
+
+@app.post("/api/pipeline/timeline/run")
+def api_pipeline_timeline_run(spec: TimelineSpec):
+    work_dir = DATA_DIR / f"pipeline_{spec.project_id}"
+    work_dir.mkdir(parents=True, exist_ok=True)
+    if not spec.output_master_path:
+        out_dir = OUTPUTS_DIR / "pipeline_masters"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        spec.output_master_path = str(out_dir / f"{spec.project_id}_master.mp4")
+    job_id = start_timeline_pipeline_async(spec, work_dir)
+    return {"status": "ok", "job_id": job_id, "output_path": spec.output_master_path}
 
 @app.get("/api/pipeline/jobs")
 def api_list_pipeline_jobs():

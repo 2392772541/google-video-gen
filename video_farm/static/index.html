@@ -94,7 +94,7 @@
                 <label style="display: block; font-size: 13px; font-weight: 600; color: #e2e8f0; margin-bottom: 6px;">
                   📁 素材文件夹绝对路径 (包含分镜图片/大图/文案)
                 </label>
-                <input type="text" id="pipe-mat-dir" class="form-input" style="width: 100%; padding: 10px 12px; font-family: monospace; font-size: 13px;" placeholder="例如: E:\IDM下载\压缩\6BA_45s_science_video_package\6BA_45s_video_package" value="E:\IDM下载\压缩\6BA_45s_science_video_package\6BA_45s_video_package">
+                <input type="text" id="pipe-mat-dir" class="form-input" style="width: 100%; padding: 10px 12px; font-family: monospace; font-size: 13px;" placeholder="例如: E:\IDM下载\压缩\6BA_45s_science_video_package\6BA_45s_video_package" value="">
                 <div style="font-size: 11px; color: #94a3b8; margin-top: 4px;">系统将自动识别目录内的六宫格图片、普通图片与 voice.txt / script.txt。</div>
               </div>
 
@@ -117,7 +117,41 @@
                 </div>
                 <div>
                   <label style="display: block; font-size: 13px; font-weight: 600; color: #e2e8f0; margin-bottom: 6px;">🎵 背景音乐 (BGM)</label>
-                  <input type="text" id="pipe-bgm-path" class="form-input" style="width: 100%; padding: 8px 12px; font-size: 12px;" value="E:\公司素材\音乐素材\未来先行 音乐\纪录片配乐-完整版.mp3" placeholder="可选 MP3 音乐绝对路径">
+                  <input type="text" id="pipe-bgm-path" class="form-input" style="width: 100%; padding: 8px 12px; font-size: 12px;" value="" placeholder="可选 MP3 音乐绝对路径">
+                </div>
+              </div>
+
+              <!-- 整体生产多分支控制矩阵 (全要素自适应) -->
+              <div style="background: rgba(30, 41, 59, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 6px; padding: 12px; margin-bottom: 16px;">
+                <div style="font-size: 12px; font-weight: 600; color: #94a3b8; margin-bottom: 8px; display: flex; justify-content: space-between;">
+                  <span>⚙️ 流程分支策略控制</span>
+                  <span style="color: #38bdf8;">多模式自由组合</span>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px;">
+                  <div>
+                    <label style="display: block; font-size: 12px; color: #cbd5e1; margin-bottom: 4px;">🔍 分析策略</label>
+                    <select id="pipe-strategy" class="form-input" style="width: 100%; padding: 6px 8px; font-size: 12px;">
+                      <option value="AUTO" selected>🤖 自动智能研判</option>
+                      <option value="PASSTHROUGH">⚡ 直通执行 (不分析)</option>
+                      <option value="REPLAN">🧠 深度全案规划</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style="display: block; font-size: 12px; color: #cbd5e1; margin-bottom: 4px;">🎙️ 配音分支</label>
+                    <select id="pipe-voice-mode" class="form-input" style="width: 100%; padding: 6px 8px; font-size: 12px;">
+                      <option value="auto" selected>✨ 自动检测</option>
+                      <option value="none">🎵 纯音乐 (无配音)</option>
+                      <option value="tts">🗣️ 强制播音级配音</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style="display: block; font-size: 12px; color: #cbd5e1; margin-bottom: 4px;">📝 字幕分支</label>
+                    <select id="pipe-sub-mode" class="form-input" style="width: 100%; padding: 6px 8px; font-size: 12px;">
+                      <option value="auto" selected>✨ 自动跟随配音</option>
+                      <option value="none">🔕 纯净无字幕</option>
+                      <option value="forced">🎬 强制电影级字幕</option>
+                    </select>
+                  </div>
                 </div>
               </div>
 
