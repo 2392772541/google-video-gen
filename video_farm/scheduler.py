@@ -51,6 +51,17 @@ def classify_failure(err_code: str, err_msg: str, logs: str) -> tuple[str, str, 
             False
         )
 
+    # 0.8 工程未初始化或新条款阻断（可自愈错误，绝不能判定为账号失效封禁24小时）
+    if any(k in content for k in [
+        "createproject", "projectnotfound", "failed to create project", "project not found", "no project specified"
+    ]):
+        return (
+            "PROJECT_INIT_REQUIRED",
+            "账号尚未初始化专属 Flow 工程或协议未同意，已触发自愈就绪",
+            10,
+            False
+        )
+
     # 1. 授权失效 / 未登录 (401 Unauthorized, Session Expired, etc.)
     if code_up == "AUTH_EXPIRED" or any(k in content for k in [
         "auth_expired", "authexpirederror", "auth-expired", "authentication expired",
@@ -230,6 +241,38 @@ class VideoScheduler:
                     )
                     db.log_task_event(task_id, "TASK_FAILED", f"❌ {friendly_msg}", db_path=self.db_path)
                     print(f"[{thread_name}] ❌ 任务 [{task_id}] 特性不支持直接标记失败: {friendly_msg}")
+                    return
+
+                if category == "PROJECT_INIT_REQUIRED":
+                    # 工程未初始化或新条款阻断：触发自愈，账号保持 idle，任务重新放回队列自动换号或等待自愈
+                    db.update_profile_status(
+                        profile_id=profile_id,
+                        status="idle",
+                        cooldown_until=None,
+                        success=False,
+                        db_path=self.db_path
+                    )
+                    db.update_task_status(
+                        task_id=task_id,
+                        status="queued",
+                        clear_assigned_profile=True,
+                        error_code=category,
+                        error_message=friendly_msg,
+                        logs=logs,
+                        db_path=self.db_path
+                    )
+                    heal_msg = f"🔄 账号 [{profile.name}] 未绑定工程，已自动触发无头自愈初始化，任务已重新放回排队。"
+                    db.log_task_event(task_id, "AUTO_ONBOARD", heal_msg, db_path=self.db_path)
+                    print(f"[{thread_name}] {heal_msg}")
+                    try:
+                        from .onboard import auto_onboard_profile
+                        threading.Thread(
+                            target=lambda: auto_onboard_profile(profile.name, create_default_project=True),
+                            daemon=True,
+                            name=f"AsyncOnboard-{profile.name}"
+                        ).start()
+                    except Exception:
+                        pass
                     return
 
                 if category == "PROFILE_LOCKED":

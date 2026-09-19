@@ -220,3 +220,39 @@ def auto_onboard_profile(profile_name: str, create_default_project: bool = True)
             "actions": actions_taken,
             "message": f"账号 [{profile_name}] 尚未检测到完整登录凭据。请先点击【🔑 登录 Flow】或【🌐 登录 Gemini】在弹出的 Chrome 窗口中完成账号登录并点一次【同意】，关闭窗口即可。"
         }
+
+
+def get_profile_flow_project_id(profile_name: str) -> Optional[str]:
+    """快速从 gflow.db 查询指定 profile 是否已绑定 flow_project_id"""
+    try:
+        appdata = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
+        gflow_db = Path(appdata) / "ffroliva" / "gflow-cli" / "gflow.db"
+        if gflow_db.exists():
+            with sqlite3.connect(str(gflow_db)) as conn:
+                row = conn.execute(
+                    "SELECT flow_project_id FROM projects WHERE profile_name = ? ORDER BY rowid DESC LIMIT 1",
+                    (profile_name,)
+                ).fetchone()
+                if row and row[0]:
+                    return str(row[0]).strip()
+    except Exception as e:
+        print(f"[get_profile_flow_project_id] 查询 profile [{profile_name}] 工程异常: {e}")
+    return None
+
+def ensure_profile_onboarded(profile_name: str) -> Optional[str]:
+    """
+    全自动化前置防线：确保 profile 必定拥有 Flow 专属工程
+    1. 先从本地数据库秒级查询；若已有 project_id，立即返回；
+    2. 若未绑定，立即自动调用无头 auto_onboard_profile 进行协议确认并建立默认项目；
+    3. 成功后返回 project_id，确保 CLI 调度绝对不会报 401 闪退。
+    """
+    pid = get_profile_flow_project_id(profile_name)
+    if pid:
+        return pid
+
+    print(f"[ensure_profile_onboarded] Profile [{profile_name}] 尚未绑定工程，自动触发无头 Onboarding 自愈...")
+    res = auto_onboard_profile(profile_name, create_default_project=True)
+    if res.get("success") and res.get("project_id"):
+        return res["project_id"]
+
+    return get_profile_flow_project_id(profile_name)

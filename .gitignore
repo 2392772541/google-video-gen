@@ -66,3 +66,10 @@ debug_diff_*.png
 debug_diff.png
 test_85_rgba.png
 test_shot.mp4
+
+# 7. 临时运维脚本
+scripts/patch_*.py
+scripts/check_*.py
+scripts/read_*.py
+scripts/test_*.py
+scripts/apply_*.py

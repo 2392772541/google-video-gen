@@ -1592,6 +1592,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         <div class="profile-meta-list">
           <div class="meta-item"><span>水印特性</span>${wmBadge}</div>
+          <div class="meta-item"><span>Flow专属工程</span>${p.flow_project_id ? `<span style="font-size:11px; color:var(--green-ok); font-family:monospace; font-weight:600;">✅ 已绑定 (${p.flow_project_id.substring(0,8)}...)</span>` : `<span style="font-size:11px; color:var(--orange-warn);">⚠️ 待就绪 (任务运行自动自愈)</span>`}</div>
           <div class="meta-item"><span>上次成功</span><b>${p.last_success_at ? p.last_success_at.substring(0, 19).replace("T", " ") : "暂无"}</b></div>
           <div class="meta-item"><span>冷却截止</span>${cooldownInfo}</div>
         </div>

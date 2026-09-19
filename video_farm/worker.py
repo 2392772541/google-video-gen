@@ -196,6 +196,17 @@ class VideoWorker:
             except Exception as e:
                 print(f"[{worker_name}] 查找 profile [{profile.name}] 已有 project 异常: {e}")
 
+        # 前置铁壁防线：若数据库无工程记录，自动触发无头 Onboarding，保证绝不带着空工程导致 401 闪退
+        if not project_id:
+            try:
+                from .onboard import ensure_profile_onboarded
+                print(f"[{worker_name}] Profile [{profile.name}] 尚未绑定 Flow 专属工程，启动自动就绪 (Auto-Onboarding)...")
+                project_id = ensure_profile_onboarded(profile.name) or ""
+                if project_id:
+                    print(f"[{worker_name}] Profile [{profile.name}] 自动就绪成功，绑定工程: [{project_id}]")
+            except Exception as e:
+                print(f"[{worker_name}] Profile [{profile.name}] 自动就绪异常: {e}")
+
         aspect = task.aspect_ratio or "16:9"
         if start_img and start_img.is_file():
             cmd = [
@@ -261,6 +272,45 @@ class VideoWorker:
                 }
 
             logs = f"=== PID: {pid} ===\n=== STDOUT ===\n{stdout}\n=== STDERR ===\n{stderr}"
+
+            if proc.returncode != 0:
+                # 运行时自愈与重试防线：若触发 401/工程丢失/新条款，现场无头自愈并自动重试一次
+                is_auth_or_proj_err = any(k in stderr.lower() for k in [
+                    'status": 401', '401 unauthorized', 'unauthorized', 'createproject', 'not to the flow app', 'project not found', 'projectnotfound'
+                ])
+                if is_auth_or_proj_err and not getattr(task, "_already_retried_onboard", False):
+                    print(f"[{worker_name}] 任务 [{task.id}] Profile [{profile.name}] 运行时捕获 401/工程未初始化，启动紧急自愈...")
+                    try:
+                        from .onboard import auto_onboard_profile
+                        onboard_res = auto_onboard_profile(profile.name, create_default_project=True)
+                        if onboard_res.get("success") and onboard_res.get("project_id"):
+                            new_pid = onboard_res["project_id"]
+                            print(f"[{worker_name}] 紧急自愈成功，获得新工程: [{new_pid}]，立即透明重试任务...")
+                            task._already_retried_onboard = True
+                            
+                            # 更新 cmd 中的 --project 参数
+                            new_cmd = list(cmd)
+                            if "--project" in new_cmd:
+                                idx = new_cmd.index("--project")
+                                new_cmd[idx + 1] = str(new_pid)
+                            else:
+                                # 插入在 prompt 前
+                                prompt_val = new_cmd.pop()
+                                new_cmd.extend(["--project", str(new_pid), prompt_val])
+                            
+                            proc = subprocess.Popen(
+                                new_cmd, cwd=str(self.gflow_dir), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                text=True, encoding="utf-8", errors="replace"
+                            )
+                            pid = proc.pid
+                            try:
+                                stdout, stderr = proc.communicate(timeout=self.timeout_sec)
+                            except subprocess.TimeoutExpired:
+                                proc.kill()
+                                stdout, stderr = proc.communicate()
+                            logs += f"\n=== RETRY PID: {pid} ===\n=== STDOUT ===\n{stdout}\n=== STDERR ===\n{stderr}"
+                    except Exception as re_err:
+                        print(f"[{worker_name}] 紧急自愈重试异常: {re_err}")
 
             if proc.returncode != 0:
                 err_code = f"EXIT_{proc.returncode}"
@@ -382,6 +432,17 @@ class VideoWorker:
             except Exception as e:
                 print(f"[{worker_name}] 查找 profile [{profile.name}] 已有 project 异常: {e}")
 
+        # 前置铁壁防线：若数据库无工程记录，自动触发无头 Onboarding，保证绝不带着空工程导致 401 闪退
+        if not project_id:
+            try:
+                from .onboard import ensure_profile_onboarded
+                print(f"[{worker_name}] Profile [{profile.name}] 尚未绑定 Flow 专属工程，启动自动就绪 (Auto-Onboarding)...")
+                project_id = ensure_profile_onboarded(profile.name) or ""
+                if project_id:
+                    print(f"[{worker_name}] Profile [{profile.name}] 自动就绪成功，绑定工程: [{project_id}]")
+            except Exception as e:
+                print(f"[{worker_name}] Profile [{profile.name}] 自动就绪异常: {e}")
+
         cmd = [
             str(self.python_bin),
             "-m", "gflow_cli",
@@ -430,6 +491,43 @@ class VideoWorker:
                 }
 
             logs = f"=== PID: {pid} ===\n=== STDOUT ===\n{stdout}\n=== STDERR ===\n{stderr}"
+
+            if proc.returncode != 0:
+                # 运行时自愈与重试防线：若生图触发 401/工程丢失/新条款，现场无头自愈并自动重试一次
+                is_auth_or_proj_err = any(k in stderr.lower() for k in [
+                    'status": 401', '401 unauthorized', 'unauthorized', 'createproject', 'not to the flow app', 'project not found', 'projectnotfound'
+                ])
+                if is_auth_or_proj_err and not getattr(task, "_already_retried_onboard", False):
+                    print(f"[{worker_name}] 生图任务 [{task.id}] Profile [{profile.name}] 运行时捕获 401/工程未初始化，启动紧急自愈...")
+                    try:
+                        from .onboard import auto_onboard_profile
+                        onboard_res = auto_onboard_profile(profile.name, create_default_project=True)
+                        if onboard_res.get("success") and onboard_res.get("project_id"):
+                            new_pid = onboard_res["project_id"]
+                            print(f"[{worker_name}] 紧急自愈成功，获得新工程: [{new_pid}]，立即透明重试生图任务...")
+                            task._already_retried_onboard = True
+                            
+                            new_cmd = list(cmd)
+                            if "--project" in new_cmd:
+                                idx = new_cmd.index("--project")
+                                new_cmd[idx + 1] = str(new_pid)
+                            else:
+                                prompt_val = new_cmd.pop()
+                                new_cmd.extend(["--project", str(new_pid), prompt_val])
+                            
+                            proc = subprocess.Popen(
+                                new_cmd, cwd=str(self.gflow_dir), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                text=True, encoding="utf-8", errors="replace"
+                            )
+                            pid = proc.pid
+                            try:
+                                stdout, stderr = proc.communicate(timeout=self.timeout_sec)
+                            except subprocess.TimeoutExpired:
+                                proc.kill()
+                                stdout, stderr = proc.communicate()
+                            logs += f"\n=== RETRY PID: {pid} ===\n=== STDOUT ===\n{stdout}\n=== STDERR ===\n{stderr}"
+                    except Exception as re_err:
+                        print(f"[{worker_name}] 生图紧急自愈重试异常: {re_err}")
 
             if proc.returncode != 0:
                 err_code = f"EXIT_{proc.returncode}"

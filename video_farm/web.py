@@ -71,6 +71,17 @@ def watch_chrome_login_exit(profile_id: str, profile_name: str, db_path: Path):
         time.sleep(5.0)
         while True:
             if not check_chrome_running_for_profile(profile_name):
+                print(f"[LoginWatcher] 检测到账号 [{profile_name}] 的 Chrome 登录窗口已关闭，正在启动后台全自动 Onboarding (协议确认与工程创建)...")
+                try:
+                    from .onboard import ensure_profile_onboarded
+                    bound_project = ensure_profile_onboarded(profile_name)
+                    if bound_project:
+                        print(f"[LoginWatcher] 账号 [{profile_name}] 协议与专属工程已全自动绑定完毕: [{bound_project}]")
+                    else:
+                        print(f"[LoginWatcher] 账号 [{profile_name}] 未能获取到工程，等待任务运行时自愈")
+                except Exception as oe:
+                    print(f"[LoginWatcher] 账号 [{profile_name}] 后台自动 Onboarding 警告: {oe}")
+
                 p = db.get_profile_by_id(profile_id, db_path)
                 if p and p.status in ("cooldown", "busy", "auth_expired"):
                     db.update_profile_status(profile_id, status="idle", cooldown_until=None, db_path=db_path)
@@ -78,7 +89,7 @@ def watch_chrome_login_exit(profile_id: str, profile_name: str, db_path: Path):
                     with conn:
                         conn.execute("UPDATE profiles SET cooldown_until = NULL WHERE id = ?", (profile_id,))
                     conn.close()
-                    print(f"[LoginWatcher] 检测到 Chrome 窗口已关闭，账号 [{profile_name}] 自动恢复为空闲就绪")
+                    print(f"[LoginWatcher] 账号 [{profile_name}] 状态已自动恢复为空闲就绪")
                 break
             time.sleep(3.0)
     t = threading.Thread(target=_worker, daemon=True, name=f"LoginWatcher-{profile_name}")
@@ -199,6 +210,7 @@ def get_profiles():
     mgr.scheduler.recover_cooldowns() if mgr.scheduler else None
     profiles = db.list_profiles(DB_PATH)
     res = []
+    from .onboard import get_profile_flow_project_id
     for p in profiles:
         human_status = "空闲"
         if not p.enabled:
@@ -214,6 +226,8 @@ def get_profiles():
         elif p.watermark_mode == "clean":
             human_status = "可用 (无水印)"
 
+        flow_proj_id = get_profile_flow_project_id(p.name)
+
         res.append({
             "id": p.id,
             "name": p.name,
@@ -221,6 +235,8 @@ def get_profiles():
             "status": p.status,
             "human_status": human_status,
             "watermark_mode": p.watermark_mode,
+            "flow_project_id": flow_proj_id,
+            "is_onboarded": bool(flow_proj_id),
             "enabled": p.enabled,
             "cooldown_until": p.cooldown_until,
             "last_success_at": p.last_success_at,
