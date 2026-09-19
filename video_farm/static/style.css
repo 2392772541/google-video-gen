@@ -1387,3 +1387,192 @@ body {
   pointer-events: none;
   opacity: 0.85;
 }
+
+
+/* ============================================================
+   智能视频生产工坊 (Smart Video Studio) 样式
+   ============================================================ */
+.studio-mode-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.studio-mode-card {
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 12px 10px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  user-select: none;
+}
+
+.studio-mode-card:hover {
+  border-color: rgba(59, 130, 246, 0.4);
+  background: rgba(30, 58, 138, 0.2);
+}
+
+.studio-mode-card.active {
+  border-color: #3b82f6;
+  background: linear-gradient(180deg, rgba(37, 99, 235, 0.25) 0%, rgba(15, 23, 42, 0.8) 100%);
+  box-shadow: 0 0 14px rgba(59, 130, 246, 0.35);
+}
+
+.studio-mode-card .mode-icon {
+  font-size: 20px;
+  margin-bottom: 6px;
+}
+
+.studio-mode-card .mode-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff;
+  margin-bottom: 4px;
+}
+
+.studio-mode-card .mode-desc {
+  font-size: 11px;
+  color: #94a3b8;
+  line-height: 1.4;
+}
+
+.pipe-panel-tab {
+  background: none;
+  border: none;
+  font-size: 13px;
+  font-weight: 600;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 6px 12px;
+  border-radius: 6px 6px 0 0;
+  transition: all 0.2s ease;
+  border-bottom: 2px solid transparent;
+}
+
+.pipe-panel-tab:hover {
+  color: #e2e8f0;
+}
+
+.pipe-panel-tab.active {
+  color: #60a5fa !important;
+  border-bottom: 2px solid #3b82f6 !important;
+  background: rgba(59, 130, 246, 0.12);
+}
+
+.pipe-shot-item {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  background: rgba(30, 41, 59, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 8px 10px;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.pipe-shot-item:hover {
+  border-color: rgba(59, 130, 246, 0.35);
+  background: rgba(30, 41, 59, 0.8);
+}
+
+.pipe-shot-thumb {
+  width: 68px;
+  height: 48px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #050811;
+  flex-shrink: 0;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pipe-shot-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.pipe-shot-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.pipe-shot-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.pipe-shot-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #38bdf8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pipe-shot-dur-box {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+.pipe-shot-dur-input {
+  width: 48px;
+  padding: 2px 4px;
+  font-size: 11px;
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 4px;
+  color: #fff;
+  text-align: center;
+}
+
+.pipe-shot-text-input {
+  width: 100%;
+  padding: 4px 8px;
+  font-size: 12px;
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 4px;
+  color: #e2e8f0;
+}
+
+.pipe-shot-text-input:focus, .pipe-shot-dur-input:focus {
+  border-color: #3b82f6;
+  outline: none;
+}
+
+.pipe-step-node {
+  padding: 6px 4px;
+  border-radius: 6px;
+  font-size: 11px;
+  background: #1e293b;
+  color: #94a3b8;
+  border: 1px solid transparent;
+  transition: all 0.2s ease;
+}
+
+.pipe-step-node.active {
+  background: rgba(59, 130, 246, 0.25) !important;
+  color: #60a5fa !important;
+  border-color: #3b82f6 !important;
+}
+
+.pipe-step-node.done {
+  background: rgba(16, 185, 129, 0.2) !important;
+  color: #34d399 !important;
+  border-color: rgba(16, 185, 129, 0.5) !important;
+}

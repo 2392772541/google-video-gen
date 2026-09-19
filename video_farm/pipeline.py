@@ -599,3 +599,86 @@ def start_storyboard_pipeline_async(
     )
 
     return start_timeline_pipeline_async(spec, work_dir)
+
+
+def start_smart_pipeline_async(
+    image_paths: List[str | Path],
+    script_sentences: Optional[List[str]] = None,
+    mode: str = "ai_commercial",
+    aspect_ratio: str = "16:9",
+    duration_mode: str = "auto",
+    total_duration: float = 30.0,
+    voice_mode: str = "auto",
+    voice_name: str = "zh-CN-YunxiNeural",
+    bgm_path: Optional[str | Path] = None,
+    subtitle_mode: str = "auto",
+    output_master_mp4: Optional[str | Path] = None,
+    work_dir: Optional[str | Path] = None,
+    user_shots_override: Optional[List[Dict[str, Any]]] = None
+) -> str:
+    """全模态自适应流水线启动器：彻底打破死板限制"""
+    work_dir = Path(work_dir or (Path("video_farm_data") / f"pipe_{int(time.time())}_{uuid.uuid4().hex[:4]}"))
+    work_dir.mkdir(parents=True, exist_ok=True)
+    res_map = {"16:9": (1920, 1080), "9:16": (1080, 1920), "1:1": (1080, 1080)}
+    target_res = res_map.get(aspect_ratio, (1920, 1080))
+    sb = StoryboardPipeline(work_dir)
+    force_crop = (mode == "storyboard_motion")
+    processed_imgs = sb.prepare_adaptive_images(image_paths, force_crop_grid=force_crop, target_res=target_res)
+    if not processed_imgs and not user_shots_override:
+        raise ValueError("没有可用的图片或镜头素材")
+    scripts = script_sentences or []
+    shots: List[ShotSpec] = []
+    if user_shots_override and len(user_shots_override) > 0:
+        for idx, us in enumerate(user_shots_override):
+            img_p = us.get("image_path")
+            if not img_p or not Path(img_p).exists():
+                img_p = str(processed_imgs[idx % len(processed_imgs)]) if processed_imgs else ""
+            txt = us.get("voice_text", "").strip()
+            dur = float(us.get("duration", 2.5))
+            motion = us.get("motion", "slow_zoom_in")
+            shots.append(ShotSpec(
+                id=f"shot_{idx+1:02d}",
+                duration=dur,
+                timing_policy="voice_driven" if (voice_mode != "none" and duration_mode == "auto") else "fixed",
+                visual=VisualConfig(provider="ken_burns", start_image=str(img_p), motion_preset=motion),
+                voice_text=txt,
+                subtitle_text=txt
+            ))
+    else:
+        num_shots = len(processed_imgs)
+        if duration_mode == "fixed" and total_duration > 0:
+            base_dur = max(2.0, total_duration / max(1, num_shots))
+        else:
+            base_dur = 2.8
+        motions = ["slow_zoom_in", "pan_left", "slow_zoom_out", "pan_right", "slow_zoom_in"]
+        for idx, cp in enumerate(processed_imgs):
+            txt = scripts[idx] if idx < len(scripts) else ""
+            motion = motions[idx % len(motions)]
+            shots.append(ShotSpec(
+                id=f"shot_{idx+1:02d}",
+                duration=base_dur,
+                timing_policy="voice_driven" if (voice_mode != "none" and duration_mode == "auto") else "fixed",
+                visual=VisualConfig(provider="ken_burns", start_image=str(cp), motion_preset=motion),
+                voice_text=txt,
+                subtitle_text=txt
+            ))
+    has_voice = (voice_mode != "none") and any(bool(s.voice_text) for s in shots)
+    has_sub = (subtitle_mode != "none") and any(bool(s.subtitle_text) for s in shots)
+    final_bgm_path = None
+    if bgm_path and Path(bgm_path).exists():
+        final_bgm_path = str(bgm_path)
+    spec = TimelineSpec(
+        project_id=f"smart_{int(time.time())}",
+        project_name="Smart Video Pipeline",
+        aspect_ratio=aspect_ratio,
+        resolution=list(target_res),
+        fps=30,
+        tracks=TracksSpec(
+            video_track=shots,
+            voice_track=VoiceTrack(enabled=has_voice, voice_name=voice_name, source="edge_tts"),
+            bgm_track=BGMTrack(enabled=bool(final_bgm_path), file_path=final_bgm_path, volume=0.18, ducking=has_voice),
+            subtitle_track=SubtitleTrack(enabled=has_sub, format="ass", style_preset="cinema_bottom")
+        ),
+        output_master_path=str(output_master_mp4 or (work_dir / "smart_master_1080p.mp4"))
+    )
+    return start_timeline_pipeline_async(spec, work_dir)

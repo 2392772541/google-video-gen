@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Video Farm · 首尾帧视频工坊控制台</title>
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/style.css?v=20260919_v2">
 </head>
 <body>
   <!-- 顶部常驻导航栏 -->
@@ -73,127 +73,272 @@
     <!-- ================= 视图 1: 生成视频 ================= -->
         <!-- ================= 视图 0: 一键全自动成片 (Pipeline) ================= -->
     <section class="view-pane active" id="view-pipeline">
-      <div class="card" style="margin-bottom: 24px; border: 1px solid rgba(59, 130, 246, 0.3); background: linear-gradient(180deg, rgba(30, 58, 138, 0.15) 0%, rgba(15, 23, 42, 0.6) 100%);">
+      <div class="card" style="margin-bottom: 24px; border: 1px solid rgba(59, 130, 246, 0.35); background: linear-gradient(180deg, rgba(30, 58, 138, 0.18) 0%, rgba(15, 23, 42, 0.75) 100%); box-shadow: 0 10px 30px rgba(0,0,0,0.35);">
         <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255, 255, 255, 0.08); padding-bottom: 14px; margin-bottom: 18px;">
           <div>
-            <h2 style="font-size: 18px; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 8px;">
-              <span>🚀 一键全自动成片流水线 (End-to-End Pipeline)</span>
-              <span style="font-size: 12px; background: rgba(59, 130, 246, 0.2); color: #60a5fa; padding: 2px 8px; border-radius: 9999px; border: 1px solid rgba(59, 130, 246, 0.3);">无需手写代码 · 3分钟自动化交付</span>
+            <h2 style="font-size: 19px; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 10px;">
+              <span>🚀 智能视频生产工坊 (Smart Video Studio)</span>
+              <span style="font-size: 12px; background: rgba(59, 130, 246, 0.25); color: #60a5fa; padding: 3px 10px; border-radius: 9999px; border: 1px solid rgba(59, 130, 246, 0.4);">全要素自适应 · 拒绝死板限制</span>
             </h2>
             <p style="font-size: 13px; color: #94a3b8; margin-top: 4px;">
-              针对分镜大图（六宫格/多宫格）或素材包，全自动完成：智能网格切图 ➔ 微软TTS配音 ➔ 毫秒级时间轴 ➔ Ken Burns微运镜 ➔ 人声避让混音 ➔ ASS电影字幕 ➔ 1080p母片。
+              多模态素材智能诊断 ➔ 商业大片/科学分镜/自由混剪 ➔ 画幅/时长/配音/BGM全要素解耦 ➔ 分镜方案看板确认 ➔ 1080p母片交付。
             </p>
+          </div>
+          <div style="display:flex; gap:8px;">
+            <button class="btn btn-secondary btn-sm" id="btn-pipe-load-sample-products" title="快速填入福联产品实景包装图案例">
+              📦 示例: 产品包装大片
+            </button>
+            <button class="btn btn-secondary btn-sm" id="btn-pipe-load-sample-storyboard" title="快速填入科学分镜包案例">
+              🔬 示例: 科学分镜包
+            </button>
           </div>
         </div>
 
         <div class="card-body">
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
-            <!-- 左侧：输入配置 -->
+          <div style="display: grid; grid-template-columns: 1.15fr 1fr; gap: 24px;">
+            <!-- 左侧：输入与自由解耦控制矩阵 -->
             <div>
-              <div class="form-group" style="margin-bottom: 16px;">
-                <label style="display: block; font-size: 13px; font-weight: 600; color: #e2e8f0; margin-bottom: 6px;">
-                  📁 素材文件夹绝对路径 (包含分镜图片/大图/文案)
+              <!-- 生产模式选择卡片组 -->
+              <div style="margin-bottom: 18px;">
+                <label style="display: block; font-size: 13px; font-weight: 600; color: #cbd5e1; margin-bottom: 8px;">
+                  🎯 核心生产模式 (按需自由选择，拒绝一刀切)
                 </label>
-                <input type="text" id="pipe-mat-dir" class="form-input" style="width: 100%; padding: 10px 12px; font-family: monospace; font-size: 13px;" placeholder="例如: E:\IDM下载\压缩\6BA_45s_science_video_package\6BA_45s_video_package" value="">
-                <div style="font-size: 11px; color: #94a3b8; margin-top: 4px;">系统将自动识别目录内的六宫格图片、普通图片与 voice.txt / script.txt。</div>
+                <div class="studio-mode-grid" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;">
+                  <div class="studio-mode-card active" data-mode="ai_commercial">
+                    <div class="mode-icon">🌟</div>
+                    <div class="mode-title">AI商业大片模式</div>
+                    <div class="mode-desc">产品包装/单图/首尾帧，大片展台复合或Veo生成，文字外形无畸变</div>
+                  </div>
+                  <div class="studio-mode-card" data-mode="storyboard_motion">
+                    <div class="mode-icon">🎬</div>
+                    <div class="mode-title">科学分镜动效模式</div>
+                    <div class="mode-desc">六宫格/多宫格分镜大图，智能网格裁切，毫秒级运镜与播音字幕</div>
+                  </div>
+                  <div class="studio-mode-card" data-mode="media_montage">
+                    <div class="mode-icon">🎞️</div>
+                    <div class="mode-title">多素材自由混剪</div>
+                    <div class="mode-desc">多段视频/散装图片拼装重组，自由配乐、转场拼接与字幕成片</div>
+                  </div>
+                </div>
               </div>
 
+              <!-- 素材路径与智能诊断 -->
+              <div class="form-group" style="margin-bottom: 16px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                  <label style="font-size: 13px; font-weight: 600; color: #e2e8f0;">
+                    📁 素材文件夹或文件绝对路径
+                  </label>
+                  <span style="font-size: 12px; color: #38bdf8; cursor: pointer;" id="btn-pipe-quick-inspect">
+                    🔍 立即智能扫描
+                  </span>
+                </div>
+                <div style="display: flex; gap: 8px;">
+                  <input type="text" id="pipe-mat-dir" class="form-input" style="flex: 1; padding: 10px 12px; font-family: monospace; font-size: 13px;" placeholder="输入或粘贴素材目录 (例如 E:\公司素材\产品实景图 或 E:\IDM下载\分镜包)" value="">
+                  <button class="btn btn-primary btn-sm" id="btn-pipe-inspect-action" style="padding: 0 16px; white-space: nowrap; font-weight: 600;">
+                    🔍 智能分析
+                  </button>
+                </div>
+                <div style="font-size: 11px; color: #94a3b8; margin-top: 4px;">
+                  系统将自动研判：产品包装单图、成对首尾帧、分镜大图或视频切片，并自动读取内部文案与配乐。
+                </div>
+              </div>
+
+              <!-- 核心解耦参数矩阵 -->
+              <div style="background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 14px; margin-bottom: 16px;">
+                <div style="font-size: 12px; font-weight: 600; color: #94a3b8; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center;">
+                  <span>⚙️ 视听与轨道解耦配置</span>
+                  <span style="color: #38bdf8; font-size: 11px;">自由定制，不限制死</span>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
+                  <!-- 画幅比例 -->
+                  <div>
+                    <label style="display: block; font-size: 12px; color: #cbd5e1; margin-bottom: 4px;">📐 画幅比例</label>
+                    <select id="pipe-aspect" class="form-input" style="width: 100%; padding: 7px 10px; font-size: 12px;">
+                      <option value="16:9" selected>16:9 商业宣传大片 (1920x1080)</option>
+                      <option value="9:16">9:16 竖屏短视频 (1080x1920)</option>
+                      <option value="1:1">1:1 方屏电商展示 (1080x1080)</option>
+                    </select>
+                  </div>
+
+                  <!-- 目标时长 -->
+                  <div>
+                    <label style="display: block; font-size: 12px; color: #cbd5e1; margin-bottom: 4px;">⏱️ 成片目标时长</label>
+                    <select id="pipe-duration-select" class="form-input" style="width: 100%; padding: 7px 10px; font-size: 12px;">
+                      <option value="auto" selected>🎙️ 自适应自然时长 (推荐：由文案/内容撑开)</option>
+                      <option value="15.0">⚡ 15 秒 (短视频快剪)</option>
+                      <option value="30.0">🎬 30 秒 (标准商业广告片)</option>
+                      <option value="45.0">🔬 45 秒 (深度解说纪录片)</option>
+                      <option value="60.0">📖 60 秒 (专题科普大片)</option>
+                      <option value="custom">✏️ 自定义输入任意秒数...</option>
+                    </select>
+                    <div id="pipe-custom-duration-box" style="display: none; margin-top: 6px;">
+                      <input type="number" id="pipe-custom-duration-input" class="form-input" style="width: 100%; padding: 6px 10px; font-size: 12px;" placeholder="输入自定义总秒数 (如 20 或 75)" min="3" max="600" step="1" value="30">
+                    </div>
+                  </div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
+                  <!-- 配音音色 -->
+                  <div>
+                    <label style="display: block; font-size: 12px; color: #cbd5e1; margin-bottom: 4px;">🗣️ 旁白配音 (Voice)</label>
+                    <select id="pipe-voice-name" class="form-input" style="width: 100%; padding: 7px 10px; font-size: 12px;">
+                      <option value="none">🎵 纯音乐无配音 (关闭人声)</option>
+                      <option value="zh-CN-XiaoxiaoNeural">🗣️ 晓晓 (微软商务女声 · 温柔大气)</option>
+                      <option value="zh-CN-YunxiNeural" selected>🗣️ 云希 (活力青年男声 · 快讯/解说)</option>
+                      <option value="zh-CN-YunjianNeural">🗣️ 云健 (纪录片男声 · 厚重沉稳)</option>
+                      <option value="zh-CN-YunxiaNeural">🗣️ 云夏 (热情欢快女声 · 电商宣传)</option>
+                    </select>
+                  </div>
+
+                  <!-- 背景音乐 -->
+                  <div>
+                    <label style="display: block; font-size: 12px; color: #cbd5e1; margin-bottom: 4px;">🎵 背景音乐 (BGM)</label>
+                    <select id="pipe-bgm-mode" class="form-input" style="width: 100%; padding: 7px 10px; font-size: 12px;">
+                      <option value="auto" selected>✨ 自动匹配素材包配乐 / 智能科技配乐</option>
+                      <option value="none">🔕 纯净无背景音乐</option>
+                      <option value="custom">📁 指定本地音乐绝对路径...</option>
+                    </select>
+                    <div id="pipe-custom-bgm-box" style="display: none; margin-top: 6px;">
+                      <input type="text" id="pipe-bgm-path" class="form-input" style="width: 100%; padding: 6px 10px; font-size: 11px;" placeholder="粘贴本地 MP3 / WAV 完整绝对路径" value="">
+                    </div>
+                  </div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                  <!-- 字幕分支 -->
+                  <div>
+                    <label style="display: block; font-size: 12px; color: #cbd5e1; margin-bottom: 4px;">📝 字幕显示</label>
+                    <select id="pipe-sub-mode" class="form-input" style="width: 100%; padding: 7px 10px; font-size: 12px;">
+                      <option value="auto" selected>🎬 电影级 ASS 居中质感字幕</option>
+                      <option value="none">🔕 纯净画面 (无字幕)</option>
+                    </select>
+                  </div>
+
+                  <!-- AI引擎选择 -->
+                  <div>
+                    <label style="display: block; font-size: 12px; color: #cbd5e1; margin-bottom: 4px;">🤖 生成引擎偏好</label>
+                    <select id="pipe-engine-choice" class="form-input" style="width: 100%; padding: 7px 10px; font-size: 12px;">
+                      <option value="local" selected>⚡ 高保真大片展台 + Ken Burns (极速离线)</option>
+                      <option value="flow_veo">🌟 Google Flow (Veo 3.1 首尾帧·多账号集群)</option>
+                      <option value="gemini">🌐 Gemini 网页端 (动态视频)</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 旁白文案 / 分镜头解说词 -->
               <div class="form-group" style="margin-bottom: 16px;">
                 <label style="display: block; font-size: 13px; font-weight: 600; color: #e2e8f0; margin-bottom: 6px;">
                   🎙️ 旁白文案 / 分镜头解说词 (每行对应一句)
                 </label>
-                <textarea id="pipe-script-text" class="form-input" style="width: 100%; height: 110px; padding: 10px 12px; font-size: 13px; resize: vertical;" placeholder="留空则自动从素材目录中的 voice.txt / script.txt 读取，也可在此手动输入..."></textarea>
+                <textarea id="pipe-script-text" class="form-input" style="width: 100%; height: 95px; padding: 10px 12px; font-size: 13px; resize: vertical;" placeholder="留空则自动从素材目录中的 voice.txt / script.txt 读取，也可在此随时修改编辑..."></textarea>
               </div>
 
-              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px;">
-                <div>
-                  <label style="display: block; font-size: 13px; font-weight: 600; color: #e2e8f0; margin-bottom: 6px;">⏱️ 目标成片总时长</label>
-                  <select id="pipe-duration" class="form-input" style="width: 100%; padding: 8px 12px;">
-                    <option value="45.0" selected>45 秒 (18镜头标准科学纪录片)</option>
-                    <option value="30.0">30 秒 (精炼广告片)</option>
-                    <option value="60.0">60 秒 (深度科普片)</option>
-                    <option value="15.0">15 秒 (短视频快剪)</option>
-                  </select>
-                </div>
-                <div>
-                  <label style="display: block; font-size: 13px; font-weight: 600; color: #e2e8f0; margin-bottom: 6px;">🎵 背景音乐 (BGM)</label>
-                  <input type="text" id="pipe-bgm-path" class="form-input" style="width: 100%; padding: 8px 12px; font-size: 12px;" value="" placeholder="可选 MP3 音乐绝对路径">
-                </div>
+              <!-- 两个核心动作按钮 -->
+              <div style="display: grid; grid-template-columns: 1.2fr 1fr; gap: 12px;">
+                <button id="btn-pipe-plan-confirm" class="btn btn-primary" style="padding: 12px; font-size: 14px; font-weight: 600; display: flex; justify-content: center; align-items: center; gap: 8px;">
+                  <span>📋 规划并预览分镜方案</span>
+                </button>
+                <button id="btn-start-pipeline" class="btn btn-secondary" style="padding: 12px; font-size: 14px; font-weight: 600; display: flex; justify-content: center; align-items: center; gap: 8px; border-color: #3b82f6; color: #60a5fa;">
+                  <span>⚡ 极速直通生成</span>
+                </button>
               </div>
-
-              <!-- 整体生产多分支控制矩阵 (全要素自适应) -->
-              <div style="background: rgba(30, 41, 59, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 6px; padding: 12px; margin-bottom: 16px;">
-                <div style="font-size: 12px; font-weight: 600; color: #94a3b8; margin-bottom: 8px; display: flex; justify-content: space-between;">
-                  <span>⚙️ 流程分支策略控制</span>
-                  <span style="color: #38bdf8;">多模式自由组合</span>
-                </div>
-                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px;">
-                  <div>
-                    <label style="display: block; font-size: 12px; color: #cbd5e1; margin-bottom: 4px;">🔍 分析策略</label>
-                    <select id="pipe-strategy" class="form-input" style="width: 100%; padding: 6px 8px; font-size: 12px;">
-                      <option value="AUTO" selected>🤖 自动智能研判</option>
-                      <option value="PASSTHROUGH">⚡ 直通执行 (不分析)</option>
-                      <option value="REPLAN">🧠 深度全案规划</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label style="display: block; font-size: 12px; color: #cbd5e1; margin-bottom: 4px;">🎙️ 配音分支</label>
-                    <select id="pipe-voice-mode" class="form-input" style="width: 100%; padding: 6px 8px; font-size: 12px;">
-                      <option value="auto" selected>✨ 自动检测</option>
-                      <option value="none">🎵 纯音乐 (无配音)</option>
-                      <option value="tts">🗣️ 强制播音级配音</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label style="display: block; font-size: 12px; color: #cbd5e1; margin-bottom: 4px;">📝 字幕分支</label>
-                    <select id="pipe-sub-mode" class="form-input" style="width: 100%; padding: 6px 8px; font-size: 12px;">
-                      <option value="auto" selected>✨ 自动跟随配音</option>
-                      <option value="none">🔕 纯净无字幕</option>
-                      <option value="forced">🎬 强制电影级字幕</option>
-                    </select>
-                  </div>
-                </div>
-              </div>
-
-              <button id="btn-start-pipeline" class="btn btn-primary" style="width: 100%; padding: 12px; font-size: 15px; font-weight: 600; display: flex; justify-content: center; align-items: center; gap: 8px;">
-                <span>🚀 启动全自动流水线生成成片</span>
-              </button>
             </div>
 
-            <!-- 右侧：实时流水线执行状态 -->
-            <div style="background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 16px; display: flex; flex-direction: column;">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                <span style="font-size: 13px; font-weight: 600; color: #f8fafc;">流水线执行监控</span>
-                <span id="pipe-status-tag" class="badge" style="background: #334155; color: #cbd5e1; padding: 2px 8px; border-radius: 4px; font-size: 12px;">待命</span>
+            <!-- 右侧：方案看板 / 实时生产监控 -->
+            <div style="background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 18px; display: flex; flex-direction: column; min-height: 520px;">
+              
+              <!-- 顶部状态切换器 -->
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid rgba(255, 255, 255, 0.08);">
+                <div style="display: flex; gap: 8px;">
+                  <button class="pipe-panel-tab active" id="tab-pipe-plan" style="background: none; border: none; font-size: 13px; font-weight: 600; color: #60a5fa; cursor: pointer; padding: 4px 8px; border-bottom: 2px solid #3b82f6;">
+                    📋 方案规划看板
+                  </button>
+                  <button class="pipe-panel-tab" id="tab-pipe-monitor" style="background: none; border: none; font-size: 13px; font-weight: 600; color: #94a3b8; cursor: pointer; padding: 4px 8px;">
+                    📡 生产监控与成片
+                  </button>
+                </div>
+                <span id="pipe-status-tag" class="badge" style="background: #334155; color: #cbd5e1; padding: 3px 10px; border-radius: 4px; font-size: 12px;">待命</span>
               </div>
 
-              <!-- 进度条 -->
-              <div style="width: 100%; background: #1e293b; border-radius: 9999px; height: 8px; overflow: hidden; margin-bottom: 16px;">
-                <div id="pipe-progress-bar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #3b82f6, #10b981); transition: width 0.3s ease;"></div>
-              </div>
+              <!-- 面板 A：方案规划看板 -->
+              <div id="pipe-panel-plan-content" style="flex: 1; display: flex; flex-direction: column;">
+                <!-- 智能研判摘要卡片 -->
+                <div id="pipe-diagnostic-card" style="background: rgba(30, 41, 59, 0.6); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 6px; padding: 12px; margin-bottom: 14px;">
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                    <span style="font-size: 13px; font-weight: 700; color: #e2e8f0; display: flex; align-items: center; gap: 6px;">
+                      <span>🤖 智能素材诊断</span>
+                      <span id="pipe-diag-mode-tag" style="font-size: 11px; background: rgba(59, 130, 246, 0.2); color: #93c5fd; padding: 2px 6px; border-radius: 4px;">待检测</span>
+                    </span>
+                    <span id="pipe-diag-confidence" style="font-size: 11px; color: #10b981;">--</span>
+                  </div>
+                  <div id="pipe-diag-summary" style="font-size: 12px; color: #94a3b8; line-height: 1.5;">
+                    请输入素材路径并点击【智能分析】，系统将自动扫描素材类型、推荐最佳生产模式，并为您自动规划分镜头清单。
+                  </div>
+                </div>
 
-              <!-- 阶段步进节点 -->
-              <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-bottom: 16px; text-align: center;">
-                <div class="pipe-step-node" id="step-crop" style="padding: 6px 2px; border-radius: 6px; font-size: 11px; background: #1e293b; color: #94a3b8;">1. 切图解析</div>
-                <div class="pipe-step-node" id="step-tts" style="padding: 6px 2px; border-radius: 6px; font-size: 11px; background: #1e293b; color: #94a3b8;">2. 配音对齐</div>
-                <div class="pipe-step-node" id="step-motion" style="padding: 6px 2px; border-radius: 6px; font-size: 11px; background: #1e293b; color: #94a3b8;">3. 运镜渲染</div>
-                <div class="pipe-step-node" id="step-mix" style="padding: 6px 2px; border-radius: 6px; font-size: 11px; background: #1e293b; color: #94a3b8;">4. 混音字幕</div>
-                <div class="pipe-step-node" id="step-done" style="padding: 6px 2px; border-radius: 6px; font-size: 11px; background: #1e293b; color: #94a3b8;">5. 母片交付</div>
-              </div>
+                <!-- 分镜头预案清单 (Shots Breakdown) -->
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                  <span style="font-size: 12px; font-weight: 600; color: #cbd5e1;">分镜头预案详情 (可实时微调)</span>
+                  <span id="pipe-shots-count" style="font-size: 11px; color: #64748b;">(0 镜头)</span>
+                </div>
 
-              <!-- 日志输出窗 -->
-              <div id="pipe-log-box" style="flex: 1; min-height: 120px; max-height: 160px; background: #0b0f19; border: 1px solid #1e293b; border-radius: 6px; padding: 10px; font-family: monospace; font-size: 11px; color: #94a3b8; overflow-y: auto;">
-                <div>[就绪] 等待用户发起全自动生产作业...</div>
-              </div>
+                <div id="pipe-shots-list" style="flex: 1; max-height: 250px; overflow-y: auto; background: #0b0f19; border: 1px solid #1e293b; border-radius: 6px; padding: 8px; display: flex; flex-direction: column; gap: 8px;">
+                  <div style="text-align: center; color: #64748b; font-size: 12px; padding: 40px 0;">
+                    点击左侧【智能分析】或【规划并预览分镜方案】，即在此呈现分镜头预案
+                  </div>
+                </div>
 
-              <!-- 成片结果区 -->
-              <div id="pipe-result-box" style="display: none; margin-top: 16px; padding-top: 14px; border-top: 1px solid #334155;">
-                <div style="font-size: 13px; font-weight: 600; color: #10b981; margin-bottom: 8px;">🎉 母片生产完毕！</div>
-                <div style="display: flex; gap: 10px;">
-                  <a id="pipe-video-link" href="#" target="_blank" class="btn btn-primary btn-sm" style="flex: 1; text-align: center; text-decoration: none; padding: 8px 12px;">▶️ 在线预览成片</a>
-                  <button id="pipe-open-folder-btn" class="btn btn-secondary btn-sm" style="flex: 1; padding: 8px 12px;">📂 打开文件所在目录</button>
+                <!-- 方案确认启动按钮 -->
+                <div style="margin-top: 14px; padding-top: 10px; border-top: 1px solid rgba(255, 255, 255, 0.08);">
+                  <button id="btn-pipe-execute-plan" class="btn btn-primary" style="width: 100%; padding: 12px; font-size: 14px; font-weight: 700; background: linear-gradient(90deg, #2563eb, #10b981); display: flex; justify-content: center; align-items: center; gap: 8px;">
+                    <span>🚀 确认方案并开始生产</span>
+                  </button>
                 </div>
               </div>
+
+              <!-- 面板 B：实时生产监控与成片 (默认隐藏，启动生产后自动切过来) -->
+              <div id="pipe-panel-monitor-content" style="flex: 1; display: none; flex-direction: column;">
+                <!-- 进度条 -->
+                <div style="width: 100%; background: #1e293b; border-radius: 9999px; height: 8px; overflow: hidden; margin-bottom: 14px;">
+                  <div id="pipe-progress-bar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #3b82f6, #10b981); transition: width 0.3s ease;"></div>
+                </div>
+
+                <!-- 阶段步进节点 -->
+                <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-bottom: 14px; text-align: center;">
+                  <div class="pipe-step-node" id="step-crop" style="padding: 6px 2px; border-radius: 6px; font-size: 11px; background: #1e293b; color: #94a3b8;">1. 素材解析</div>
+                  <div class="pipe-step-node" id="step-tts" style="padding: 6px 2px; border-radius: 6px; font-size: 11px; background: #1e293b; color: #94a3b8;">2. 视听装配</div>
+                  <div class="pipe-step-node" id="step-motion" style="padding: 6px 2px; border-radius: 6px; font-size: 11px; background: #1e293b; color: #94a3b8;">3. 运镜渲染</div>
+                  <div class="pipe-step-node" id="step-mix" style="padding: 6px 2px; border-radius: 6px; font-size: 11px; background: #1e293b; color: #94a3b8;">4. 混音字幕</div>
+                  <div class="pipe-step-node" id="step-done" style="padding: 6px 2px; border-radius: 6px; font-size: 11px; background: #1e293b; color: #94a3b8;">5. 母片交付</div>
+                </div>
+
+                <!-- 日志输出窗 -->
+                <div id="pipe-log-box" style="flex: 1; min-height: 140px; max-height: 200px; background: #0b0f19; border: 1px solid #1e293b; border-radius: 6px; padding: 10px; font-family: monospace; font-size: 11px; color: #94a3b8; overflow-y: auto;">
+                  <div>[就绪] 等待用户发起生产作业...</div>
+                </div>
+
+                <!-- 成片结果区 -->
+                <div id="pipe-result-box" style="display: none; margin-top: 16px; padding-top: 14px; border-top: 1px solid #334155;">
+                  <div style="font-size: 13px; font-weight: 700; color: #10b981; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
+                    <span>🎉 1080p 母片渲染交付成功！</span>
+                  </div>
+                  
+                  <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+                    <button id="pipe-play-video-btn" class="btn btn-primary btn-sm" style="flex: 1.2; padding: 9px 12px; font-weight: 600;">
+                      ▶ 立即全屏播放
+                    </button>
+                    <a id="pipe-video-link" href="#" target="_blank" class="btn btn-secondary btn-sm" style="flex: 1; padding: 9px 12px; text-align: center; text-decoration: none;">
+                      ⬇️ 浏览器下载
+                    </a>
+                    <button id="pipe-open-folder-btn" class="btn btn-secondary btn-sm" style="flex: 1.2; padding: 9px 12px;">
+                      📂 定位文件目录
+                    </button>
+                  </div>
+                </div>
+              </div>
+
             </div>
           </div>
         </div>
@@ -717,6 +862,7 @@
   <!-- Toast 悬浮提示架 -->
   <div class="toast-shelf" id="toast-shelf"></div>
 
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js?v=20260919_v2"></script>
 </body>
 </html>
+

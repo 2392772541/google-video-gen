@@ -906,7 +906,7 @@ def get_system_info():
 # ==========================================
 # Production Pipeline (全自动流水线 API)
 # ==========================================
-from .pipeline import PIPELINE_MANAGER, start_storyboard_pipeline_async, start_timeline_pipeline_async
+from .pipeline import PIPELINE_MANAGER, start_storyboard_pipeline_async, start_timeline_pipeline_async, start_smart_pipeline_async
 from .timeline_spec import TimelineSpec, IntentDetector
 
 class StoryboardPipelineReq(BaseModel):
@@ -1020,7 +1020,120 @@ def api_pipeline_inspect(req: PipelineInspectReq):
     if not p.exists():
         raise HTTPException(status_code=404, detail="指定素材路径不存在")
     report = IntentDetector.inspect_input(p, req.user_instruction)
+    import urllib.parse
+    for img in report.get("images", []):
+        if img.get("path"):
+            img["preview_url"] = f"/api/pipeline/file-preview?path={urllib.parse.quote(img['path'])}"
+    for shot in report.get("suggested_shots", []):
+        if shot.get("image_path"):
+            shot["preview_url"] = f"/api/pipeline/file-preview?path={urllib.parse.quote(shot['image_path'])}"
     return {"status": "ok", "report": report}
+
+class SmartPipelineReq(BaseModel):
+    material_dir: Optional[str] = None
+    image_paths: Optional[List[str]] = None
+    script_text: Optional[str] = None
+    mode: str = "ai_commercial"  # ai_commercial | storyboard_motion | media_montage
+    aspect_ratio: str = "16:9"   # 16:9 | 9:16 | 1:1
+    duration_mode: str = "auto"  # auto | fixed
+    total_duration: float = 30.0
+    voice_mode: str = "auto"     # auto | none
+    voice_name: str = "zh-CN-YunxiNeural"
+    bgm_mode: str = "auto"       # auto | none | custom
+    bgm_path: Optional[str] = None
+    subtitle_mode: str = "auto"  # auto | none
+    engine_choice: str = "local" # local | flow_veo | gemini
+    shots_override: Optional[List[Dict[str, Any]]] = None
+
+@app.post("/api/pipeline/smart-run")
+def api_pipeline_smart_run(req: SmartPipelineReq):
+    mat_dir = Path(req.material_dir) if req.material_dir else None
+    img_list: List[str] = req.image_paths or []
+
+    if req.shots_override:
+        for s in req.shots_override:
+            ip = s.get("image_path")
+            if ip and Path(ip).exists():
+                img_list.append(str(Path(ip).resolve()))
+        img_list = list(dict.fromkeys(img_list))
+
+    if not img_list and mat_dir and mat_dir.exists():
+        img_exts = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
+        for root, _, files in os.walk(str(mat_dir)):
+            r_lower = root.lower()
+            if any(x in r_lower for x in ["output", "temp", "pipeline_temp", "cache"]):
+                continue
+            for f in files:
+                if Path(f).suffix.lower() in img_exts:
+                    img_list.append(str(Path(root) / f))
+        img_list = sorted(list(set(img_list)))
+
+    if not img_list:
+        raise HTTPException(status_code=400, detail="未找到有效图片素材，请检查素材目录或传入图片")
+
+    script_lines: List[str] = []
+    if req.script_text and req.script_text.strip():
+        script_lines = [l.strip() for l in req.script_text.splitlines() if l.strip()]
+    elif mat_dir and mat_dir.exists():
+        for txt_name in ("voice.txt", "script.txt", "Narration_VO.txt", "旁白.txt", "台词.txt", "文案.txt"):
+            tf = mat_dir / txt_name
+            if tf.exists():
+                try:
+                    script_lines = [l.strip() for l in tf.read_text(encoding="utf-8").splitlines() if l.strip()]
+                    break
+                except Exception:
+                    pass
+
+    final_bgm: Optional[str] = None
+    if req.bgm_mode == "none":
+        final_bgm = None
+    elif req.bgm_mode == "custom" and req.bgm_path and Path(req.bgm_path).exists():
+        final_bgm = str(Path(req.bgm_path).resolve())
+    elif req.bgm_mode == "auto":
+        if mat_dir and mat_dir.exists():
+            for root, _, files in os.walk(str(mat_dir)):
+                for f in files:
+                    ext = Path(f).suffix.lower()
+                    if ext in (".mp3", ".wav", ".aac", ".m4a", ".flac"):
+                        final_bgm = str(Path(root) / f)
+                        break
+                if final_bgm:
+                    break
+
+    now_ts = int(time.time())
+    if mat_dir and mat_dir.exists():
+        out_dir = mat_dir / "output"
+        work_dir = mat_dir / "pipeline_temp"
+    else:
+        out_dir = OUTPUTS_DIR / "pipeline_masters"
+        work_dir = DATA_DIR / f"smart_{now_ts}"
+    
+    out_dir.mkdir(parents=True, exist_ok=True)
+    work_dir.mkdir(parents=True, exist_ok=True)
+    out_mp4 = out_dir / f"master_{req.mode}_{now_ts}.mp4"
+
+    job_id = start_smart_pipeline_async(
+        image_paths=img_list,
+        script_sentences=script_lines,
+        mode=req.mode,
+        aspect_ratio=req.aspect_ratio,
+        duration_mode=req.duration_mode,
+        total_duration=req.total_duration,
+        voice_mode=req.voice_mode,
+        voice_name=req.voice_name,
+        bgm_path=final_bgm,
+        subtitle_mode=req.subtitle_mode,
+        output_master_mp4=out_mp4,
+        work_dir=work_dir,
+        user_shots_override=req.shots_override
+    )
+    return {
+        "status": "ok",
+        "job_id": job_id,
+        "output_path": str(out_mp4),
+        "mode": req.mode,
+        "shots_count": len(req.shots_override) if req.shots_override else len(img_list)
+    }
 
 @app.post("/api/pipeline/timeline/run")
 def api_pipeline_timeline_run(spec: TimelineSpec):
@@ -1081,15 +1194,46 @@ def serve_upload_file(task_id: str, filename: str):
     media_type = "image/png" if p.suffix in (".png", ".jpg", ".jpeg", ".webp") else "application/octet-stream"
     return FileResponse(str(p), media_type=media_type)
 
+@app.get("/api/pipeline/file-preview")
+def api_pipeline_file_preview(path: str = Query(...)):
+    p = Path(path).resolve()
+    if not p.exists() or not p.is_file():
+        raise HTTPException(status_code=404, detail="文件不存在")
+    ext = p.suffix.lower()
+    allowed = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".mp4", ".mp3", ".wav"}
+    if ext not in allowed:
+        raise HTTPException(status_code=400, detail="不支持此类型文件回显预览")
+    media_type = "image/png"
+    if ext in (".jpg", ".jpeg"):
+        media_type = "image/jpeg"
+    elif ext == ".webp":
+        media_type = "image/webp"
+    elif ext == ".gif":
+        media_type = "image/gif"
+    elif ext == ".mp4":
+        media_type = "video/mp4"
+    elif ext in (".mp3", ".wav"):
+        media_type = "audio/mpeg"
+    return FileResponse(str(p), media_type=media_type)
+
 @app.get("/media/file")
 def serve_arbitrary_local_file(path: str = Query(...)):
     p = Path(path).resolve()
-    # Safety boundary check: must be in workspace or video_farm_data
-    if not (BASE_DIR in p.parents or p == BASE_DIR or DATA_DIR in p.parents):
-        raise HTTPException(status_code=403, detail="禁止跨工作区访问未受控文件")
-    if not p.exists():
+    if not p.exists() or not p.is_file():
         raise HTTPException(status_code=404, detail="文件不存在")
-    return FileResponse(str(p))
+    ext = p.suffix.lower()
+    allowed = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".mp4", ".mp3", ".wav"}
+    if ext not in allowed:
+        if not (BASE_DIR in p.parents or p == BASE_DIR or DATA_DIR in p.parents):
+            raise HTTPException(status_code=403, detail="禁止跨工作区访问未受控文件")
+    media_type = "application/octet-stream"
+    if ext in (".png", ".webp", ".bmp"):
+        media_type = "image/png"
+    elif ext in (".jpg", ".jpeg"):
+        media_type = "image/jpeg"
+    elif ext == ".mp4":
+        media_type = "video/mp4"
+    return FileResponse(str(p), media_type=media_type)
 
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 

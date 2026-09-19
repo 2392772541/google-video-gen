@@ -10,6 +10,7 @@ video_farm.timeline_spec - 工业级视频工程规范 (Timeline IR)
 """
 from __future__ import annotations
 import os
+import re
 import json
 import time
 from pathlib import Path
@@ -123,7 +124,7 @@ class TimelineSpec(BaseModel):
 
 
 class IntentDetector:
-    """智能素材意图识别器：自动判断是否需要分析，识别输入类型"""
+    """智能素材意图识别器：自动判断是否需要分析，识别输入类型，生成交互式推荐方案"""
 
     @staticmethod
     def inspect_input(
@@ -131,82 +132,204 @@ class IntentDetector:
         user_explicit_instruction: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        根据输入目录或文件集合，输出自动研判报告与推荐 IntentSpec
+        根据输入目录或文件集合，输出自动研判报告与推荐 IntentSpec 与分镜预案 (Shots Plan)
         """
         report = {
+            "valid": True,
+            "source_dir": "",
             "has_existing_spec": False,
             "has_paired_frames": False,
             "has_grid_storyboard": False,
             "has_raw_products": False,
+            "has_video_clips": False,
             "has_voice_script": False,
             "has_bgm": False,
             "recommended_strategy": "AUTO",
+            "recommended_mode": "ai_commercial", # ai_commercial | storyboard_motion | media_montage
+            "mode_title": "AI商业大片重塑模式",
             "confidence": 0.9,
-            "details": []
+            "summary_text": "",
+            "details": [],
+            "images": [],
+            "videos": [],
+            "audios": [],
+            "scripts": [],
+            "script_lines": [],
+            "suggested_shots": []
         }
 
-        # 归一化路径
         path_list: List[Path] = []
         if isinstance(input_dir_or_files, (str, Path)):
             p = Path(input_dir_or_files)
             if p.is_dir():
-                path_list = list(p.glob("*"))
+                report["source_dir"] = str(p.resolve())
+                for root, dirs, files in os.walk(str(p)):
+                    r_lower = root.lower()
+                    if any(x in r_lower for x in ["output", "temp", "pipeline_temp", "cache", ".git", ".idea"]):
+                        continue
+                    for f in files:
+                        path_list.append(Path(root) / f)
             elif p.exists():
+                report["source_dir"] = str(p.parent.resolve())
                 path_list = [p]
         else:
-            path_list = [Path(f) for f in input_dir_or_files if Path(f).exists()]
+            for item in input_dir_or_files:
+                ip = Path(item)
+                if ip.exists():
+                    if ip.is_dir():
+                        for root, _, files in os.walk(str(ip)):
+                            r_lower = root.lower()
+                            if any(x in r_lower for x in ["output", "temp", "pipeline_temp", "cache"]):
+                                continue
+                            for f in files:
+                                path_list.append(Path(root) / f)
+                    else:
+                        path_list.append(ip)
 
-        file_names = [f.name.lower() for f in path_list]
+        if not path_list:
+            report["valid"] = False
+            report["summary_text"] = "未在指定路径中找到任何有效素材文件，请检查路径是否正确。"
+            return report
+
+        img_exts = { ".png", ".jpg", ".jpeg", ".webp", ".bmp" }
+        video_exts = { ".mp4", ".mov", ".mkv", ".avi", ".webm" }
+        audio_exts = { ".mp3", ".wav", ".aac", ".m4a", ".flac" }
+        txt_exts = { ".txt", ".md", ".json" }
+
+        for f in path_list:
+            ext = f.suffix.lower()
+            name_lower = f.name.lower()
+            if ext in img_exts:
+                report["images"].append({
+                    "name": f.name,
+                    "path": str(f.resolve()),
+                    "stem": f.stem
+                })
+            elif ext in video_exts:
+                report["videos"].append({
+                    "name": f.name,
+                    "path": str(f.resolve())
+                })
+            elif ext in audio_exts:
+                report["audios"].append({
+                    "name": f.name,
+                    "path": str(f.resolve())
+                })
+                if any(k in name_lower for k in ["bgm", "music", "配乐", "背景音乐", "纪录片配乐", "完整版"]):
+                    report["has_bgm"] = True
+            elif ext in txt_exts:
+                report["scripts"].append({
+                    "name": f.name,
+                    "path": str(f.resolve())
+                })
+                if not report["script_lines"]:
+                    try:
+                        content = f.read_text(encoding="utf-8").strip()
+                        if content:
+                            lines = [re.sub(r"^[0-9]+[、.·s]*", "", l.strip()) for l in content.splitlines() if l.strip()]
+                            lines = [l for l in lines if not l.startswith("#") and len(l) > 1]
+                            if lines:
+                                report["script_lines"] = lines
+                                report["has_voice_script"] = True
+                    except Exception:
+                        pass
 
         # 1. 检查是否存在已有 spec 文件
         for f in path_list:
             if f.name.lower() in ("timeline_spec.json", "timeline.json", "job_spec.json"):
                 report["has_existing_spec"] = True
                 report["recommended_strategy"] = "PASSTHROUGH"
+                report["recommended_mode"] = "media_montage"
+                report["mode_title"] = "直通时间线装配模式"
                 report["confidence"] = 1.0
-                report["details"].append(f"发现现成时间轴规范: {f.name}，无需二次分析，直通执行。")
+                report["summary_text"] = f"发现现成工程规范文件 ({f.name})，系统可直接直通装配交付，无需重复分析。"
+                report["details"].append("规范驱动生产：完全遵循已有 TimelineSpec 轨道与镜头设定。")
                 return report
 
         # 2. 检查是否有首尾帧对 (01_start, 01_end)
-        starts = [f for f in file_names if "start" in f]
-        ends = [f for f in file_names if "end" in f]
+        starts = [img for img in report["images"] if "start" in img["name"].lower()]
+        ends = [img for img in report["images"] if "end" in img["name"].lower()]
         if len(starts) > 0 and len(starts) == len(ends):
             report["has_paired_frames"] = True
             report["recommended_strategy"] = "PASSTHROUGH"
+            report["recommended_mode"] = "ai_commercial"
+            report["mode_title"] = "首尾帧精准约束生成模式"
             report["confidence"] = 0.95
-            report["details"].append(f"识别到标准首尾帧对 ({len(starts)} 组)，直接构建精准插值流水线。")
+            report["summary_text"] = f"检测到 {len(starts)} 组标准配对的首尾帧图片，最适合采用 Google Flow / Veo 首尾帧插值生成。"
+            report["details"].append(f"成对首尾帧：{len(starts)} 对已就绪，确保运动起点与收束终点绝对受控。")
 
         # 3. 检查是否有网格图 (如 6宫格、storyboard)
-        for f in file_names:
-            if "storyboard" in f or "grid" in f or "6ba" in f or "分镜" in f:
+        for img in report["images"]:
+            nl = img["name"].lower()
+            if any(k in nl for k in ["storyboard", "grid", "6ba", "分镜", "宫格"]):
                 report["has_grid_storyboard"] = True
-                report["details"].append(f"检测到分镜板图集: {f}")
+                report["details"].append(f"检测到分镜板图集素材: {img['name']}")
 
         # 4. 检查是否有产品包装图
-        for f in file_names:
-            if "产品" in f or "包装" in f or "效果图" in f or "bottle" in f or "box" in f:
+        for img in report["images"]:
+            nl = img["name"].lower()
+            if any(k in nl for k in ["产品", "包装", "效果图", "原粉", "液剂", "粉剂", "bottle", "box", "product", "纳铠甲", "捷邦", "氨基寡糖", "超免蛋白", "调理剂", "促保利素", "优根优苗"]):
                 report["has_raw_products"] = True
-                report["details"].append(f"检测到产品原图: {f}")
+                report["details"].append(f"检测到产品核心实景包装图: {img['name']}")
 
-        # 5. 检查音频与文案
-        for f in file_names:
-            if f.endswith((".txt", ".md", ".json")) and ("script" in f or "文案" in f or "台词" in f or "voice" in f):
-                report["has_voice_script"] = True
-            if f.endswith((".mp3", ".wav", ".aac", ".m4a")) and ("bgm" in f or "music" in f or "音乐" in f):
-                report["has_bgm"] = True
+        if report["videos"]:
+            report["has_video_clips"] = True
+            report["details"].append(f"检测到现成视频切片: {len(report['videos'])} 个")
 
-        # 决策归纳
+        # 综合决策推荐模式
         if report["has_paired_frames"]:
+            report["recommended_mode"] = "ai_commercial"
+            report["mode_title"] = "AI商业大片模式 (Veo首尾帧驱动)"
             report["recommended_strategy"] = "PASSTHROUGH"
-        elif report["has_raw_products"] and not report["has_paired_frames"] and not report["has_voice_script"]:
+            report["summary_text"] = f"识别到 {len(starts)} 组已成对的首尾帧素材，推荐直接由 Veo 多账号调度生成高清视频并混音成片。"
+        elif report["has_raw_products"] and not report["has_grid_storyboard"]:
+            report["recommended_mode"] = "ai_commercial"
+            report["mode_title"] = "AI商业大片模式 (场景扩展+大片质感)"
             report["recommended_strategy"] = "REPLAN"
-            report["confidence"] = 0.85
-            report["details"].append("仅包含产品原图，需系统执行卖点分析、场景大片设计与分镜规划。")
+            report["summary_text"] = f"检测到 {len(report['images'])} 款产品包装实景图，建议采用【AI商业大片模式】制作场景底图与大片运镜，生成16:9高清宣传片。"
+            report["details"].append("拒绝简单绿地贴图：建议结合生图大片底图生成 + 原生包装保护 + 运动光影。")
         elif report["has_grid_storyboard"]:
+            report["recommended_mode"] = "storyboard_motion"
+            report["mode_title"] = "科学分镜动效模式 (宫格切图+毫秒运镜)"
             report["recommended_strategy"] = "ASSIST"
-            report["confidence"] = 0.9
-            report["details"].append("包含分镜板，仅需网格裁切与参数自适应装配。")
-        else:
+            report["summary_text"] = f"检测到分镜板宫格大图与文案，建议采用【科学分镜动效模式】执行智能网格切图、TTS配音与Ken Burns电影级运镜。"
+            report["details"].append("智能识别网格排布，对齐播音级语音和电影级双语字幕。")
+        elif report["has_video_clips"]:
+            report["recommended_mode"] = "media_montage"
+            report["mode_title"] = "多片段自由混剪模式 (重组缝合)"
             report["recommended_strategy"] = "AUTO"
+            report["summary_text"] = f"检测到多段现成媒体文件 ({len(report['videos'])} 视频, {len(report['images'])} 图片)，推荐进行自由重排、BGM避让配乐与字幕混剪。"
+        else:
+            report["recommended_mode"] = "ai_commercial"
+            report["mode_title"] = "AI多模态自适应模式"
+            report["summary_text"] = f"检测到 {len(report['images'])} 个图像素材，支持自由设定时长、配音音色与BGM生成成片。"
 
+        # 生成分镜头预案 (Shots Plan)
+        shots = []
+        imgs = report["images"]
+        script_lines = report["script_lines"]
+        num_shots = len(imgs) if imgs else 6
+        if num_shots > 18:
+            num_shots = 18
+
+        for i in range(num_shots):
+            shot_id = f"shot_{i+1:02d}"
+            img_info = imgs[i % len(imgs)] if imgs else None
+            txt = script_lines[i] if i < len(script_lines) else (img_info["stem"] if img_info else f"镜头 {i+1} 核心视觉呈现")
+            
+            motions = ["slow_zoom_in", "pan_left", "slow_zoom_out", "pan_right", "slow_zoom_in"]
+            motion = motions[i % len(motions)]
+
+            shots.append({
+                "id": shot_id,
+                "name": f"镜头 #{i+1}",
+                "image_name": img_info["name"] if img_info else "未指定图片",
+                "image_path": img_info["path"] if img_info else "",
+                "duration": 2.5,
+                "voice_text": txt,
+                "motion": motion,
+                "provider": "ken_burns" if report["recommended_mode"] == "storyboard_motion" else "veo"
+            })
+
+        report["suggested_shots"] = shots
         return report
