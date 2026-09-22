@@ -54,6 +54,7 @@ class VisualConfig(BaseModel):
     clip_path: Optional[str] = None
     prompt: Optional[str] = None
     motion_preset: Optional[str] = "slow_zoom_in"  # slow_zoom_in, slow_zoom_out, pan_left, pan_right, static
+    continuity: Optional[str] = "cut"  # cut | last_frame | anchor
 
 
 class ShotSpec(BaseModel):
@@ -65,6 +66,10 @@ class ShotSpec(BaseModel):
         description="voice_driven(人声撑开时长) | fixed(固定秒数) | bgm_beat(节拍卡点)"
     )
     visual: VisualConfig = Field(default_factory=VisualConfig)
+    continuity: str = Field(
+        default="cut",
+        description="cut(独立机位切镜) | last_frame(无缝咬合接上一镜尾帧) | anchor(首尾关键帧插值)"
+    )
     voice_text: Optional[str] = None
     subtitle_text: Optional[str] = None
 

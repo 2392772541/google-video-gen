@@ -2136,6 +2136,48 @@ document.addEventListener("DOMContentLoaded", () => {
       bgm: true,
       bgm_mode: "auto",
       sub: true
+    },
+    long_series_30s: {
+      name: "30s 连续剧情短片",
+      inspect: true,
+      grid_crop: false,
+      engine: "local",
+      aspect: "16:9",
+      duration: "fixed",
+      total_duration: 30,
+      voice: true,
+      voice_name: "zh-CN-YunxiNeural",
+      bgm: true,
+      bgm_mode: "auto",
+      sub: true
+    },
+    long_series_60s: {
+      name: "60s 完整故事大片",
+      inspect: true,
+      grid_crop: false,
+      engine: "local",
+      aspect: "16:9",
+      duration: "fixed",
+      total_duration: 60,
+      voice: true,
+      voice_name: "zh-CN-YunxiNeural",
+      bgm: true,
+      bgm_mode: "auto",
+      sub: true
+    },
+    one_shot_chain: {
+      name: "一镜到底尾帧接力",
+      inspect: true,
+      grid_crop: false,
+      engine: "local",
+      aspect: "16:9",
+      duration: "fixed",
+      total_duration: 30,
+      voice: true,
+      voice_name: "zh-CN-YunxiNeural",
+      bgm: true,
+      bgm_mode: "auto",
+      sub: true
     }
   };
 
@@ -2383,14 +2425,30 @@ document.addEventListener("DOMContentLoaded", () => {
       const isFirst = (idx === 0);
       const isLast = (idx === currentPlanShots.length - 1);
 
+      const isLastFrame = (s.continuity === 'last_frame' && !isFirst);
+      const isAnchor = (s.continuity === 'anchor');
+
       item.innerHTML = `
-        <div class="pipe-shot-thumb" title="${escapeHtml(s.image_path || '')}">
+        ${isLastFrame ? `<div class="pipe-continuity-link-bar"><span class="pipe-continuity-link-tag">🔗 衔接上镜尾帧 (无缝咬合)</span></div>` : ''}
+        <div class="pipe-shot-thumb ${isLastFrame ? 'thumb-linked' : ''}" title="${escapeHtml(s.image_path || '')}">
           <img src="${thumbUrl}" alt="Shot ${idx + 1}" onerror="this.style.opacity='0.2'">
+          ${isLastFrame ? '<span class="pipe-shot-badge-tag">尾帧接力</span>' : ''}
+          ${isAnchor ? '<span class="pipe-shot-badge-tag anchor-tag">关键锚点</span>' : ''}
         </div>
         <div class="pipe-shot-body">
           <div class="pipe-shot-header">
             <span class="pipe-shot-title">#${idx + 1} · ${escapeHtml(shotTitle)} · ${escapeHtml(imgName)}</span>
-            <div style="display: flex; align-items: center; gap: 6px;">
+            <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+              ${!isFirst ? `
+              <div class="pipe-shot-continuity-box" title="设定镜头衔接方式">
+                <span>衔接:</span>
+                <select class="pipe-shot-continuity-select" data-index="${idx}">
+                  <option value="cut" ${(!s.continuity || s.continuity === 'cut') ? 'selected' : ''}>✂️ 独立切镜</option>
+                  <option value="last_frame" ${s.continuity === 'last_frame' ? 'selected' : ''}>🔗 接上镜尾帧</option>
+                  <option value="anchor" ${s.continuity === 'anchor' ? 'selected' : ''}>🎯 首尾锚定</option>
+                </select>
+              </div>
+              ` : '<span style="font-size:11px;color:#94a3b8;background:rgba(255,255,255,0.06);padding:2px 6px;border-radius:4px;">🏁 开篇首镜</span>'}
               <div class="pipe-shot-dur-box">
                 <span>时长:</span>
                 <input type="number" class="pipe-shot-dur-input" data-index="${idx}" value="${s.duration || 2.5}" min="0.5" max="60" step="0.5">
@@ -2408,6 +2466,17 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     // 绑定各镜头的微调事件
+    pipeShotsList.querySelectorAll(".pipe-shot-continuity-select").forEach(sel => {
+      sel.addEventListener("change", (e) => {
+        const i = parseInt(e.target.getAttribute("data-index"), 10);
+        if (currentPlanShots[i]) {
+          currentPlanShots[i].continuity = e.target.value;
+          syncCurrentShotsFromDOM();
+          renderShotsPlan(currentPlanShots);
+        }
+      });
+    });
+
     pipeShotsList.querySelectorAll(".pipe-shot-dur-input").forEach(input => {
       input.addEventListener("change", (e) => {
         const i = parseInt(e.target.getAttribute("data-index"), 10);
@@ -2478,6 +2547,13 @@ document.addEventListener("DOMContentLoaded", () => {
       if (currentPlanShots[i]) {
         currentPlanShots[i].voice_text = inp.value;
         currentPlanShots[i].subtitle_text = inp.value;
+      }
+    });
+    const contSelects = pipeShotsList.querySelectorAll(".pipe-shot-continuity-select");
+    contSelects.forEach(sel => {
+      const i = parseInt(sel.getAttribute("data-index"), 10);
+      if (currentPlanShots[i]) {
+        currentPlanShots[i].continuity = sel.value;
       }
     });
   }
@@ -2631,7 +2707,9 @@ document.addEventListener("DOMContentLoaded", () => {
           voice_text: s.voice_text || "",
           subtitle_text: s.subtitle_text || s.voice_text || "",
           duration: parseFloat(s.duration) || 2.5,
-          motion: s.motion || (idx % 2 === 0 ? "slow_zoom_in" : "pan_left")
+          motion: s.motion || (idx % 2 === 0 ? "slow_zoom_in" : "pan_left"),
+          continuity: s.continuity || "cut",
+          end_image: s.end_image || null
         });
       });
     }

@@ -9,6 +9,7 @@ import shutil
 import threading
 import subprocess
 import psutil
+import urllib.parse
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 
@@ -978,7 +979,7 @@ def get_system_info():
 # ==========================================
 # Production Pipeline (全自动流水线 API)
 # ==========================================
-from .pipeline import PIPELINE_MANAGER, start_storyboard_pipeline_async, start_timeline_pipeline_async, start_smart_pipeline_async
+from .pipeline import PIPELINE_MANAGER, start_storyboard_pipeline_async, start_timeline_pipeline_async, start_smart_pipeline_async, extract_tail_anchor_frame
 from .timeline_spec import TimelineSpec, IntentDetector
 
 class StoryboardPipelineReq(BaseModel):
@@ -1105,7 +1106,7 @@ class SmartPipelineReq(BaseModel):
     material_dir: Optional[str] = None
     image_paths: Optional[List[str]] = None
     script_text: Optional[str] = None
-    mode: str = "custom"  # custom | ai_commercial | storyboard_motion | media_montage | veo_raw | post_wrap
+    mode: str = "custom"  # custom | ai_commercial | storyboard_motion | media_montage | veo_raw | post_wrap | long_series_30s | long_series_60s | one_shot_chain
     aspect_ratio: str = "16:9"   # 16:9 | 9:16 | 1:1
     duration_mode: str = "auto"  # auto | fixed
     total_duration: float = 30.0
@@ -1118,6 +1119,26 @@ class SmartPipelineReq(BaseModel):
     grid_crop: Optional[bool] = None
     enable_inspect: bool = True
     shots_override: Optional[List[Dict[str, Any]]] = None
+
+class ExtractTailFrameReq(BaseModel):
+    video_path: str
+    offset_frames: int = 4
+
+@app.post("/api/pipeline/extract-tail-frame")
+def api_pipeline_extract_tail_frame(req: ExtractTailFrameReq):
+    """提取视频尾部稳定关键帧，供下一镜头衔接或预览"""
+    vpath = Path(req.video_path)
+    if not vpath.exists():
+        raise HTTPException(status_code=404, detail="视频文件不存在")
+    try:
+        tail_img = extract_tail_anchor_frame(vpath, offset_frames=req.offset_frames)
+        return {
+            "status": "ok",
+            "tail_image_path": str(tail_img),
+            "preview_url": f"/api/pipeline/file-preview?path={urllib.parse.quote(str(tail_img))}"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"提取尾部稳定帧失败: {e}")
 
 @app.post("/api/pipeline/smart-run")
 def api_pipeline_smart_run(req: SmartPipelineReq):

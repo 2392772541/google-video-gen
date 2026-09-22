@@ -129,6 +129,83 @@ class PipelineJobManager:
 
 PIPELINE_MANAGER = PipelineJobManager()
 
+def extract_tail_anchor_frame(
+    video_path: Union[str, Path],
+    out_img_path: Optional[Union[str, Path]] = None,
+    offset_frames: int = 4
+) -> Path:
+    """
+    智能提取视频尾部稳定帧（Tail Anchor Frame）作为下一个连续镜头的起始关键帧。
+    自动避开末尾 0.1~0.3s 可能出现的编码黑场或停顿，优先保证主体构图完整稳定。
+    """
+    vpath = Path(video_path).resolve()
+    if not vpath.exists():
+        raise FileNotFoundError(f"视频文件不存在: {vpath}")
+
+    if not out_img_path:
+        out_img_path = vpath.parent / f"{vpath.stem}_tail_anchor.png"
+    else:
+        out_img_path = Path(out_img_path).resolve()
+
+    out_img_path.parent.mkdir(parents=True, exist_ok=True)
+
+    success = False
+    try:
+        cap = cv2.VideoCapture(str(vpath))
+        if cap.isOpened():
+            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            if total_frames > 0:
+                # 倒数第 offset_frames 帧
+                target_idx = max(0, total_frames - max(1, offset_frames) - 1)
+                cap.set(cv2.CAP_PROP_POS_FRAMES, target_idx)
+                ret, frame = cap.read()
+                if ret and frame is not None:
+                    # 校验是否为纯黑帧
+                    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                    mean_val = float(cv2.mean(gray)[0])
+                    if mean_val < 6.0 and target_idx > 10:
+                        # 往前探寻有效彩色帧
+                        for back_step in [8, 14, 20, 26]:
+                            alt_idx = max(0, total_frames - back_step)
+                            cap.set(cv2.CAP_PROP_POS_FRAMES, alt_idx)
+                            r2, f2 = cap.read()
+                            if r2 and f2 is not None and float(cv2.mean(cv2.cvtColor(f2, cv2.COLOR_BGR2GRAY))[0]) >= 6.0:
+                                frame = f2
+                                break
+
+                    is_ok, buf = cv2.imencode(".png", frame)
+                    if is_ok:
+                        with open(out_img_path, "wb") as out_f:
+                            out_f.write(buf)
+                        success = True
+        cap.release()
+    except Exception as e:
+        success = False
+
+    if not success or not out_img_path.exists():
+        # ffmpeg 兜底抽取
+        try:
+            cmd = [
+                "ffmpeg", "-y",
+                "-sseof", "-0.25",
+                "-i", str(vpath),
+                "-update", "1",
+                "-q:v", "2",
+                str(out_img_path)
+            ]
+            subprocess.run(cmd, capture_output=True)
+        except Exception:
+            pass
+
+    if not out_img_path.exists():
+        # 终极保底：第 0 帧
+        subprocess.run([
+            "ffmpeg", "-y", "-i", str(vpath), "-vframes", "1", "-q:v", "2", str(out_img_path)
+        ], capture_output=True, check=True)
+
+    return out_img_path
+
+
 
 class TimelineEngine:
     """通用时间线执行引擎：全要素支持任意分支组合"""
@@ -232,7 +309,12 @@ class TimelineEngine:
                 {"type": "pan_right", "scale": 1.05, "x_start": 0.46, "x_end": 0.54},
                 {"type": "zoom_out", "s_start": 1.06, "s_end": 1.00},
             ]
-            preset = motion_presets[preset_idx % len(motion_presets)]
+            continuity_mode = getattr(shot, "continuity", None) or getattr(shot.visual, "continuity", "cut")
+            if continuity_mode == "last_frame":
+                # 连续性咬合镜头：首帧直接承接上一镜头尾部，采用平滑同向微缩放，避免跳帧反弹
+                preset = {"type": "zoom_in", "s_start": 1.00, "s_end": 1.04}
+            else:
+                preset = motion_presets[preset_idx % len(motion_presets)]
             ptype = preset["type"]
 
             if shot.visual.provider == "direct_cut":
@@ -357,11 +439,27 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         total_duration = cur_sec
         self.log("时间轴计算", 35, f"完成多轨道时间轴排期：总镜头数 {len(spec.tracks.video_track)}，总时长 {total_duration:.2f} 秒")
 
-        # 4. 渲染各镜头画面切片
+        # 4. 渲染各镜头画面切片 (支持连续性衔接 & 关键帧锚定)
         clips = []
         for idx, shot in enumerate(spec.tracks.video_track):
             pct = 40 + int(35 * (idx + 1) / len(spec.tracks.video_track))
-            self.log("视觉切片", pct, f"渲染镜头 [{shot.id}] ({shot.duration:.2f}s, {shot.visual.provider})...")
+            continuity_mode = getattr(shot, "continuity", None) or getattr(shot.visual, "continuity", "cut")
+
+            # 连续性衔接处理：如果当前镜头指定为 last_frame 衔接，且不是第一镜
+            if idx > 0 and continuity_mode == "last_frame" and len(clips) > 0:
+                prev_clip = clips[idx - 1]
+                if prev_clip and Path(prev_clip).exists():
+                    tail_frame_path = self.cache_dir / f"tail_anchor_{spec.tracks.video_track[idx-1].id}.png"
+                    try:
+                        extract_tail_anchor_frame(prev_clip, tail_frame_path, offset_frames=4)
+                        shot.visual.start_image = str(tail_frame_path)
+                        self.log("连续性衔接", pct, f"镜头 [{shot.id}] 启用尾帧接力：继承上一镜 [{spec.tracks.video_track[idx-1].id}] 尾部稳定帧作为首帧")
+                    except Exception as e:
+                        self.log("连续性警告", pct, f"提取上一镜尾帧异常: {e}，回退使用预设底图")
+            elif continuity_mode == "anchor":
+                self.log("关键帧锚定", pct, f"镜头 [{shot.id}] 启用首尾双锚点插值约束：[首: {Path(shot.visual.start_image).name if shot.visual.start_image else '无'} -> 尾: {Path(shot.visual.end_image).name if shot.visual.end_image else '无'}]")
+
+            self.log("视觉切片", pct, f"渲染镜头 [{shot.id}] ({shot.duration:.2f}s, {shot.visual.provider}, 模式: {continuity_mode})...")
             clip_path = self.render_visual_clip(shot, target_res, fps=fps, preset_idx=idx)
             clips.append(clip_path)
 
@@ -651,35 +749,83 @@ def start_smart_pipeline_async(
             img_p = us.get("image_path")
             if not img_p or not Path(img_p).exists():
                 img_p = str(processed_imgs[idx % len(processed_imgs)]) if processed_imgs else ""
+            end_img_p = us.get("end_image") or us.get("end_image_path")
             txt = us.get("voice_text", "").strip()
             dur = float(us.get("duration", 2.5))
             motion = us.get("motion", "slow_zoom_in")
+            continuity = us.get("continuity", "cut")
             shots.append(ShotSpec(
                 id=f"shot_{idx+1:02d}",
                 duration=dur,
                 timing_policy="voice_driven" if (voice_mode != "none" and duration_mode == "auto") else "fixed",
-                visual=VisualConfig(provider=provider, start_image=str(img_p), motion_preset=motion),
+                visual=VisualConfig(
+                    provider=provider,
+                    start_image=str(img_p),
+                    end_image=str(end_img_p) if (end_img_p and Path(end_img_p).exists()) else None,
+                    motion_preset=motion,
+                    continuity=continuity
+                ),
+                continuity=continuity,
                 voice_text=txt,
                 subtitle_text=txt
             ))
     else:
-        num_shots = len(processed_imgs)
-        if duration_mode == "fixed" and total_duration > 0:
-            base_dur = max(2.0, total_duration / max(1, num_shots))
+        # 自适应多镜头与连续模式分配 (支持 30s/60s 连续短片与一镜到底)
+        if mode == "one_shot_chain":
+            num_shots = max(len(processed_imgs), 4)
+            base_dur = total_duration / num_shots if total_duration > 0 else 7.5
+            for idx in range(num_shots):
+                cp = processed_imgs[idx % len(processed_imgs)] if processed_imgs else ""
+                txt = scripts[idx] if idx < len(scripts) else ""
+                continuity = "cut" if idx == 0 else "last_frame"
+                shots.append(ShotSpec(
+                    id=f"shot_{idx+1:02d}",
+                    duration=base_dur,
+                    timing_policy="voice_driven" if (voice_mode != "none" and duration_mode == "auto") else "fixed",
+                    visual=VisualConfig(provider=provider, start_image=str(cp), motion_preset="slow_zoom_in", continuity=continuity),
+                    continuity=continuity,
+                    voice_text=txt,
+                    subtitle_text=txt
+                ))
+        elif mode in ("long_series_30s", "long_series_60s"):
+            target_total = 60.0 if mode == "long_series_60s" else 30.0
+            num_shots = max(len(processed_imgs), 8 if mode == "long_series_60s" else 4)
+            base_dur = (total_duration if total_duration > 0 else target_total) / num_shots
+            motions = ["slow_zoom_in", "pan_left", "slow_zoom_out", "pan_right", "slow_zoom_in"]
+            for idx in range(num_shots):
+                cp = processed_imgs[idx % len(processed_imgs)] if processed_imgs else ""
+                txt = scripts[idx] if idx < len(scripts) else ""
+                motion = motions[idx % len(motions)]
+                # 连续短剧策略：第1、3镜头切景(cut)，第2、4镜头动作接力(last_frame)，动静结合电影感强
+                continuity = "last_frame" if (idx % 2 == 1) else "cut"
+                shots.append(ShotSpec(
+                    id=f"shot_{idx+1:02d}",
+                    duration=base_dur,
+                    timing_policy="voice_driven" if (voice_mode != "none" and duration_mode == "auto") else "fixed",
+                    visual=VisualConfig(provider=provider, start_image=str(cp), motion_preset=motion, continuity=continuity),
+                    continuity=continuity,
+                    voice_text=txt,
+                    subtitle_text=txt
+                ))
         else:
-            base_dur = 2.8
-        motions = ["slow_zoom_in", "pan_left", "slow_zoom_out", "pan_right", "slow_zoom_in"]
-        for idx, cp in enumerate(processed_imgs):
-            txt = scripts[idx] if idx < len(scripts) else ""
-            motion = motions[idx % len(motions)]
-            shots.append(ShotSpec(
-                id=f"shot_{idx+1:02d}",
-                duration=base_dur,
-                timing_policy="voice_driven" if (voice_mode != "none" and duration_mode == "auto") else "fixed",
-                visual=VisualConfig(provider=provider, start_image=str(cp), motion_preset=motion),
-                voice_text=txt,
-                subtitle_text=txt
-            ))
+            num_shots = len(processed_imgs)
+            if duration_mode == "fixed" and total_duration > 0:
+                base_dur = max(2.0, total_duration / max(1, num_shots))
+            else:
+                base_dur = 2.8
+            motions = ["slow_zoom_in", "pan_left", "slow_zoom_out", "pan_right", "slow_zoom_in"]
+            for idx, cp in enumerate(processed_imgs):
+                txt = scripts[idx] if idx < len(scripts) else ""
+                motion = motions[idx % len(motions)]
+                shots.append(ShotSpec(
+                    id=f"shot_{idx+1:02d}",
+                    duration=base_dur,
+                    timing_policy="voice_driven" if (voice_mode != "none" and duration_mode == "auto") else "fixed",
+                    visual=VisualConfig(provider=provider, start_image=str(cp), motion_preset=motion, continuity="cut"),
+                    continuity="cut",
+                    voice_text=txt,
+                    subtitle_text=txt
+                ))
     has_voice = (voice_mode != "none") and any(bool(s.voice_text) for s in shots)
     has_sub = (subtitle_mode != "none") and any(bool(s.subtitle_text) for s in shots)
     final_bgm_path = None
