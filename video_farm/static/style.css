@@ -1988,3 +1988,851 @@ body {
   background: #0f172a;
   color: #f8fafc;
 }
+
+
+/* ==========================================================================
+   双层全景时间轴 Studio (Timeline Studio) & 四维连续性锚点资产 (DNA Lock)
+   ========================================================================== */
+
+/* 1. 四维连续性锚点资产 (DNA Lock) 专区 */
+.dna-anchors-section {
+  background: rgba(15, 23, 42, 0.75);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.dna-anchors-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.dna-icon {
+  font-size: 14px;
+  filter: drop-shadow(0 0 4px rgba(56, 189, 248, 0.6));
+}
+
+.dna-lock-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #cbd5e1;
+  cursor: pointer;
+  user-select: none;
+}
+
+.dna-lock-toggle input[type="checkbox"] {
+  accent-color: #10b981;
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+}
+
+.dna-anchors-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+}
+
+@media (max-width: 960px) {
+  .dna-anchors-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.dna-anchor-card {
+  background: rgba(11, 15, 25, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.dna-anchor-card:hover {
+  border-color: rgba(56, 189, 248, 0.4);
+}
+
+.dna-card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.dna-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  letter-spacing: 0.2px;
+}
+
+.badge-subject {
+  background: rgba(59, 130, 246, 0.25);
+  color: #60a5fa;
+  border: 1px solid rgba(59, 130, 246, 0.4);
+}
+
+.badge-scene {
+  background: rgba(16, 185, 129, 0.25);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.4);
+}
+
+.badge-style {
+  background: rgba(168, 85, 247, 0.25);
+  color: #c084fc;
+  border: 1px solid rgba(168, 85, 247, 0.4);
+}
+
+.badge-state {
+  background: rgba(245, 158, 11, 0.25);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.4);
+}
+
+.dna-status {
+  font-size: 9.5px;
+  color: #94a3b8;
+}
+
+.dna-thumb-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dna-thumb {
+  width: 34px;
+  height: 34px;
+  border-radius: 4px;
+  background: #020617;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 8.5px;
+  color: #64748b;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.dna-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.dna-input {
+  width: 100%;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 11px;
+  color: #f1f5f9;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.dna-input:focus {
+  border-color: #38bdf8;
+  box-shadow: 0 0 6px rgba(56, 189, 248, 0.25);
+}
+
+/* 2. 工作台操作栏 (Studio Toolbar) */
+.pipe-studio-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+  padding: 2px 2px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.pipe-studio-btn {
+  background: rgba(30, 41, 59, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #e2e8f0;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 5px 11px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  outline: none;
+}
+
+.pipe-studio-btn:hover {
+  background: rgba(51, 65, 85, 0.95);
+  border-color: #38bdf8;
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.pipe-studio-btn.btn-animatic {
+  background: linear-gradient(135deg, rgba(14, 165, 233, 0.25), rgba(16, 185, 129, 0.25));
+  border-color: rgba(56, 189, 248, 0.5);
+  color: #38bdf8;
+}
+
+.pipe-studio-btn.btn-animatic:hover {
+  background: linear-gradient(135deg, rgba(14, 165, 233, 0.4), rgba(16, 185, 129, 0.4));
+  color: #ffffff;
+  box-shadow: 0 0 12px rgba(56, 189, 248, 0.35);
+}
+
+.pipe-studio-btn.btn-danger {
+  border-color: rgba(239, 68, 68, 0.35);
+  color: #f87171;
+}
+
+.pipe-studio-btn.btn-danger:hover {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: #ef4444;
+  color: #ffffff;
+}
+
+/* 3. 双层全景时间轴 Studio 容器 */
+.timeline-studio-box {
+  background: #060913;
+  border: 1px solid rgba(56, 189, 248, 0.2);
+  border-radius: 8px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.6);
+}
+
+/* 上层：Story Flow 故事流胶卷横向滚动带 */
+.story-flow-scroller {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  overflow-x: auto;
+  padding: 8px 4px 14px 4px;
+  scroll-behavior: smooth;
+  min-height: 220px;
+}
+
+.story-flow-scroller::-webkit-scrollbar {
+  height: 6px;
+}
+
+.story-flow-scroller::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.6);
+  border-radius: 3px;
+}
+
+.story-flow-scroller::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 3px;
+}
+
+.story-flow-scroller::-webkit-scrollbar-thumb:hover {
+  background: #38bdf8;
+}
+
+/* 故事流胶卷卡片 (Film Card) */
+.shot-film-card {
+  width: 220px;
+  flex-shrink: 0;
+  background: #0f172a;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+  position: relative;
+}
+
+.shot-film-card:hover {
+  border-color: #38bdf8;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.5);
+}
+
+.shot-film-card.active-selected {
+  border-color: #10b981;
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.3);
+}
+
+/* 胶卷卡片齿孔装饰 */
+.film-sprockets-top, .film-sprockets-bottom {
+  height: 6px;
+  background-color: #090d16;
+  background-image: radial-gradient(#1e293b 35%, transparent 40%);
+  background-size: 10px 6px;
+}
+
+.film-thumb-box {
+  height: 120px;
+  background: #020617;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.film-thumb-box img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.3s;
+}
+
+.shot-film-card:hover .film-thumb-box img {
+  transform: scale(1.03);
+}
+
+.film-shot-idx {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  background: rgba(15, 23, 42, 0.88);
+  border: 1px solid rgba(56, 189, 248, 0.4);
+  color: #38bdf8;
+  font-size: 10px;
+  font-weight: 800;
+  padding: 1px 6px;
+  border-radius: 4px;
+  line-height: 1.3;
+}
+
+.film-dur-badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  background: rgba(15, 23, 42, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #e2e8f0;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 4px;
+  line-height: 1.3;
+}
+
+.camera-motion-badge {
+  position: absolute;
+  bottom: 4px;
+  left: 4px;
+  background: rgba(14, 165, 233, 0.9);
+  color: #ffffff;
+  font-size: 9.5px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.camera-motion-badge:hover {
+  background: #0284c7;
+}
+
+.reanchor-badge {
+  position: absolute;
+  bottom: 4px;
+  right: 4px;
+  background: rgba(245, 158, 11, 0.9);
+  color: #000;
+  font-size: 9px;
+  font-weight: 800;
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+/* 胶卷卡片底栏与控制区 */
+.film-card-body {
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: #0b1120;
+}
+
+.film-shot-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.film-shot-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: #f1f5f9;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.film-shot-actions {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.film-action-mini-btn {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  font-size: 11px;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 3px;
+  transition: color 0.15s, background 0.15s;
+}
+
+.film-action-mini-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #f8fafc;
+}
+
+.film-action-mini-btn.btn-del:hover {
+  color: #f87171;
+  background: rgba(239, 68, 68, 0.15);
+}
+
+.film-prompt-input {
+  width: 100%;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  padding: 4px 6px;
+  font-size: 10.5px;
+  color: #cbd5e1;
+  outline: none;
+  resize: none;
+  height: 38px;
+}
+
+.film-prompt-input:focus {
+  border-color: #38bdf8;
+  color: #ffffff;
+}
+
+.film-controls-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 10.5px;
+  color: #94a3b8;
+  gap: 6px;
+}
+
+.film-dur-control {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.film-dur-input {
+  width: 44px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+  padding: 2px 4px;
+  font-size: 10.5px;
+  color: #10b981;
+  font-weight: 700;
+  text-align: center;
+}
+
+/* 4. 镜头间互锁咬合胶囊 (Joint Connector Capsule) */
+.joint-connector-capsule {
+  flex-shrink: 0;
+  width: 48px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  cursor: pointer;
+  z-index: 2;
+  margin: 0 4px;
+}
+
+.joint-capsule-line {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: rgba(56, 189, 248, 0.4);
+  transform: translateY(-50%);
+  z-index: 1;
+}
+
+.joint-pill {
+  position: relative;
+  z-index: 2;
+  padding: 4px 6px;
+  border-radius: 9999px;
+  font-size: 9.5px;
+  font-weight: 700;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+}
+
+.joint-pill:hover {
+  transform: scale(1.08);
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.5);
+}
+
+.joint-pill.mode-continue {
+  background: rgba(16, 185, 129, 0.25);
+  border: 1px solid #10b981;
+  color: #34d399;
+}
+
+.joint-pill.mode-anchor {
+  background: rgba(59, 130, 246, 0.25);
+  border: 1px solid #3b82f6;
+  color: #60a5fa;
+}
+
+.joint-pill.mode-re_anchor {
+  background: rgba(245, 158, 11, 0.25);
+  border: 1px solid #f59e0b;
+  color: #fbbf24;
+}
+
+.joint-pill.mode-cut {
+  background: rgba(168, 85, 247, 0.25);
+  border: 1px solid #a855f7;
+  color: #c084fc;
+}
+
+.joint-pill.mode-extend {
+  background: rgba(148, 163, 184, 0.25);
+  border: 1px solid #94a3b8;
+  color: #e2e8f0;
+}
+
+.drift-warning-pulse {
+  position: absolute;
+  top: -12px;
+  font-size: 9px;
+  color: #fbbf24;
+  background: rgba(245, 158, 11, 0.2);
+  border: 1px solid rgba(245, 158, 11, 0.5);
+  padding: 1px 4px;
+  border-radius: 3px;
+  white-space: nowrap;
+  animation: pulseWarning 1.5s infinite;
+}
+
+@keyframes pulseWarning {
+  0% { transform: scale(1); opacity: 0.8; }
+  50% { transform: scale(1.05); opacity: 1; }
+  100% { transform: scale(1); opacity: 0.8; }
+}
+
+/* 5. 下层：0s~60s 刻度标尺与轨道 (Timeline Multi-Track) */
+.timeline-ruler-section {
+  background: #090e1a;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  padding: 8px 12px;
+}
+
+.ruler-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.ruler-ticks-bar {
+  position: relative;
+  height: 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+  width: 100%;
+}
+
+.ruler-tick {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-size: 8.5px;
+  color: #64748b;
+  transform: translateX(-50%);
+}
+
+.ruler-tick::before {
+  content: "";
+  display: block;
+  width: 1px;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.ruler-track-row {
+  display: flex;
+  height: 26px;
+  background: rgba(0, 0, 0, 0.45);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-top: 4px;
+  position: relative;
+}
+
+.ruler-shot-segment {
+  height: 100%;
+  border-right: 1px solid rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  color: #ffffff;
+  cursor: pointer;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow: hidden;
+  padding: 0 4px;
+  transition: filter 0.15s ease, opacity 0.15s ease;
+  user-select: none;
+}
+
+.ruler-shot-segment:hover {
+  filter: brightness(1.25);
+}
+
+.ruler-shot-segment.active-segment {
+  box-shadow: inset 0 0 0 2px #38bdf8;
+  filter: brightness(1.15);
+}
+
+/* 6. Studio 专属模态框 (Modals & Drawers) */
+.studio-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.8);
+  backdrop-filter: blur(5px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+}
+
+.studio-modal-card {
+  background: #0f172a;
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  border-radius: 10px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.85);
+  width: 90%;
+  max-width: 640px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: modalPop 0.22s ease-out;
+}
+
+@keyframes modalPop {
+  from { transform: scale(0.95); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+.animatic-card {
+  max-width: 820px;
+}
+
+.bite-drawer-card {
+  max-width: 760px;
+}
+
+.studio-modal-header {
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: rgba(15, 23, 42, 0.7);
+}
+
+.studio-modal-header h3 {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #f8fafc;
+  margin: 0;
+}
+
+.studio-modal-close {
+  background: transparent;
+  border: none;
+  font-size: 16px;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.studio-modal-close:hover {
+  color: #f87171;
+  background: rgba(239, 68, 68, 0.15);
+}
+
+.studio-modal-body {
+  padding: 16px;
+  overflow-y: auto;
+  max-height: 70vh;
+}
+
+.studio-modal-footer {
+  padding: 12px 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  background: rgba(11, 15, 25, 0.8);
+}
+
+.spec-json-textarea {
+  width: 100%;
+  height: 280px;
+  background: #050811;
+  border: 1px solid #1e293b;
+  border-radius: 6px;
+  color: #38bdf8;
+  font-family: monospace;
+  font-size: 11.5px;
+  padding: 10px;
+  resize: vertical;
+  outline: none;
+  line-height: 1.45;
+}
+
+.spec-json-textarea:focus {
+  border-color: #38bdf8;
+  box-shadow: 0 0 8px rgba(56, 189, 248, 0.2);
+}
+
+/* 双窗咬合对比抽屉 (Joint Bite Inspection) */
+.bite-comparison-grid {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 14px;
+  align-items: center;
+}
+
+.bite-window {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.bite-window-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #94a3b8;
+  text-align: center;
+}
+
+.bite-frame-box {
+  aspect-ratio: 16/9;
+  background: #050811;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.bite-frame-box img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.bite-connector-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 190px;
+}
+
+.bite-joint-badge {
+  padding: 6px 12px;
+  border-radius: 9999px;
+  font-size: 11.5px;
+  font-weight: 700;
+  text-align: center;
+  background: rgba(16, 185, 129, 0.2);
+  border: 1px solid #10b981;
+  color: #34d399;
+}
+
+.bite-mode-selector {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  margin-top: 10px;
+}
+
+.bite-mode-btn {
+  padding: 6px 10px;
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(30, 41, 59, 0.6);
+  color: #cbd5e1;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: left;
+}
+
+.bite-mode-btn:hover {
+  background: rgba(51, 65, 85, 0.8);
+  color: #ffffff;
+}
+
+.bite-mode-btn.active {
+  background: rgba(14, 165, 233, 0.25);
+  border-color: #38bdf8;
+  color: #38bdf8;
+  font-weight: 700;
+}
+
+/* Animatic & General Loading Spinner */
+.spinner {
+  width: 36px;
+  height: 36px;
+  border: 3.5px solid rgba(56, 189, 248, 0.2);
+  border-top-color: #38bdf8;
+  border-radius: 50%;
+  animation: spin 0.85s linear infinite;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}

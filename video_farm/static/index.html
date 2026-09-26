@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Video Farm · 首尾帧视频工坊控制台</title>
-  <link rel="stylesheet" href="/static/style.css?v=20260919_v3">
+  <link rel="stylesheet" href="/static/style.css?v=20260926_v4">
 </head>
 <body>
   <!-- 顶部常驻导航栏 -->
@@ -48,7 +48,7 @@
     <div class="tabs-bar">
       <div class="tabs-nav">
         <button class="tab-button active" data-target="view-pipeline">
-          <span>🚀 一键全自动成片 (Pipeline)</span>
+          <span>🎬 连续长视频工作台 (30s/60s 影视连拍)</span>
         </button>
         <button class="tab-button" data-target="view-generate">
           <span>🎬 生成视频</span>
@@ -77,7 +77,7 @@
         <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255, 255, 255, 0.08); padding-bottom: 14px; margin-bottom: 18px;">
           <div>
             <h2 style="font-size: 19px; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 10px;">
-              <span>🚀 智能视频生产工坊 (Smart Video Studio)</span>
+              <span>🎬 连续长视频工作台 (Continuity Studio · 30s/60s 影视连拍)</span>
               <span style="font-size: 12px; background: rgba(59, 130, 246, 0.25); color: #60a5fa; padding: 3px 10px; border-radius: 9999px; border: 1px solid rgba(59, 130, 246, 0.4);">全要素自适应 · 拒绝死板限制</span>
             </h2>
             <p style="font-size: 13px; color: #94a3b8; margin-top: 4px;">
@@ -318,7 +318,7 @@
               <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid rgba(255, 255, 255, 0.08);">
                 <div style="display: flex; gap: 8px;">
                   <button class="pipe-panel-tab active" id="tab-pipe-plan" style="background: none; border: none; font-size: 13px; font-weight: 600; color: #60a5fa; cursor: pointer; padding: 4px 8px; border-bottom: 2px solid #3b82f6;">
-                    📋 方案规划看板
+                    🎬 连续镜头时间轴 Studio (Timeline)
                   </button>
                   <button class="pipe-panel-tab" id="tab-pipe-monitor" style="background: none; border: none; font-size: 13px; font-weight: 600; color: #94a3b8; cursor: pointer; padding: 4px 8px;">
                     📡 生产监控与成片
@@ -330,32 +330,115 @@
               <!-- 面板 A：方案规划看板 -->
               <div id="pipe-panel-plan-content" style="flex: 1; display: flex; flex-direction: column;">
                 <!-- 智能研判摘要卡片 -->
-                <div id="pipe-diagnostic-card" style="background: rgba(30, 41, 59, 0.6); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 6px; padding: 12px; margin-bottom: 14px;">
-                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                <div id="pipe-diagnostic-card" style="background: rgba(30, 41, 59, 0.6); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 6px; padding: 10px 12px; margin-bottom: 12px;">
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
                     <span style="font-size: 13px; font-weight: 700; color: #e2e8f0; display: flex; align-items: center; gap: 6px;">
                       <span>🤖 智能素材诊断</span>
                       <span id="pipe-diag-mode-tag" style="font-size: 11px; background: rgba(59, 130, 246, 0.2); color: #93c5fd; padding: 2px 6px; border-radius: 4px;">待检测</span>
                     </span>
                     <span id="pipe-diag-confidence" style="font-size: 11px; color: #10b981;">--</span>
                   </div>
-                  <div id="pipe-diag-summary" style="font-size: 12px; color: #94a3b8; line-height: 1.5;">
+                  <div id="pipe-diag-summary" style="font-size: 12px; color: #94a3b8; line-height: 1.4;">
                     请输入素材路径并点击【智能分析】，系统将自动扫描素材类型、推荐最佳生产模式，并为您自动规划分镜头清单。
                   </div>
                 </div>
 
-                <!-- 分镜头预案清单 (Shots Breakdown) -->
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                  <span style="font-size: 12px; font-weight: 600; color: #cbd5e1;">分镜头预案详情 (可实时增删/微调)</span>
-                  <div style="display: flex; align-items: center; gap: 6px;">
-                    <span id="pipe-shots-count" style="font-size: 11px; color: #64748b;">(0 镜头)</span>
-                    <button class="pipe-shot-action-btn" id="btn-pipe-add-shot" title="追加一个镜头" type="button">➕ 加镜头</button>
-                    <button class="pipe-shot-action-btn btn-danger" id="btn-pipe-clear-shots" title="清空全部镜头" type="button">🗑️ 清空</button>
+                <!-- 四维连续性锚点资产 (DNA Lock) 专区 -->
+                <div id="pipe-dna-anchors-section" class="dna-anchors-section">
+                  <div class="dna-anchors-header">
+                    <div style="display: flex; align-items: center; gap: 6px;">
+                      <span class="dna-icon">🧬</span>
+                      <span style="font-size: 12px; font-weight: 700; color: #f1f5f9;">四维连续性锚点资产 (DNA Lock)</span>
+                      <span style="font-size: 10.5px; color: #94a3b8;">长视频防漂移与全剧一致性基准</span>
+                    </div>
+                    <label class="dna-lock-toggle" title="全局锁定锚点资产，防止后续镜头形态衰减">
+                      <input type="checkbox" id="pipe-dna-lock-toggle" checked>
+                      <span>🔒 全局锚定锁定</span>
+                    </label>
+                  </div>
+                  <div class="dna-anchors-grid">
+                    <div class="dna-anchor-card" id="card-anchor-subject">
+                      <div class="dna-card-top">
+                        <span class="dna-badge badge-subject">👤 主体锚点</span>
+                        <span class="dna-status" id="dna-subject-status">未设置</span>
+                      </div>
+                      <div class="dna-thumb-row">
+                        <div class="dna-thumb" id="dna-subject-thumb">
+                          <span>无参考图</span>
+                        </div>
+                        <input type="text" class="dna-input" id="dna-subject-input" placeholder="输入主体图片路径或人物/包装名称...">
+                      </div>
+                    </div>
+                    <div class="dna-anchor-card" id="card-anchor-scene">
+                      <div class="dna-card-top">
+                        <span class="dna-badge badge-scene">🏞️ 场景锚点</span>
+                        <span class="dna-status" id="dna-scene-status">环境锁定</span>
+                      </div>
+                      <input type="text" class="dna-input" id="dna-scene-input" placeholder="设定统一光影、色温与空间背景..." value="统一商业展台与环境光影，柔和冷光">
+                    </div>
+                    <div class="dna-anchor-card" id="card-anchor-style">
+                      <div class="dna-card-top">
+                        <span class="dna-badge badge-style">🎨 风格锚点</span>
+                        <span class="dna-status" id="dna-style-status">8K质感</span>
+                      </div>
+                      <input type="text" class="dna-input" id="dna-style-input" placeholder="输入统一风格规范..." value="商业影视大片质感, 8K超高清, 细腻材质光影, 景深通透">
+                    </div>
+                    <div class="dna-anchor-card" id="card-anchor-state">
+                      <div class="dna-card-top">
+                        <span class="dna-badge badge-state">⚡ 状态锚点</span>
+                        <span class="dna-status" id="dna-state-status">动作基准</span>
+                      </div>
+                      <input type="text" class="dna-input" id="dna-state-input" placeholder="物体朝向/放置姿态/动作基准..." value="产品平稳陈列，微距慢动作流光">
+                    </div>
                   </div>
                 </div>
 
-                <div id="pipe-shots-list" style="flex: 1; max-height: 250px; overflow-y: auto; background: #0b0f19; border: 1px solid #1e293b; border-radius: 6px; padding: 8px; display: flex; flex-direction: column; gap: 8px;">
-                  <div style="text-align: center; color: #64748b; font-size: 12px; padding: 40px 0;">
-                    点击左侧【智能分析】或【规划并预览分镜方案】，即在此呈现分镜头预案
+                <!-- 工作台操作工具栏 (Studio Action Bar) -->
+                <div class="pipe-studio-toolbar">
+                  <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="font-size: 13px; font-weight: 700; color: #f8fafc; display: flex; align-items: center; gap: 6px;">
+                      <span>🎞️ 故事流胶卷带 (Story Flow)</span>
+                      <span id="pipe-shots-count" style="font-size: 11px; color: #38bdf8; font-weight: 600;">(0 镜头 · 0.0s)</span>
+                    </span>
+                  </div>
+                  <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                    <button class="pipe-studio-btn btn-animatic" id="btn-pipe-animatic-preview" title="毫秒级本地合成高精动态分镜预演，不耗云端 Veo 算力" type="button">
+                      ⚡ 极速分镜预演 (Animatic)
+                    </button>
+                    <button class="pipe-studio-btn" id="btn-pipe-export-spec" title="导出当前全案规范为通用 JSON Job Spec" type="button">
+                      📋 导出 Job Spec
+                    </button>
+                    <button class="pipe-studio-btn" id="btn-pipe-import-spec" title="导入已有 Job Spec JSON 恢复全案" type="button">
+                      📥 导入 Job Spec
+                    </button>
+                    <button class="pipe-studio-btn" id="btn-pipe-add-shot" title="追加一个镜头" type="button">
+                      ➕ 加镜头
+                    </button>
+                    <button class="pipe-studio-btn btn-danger" id="btn-pipe-clear-shots" title="清空全部镜头" type="button">
+                      🗑️ 清空
+                    </button>
+                  </div>
+                </div>
+
+                <!-- 双层全景时间轴 Studio 容器 -->
+                <div class="timeline-studio-box">
+                  <!-- 上层：Story Flow 故事流胶卷横向滚动带 -->
+                  <div class="story-flow-scroller" id="pipe-story-flow-track">
+                    <div style="text-align: center; color: #64748b; font-size: 12px; padding: 48px 0; width: 100%;">
+                      点击左侧【智能分析】或【规划并预览分镜方案】，即在此呈现专业双层时间轴与胶卷工作台
+                    </div>
+                  </div>
+
+                  <!-- 下层：0s~60s 刻度标尺与轨道 -->
+                  <div class="timeline-ruler-section" id="pipe-timeline-ruler-section">
+                    <div class="ruler-header">
+                      <span style="font-size: 11px; color: #94a3b8; font-weight: 600;">⏱️ 标尺刻度轨 (Timeline Multi-Track)</span>
+                      <span id="ruler-total-label" style="font-size: 11px; color: #10b981; font-weight: 700;">总时长: 0.0s</span>
+                    </div>
+                    <!-- 刻度线 -->
+                    <div class="ruler-ticks-bar" id="pipe-ruler-ticks"></div>
+                    <!-- 视频轨道条 -->
+                    <div class="ruler-track-row" id="pipe-ruler-video-track" title="视频轨道 (点击分段定位镜头)"></div>
                   </div>
                 </div>
 
@@ -980,10 +1063,95 @@
     </div>
   </div>
 
+  
+  <!-- 模态框 1：Job Spec 导入导出弹窗 -->
+  <div class="studio-modal-overlay" id="pipe-job-spec-modal" style="display: none;">
+    <div class="studio-modal-card">
+      <div class="studio-modal-header">
+        <h3 id="spec-modal-title">📋 声明式 Job Spec (Timeline JSON)</h3>
+        <button class="studio-modal-close" id="btn-close-spec-modal">✕</button>
+      </div>
+      <div class="studio-modal-body">
+        <p style="font-size: 12px; color: #94a3b8; margin-bottom: 8px;">
+          声明式 Job Spec 封装了四维锚点资产、分镜头运镜参数与连续性语义。可在多台电脑间完全复用，或直接提供给 Agent 调度。
+        </p>
+        <textarea id="pipe-spec-json-textarea" class="spec-json-textarea" placeholder="在此查看或粘贴 Job Spec JSON 规范..."></textarea>
+      </div>
+      <div class="studio-modal-footer">
+        <button class="btn btn-secondary" id="btn-copy-spec-json">📑 复制到剪贴板</button>
+        <button class="btn btn-primary" id="btn-apply-spec-json">✅ 校验并应用此规范</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 模态框 2：Animatic 极速动态分镜预演弹窗 -->
+  <div class="studio-modal-overlay" id="pipe-animatic-modal" style="display: none;">
+    <div class="studio-modal-card animatic-card">
+      <div class="studio-modal-header">
+        <h3>⚡ 极速动态分镜预演 (Animatic Preview)</h3>
+        <button class="studio-modal-close" id="btn-close-animatic-modal">✕</button>
+      </div>
+      <div class="studio-modal-body" style="display: flex; flex-direction: column; align-items: center;">
+        <div id="animatic-loading-spinner" style="padding: 40px; text-align: center;">
+          <div class="spinner-border" style="width: 3rem; height: 3rem; color: #38bdf8; margin-bottom: 12px;"></div>
+          <div style="font-size: 13px; color: #e2e8f0; font-weight: 600;">正在极速合成动态分镜预演...</div>
+          <div style="font-size: 11px; color: #94a3b8; margin-top: 4px;">装配高精微运镜、TTS 语音与背景音乐，完全在本地瞬时完成</div>
+        </div>
+        <video id="animatic-video-player" controls autoplay style="display: none; width: 100%; max-height: 480px; border-radius: 6px; background: #000;"></video>
+      </div>
+      <div class="studio-modal-footer" id="animatic-modal-footer" style="display: none;">
+        <span style="font-size: 12px; color: #10b981;">✨ 预演节奏满意？可直接关闭弹窗并点击【🚀 确认方案并开始生产】执行云端高精 Veo 渲染</span>
+        <button class="btn btn-secondary" id="btn-done-animatic-modal">关闭预演</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 模态框 3：双窗咬合对比抽屉 (Joint Bite Drawer) -->
+  <div class="studio-modal-overlay" id="pipe-bite-drawer-modal" style="display: none;">
+    <div class="studio-modal-card bite-drawer-card">
+      <div class="studio-modal-header">
+        <h3>🔗 镜头连续性咬合对比 (Joint Bite Inspection)</h3>
+        <button class="studio-modal-close" id="btn-close-bite-modal">✕</button>
+      </div>
+      <div class="studio-modal-body">
+        <div class="bite-comparison-grid">
+          <div class="bite-window">
+            <div class="bite-window-label" id="bite-prev-label">上一镜尾帧 (Out-Frame)</div>
+            <div class="bite-frame-box" id="bite-prev-frame">
+              <img id="bite-prev-img" src="" alt="Previous Shot Out-Frame">
+            </div>
+          </div>
+          <div class="bite-connector-center">
+            <div class="bite-joint-badge" id="bite-joint-badge">🟢 尾帧接力 (Continue)</div>
+            <div style="font-size: 11px; color: #94a3b8; text-align: center; margin: 8px 0;" id="bite-joint-desc">
+              平滑咬合上一镜头终点画面，保持运动矢量同向
+            </div>
+            <div class="bite-mode-selector">
+              <button class="bite-mode-btn" data-mode="continue">🟢 尾帧接力</button>
+              <button class="bite-mode-btn" data-mode="anchor">🔵 首尾插值</button>
+              <button class="bite-mode-btn" data-mode="re_anchor">🟡 防漂移重锚</button>
+              <button class="bite-mode-btn" data-mode="cut">🟣 独立切镜</button>
+              <button class="bite-mode-btn" data-mode="extend">⚪ 智能续写</button>
+            </div>
+          </div>
+          <div class="bite-window">
+            <div class="bite-window-label" id="bite-curr-label">本镜入点帧 (In-Frame)</div>
+            <div class="bite-frame-box" id="bite-curr-frame">
+              <img id="bite-curr-img" src="" alt="Current Shot In-Frame">
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="studio-modal-footer">
+        <button class="btn btn-primary" id="btn-save-bite-joint">应用衔接设置</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Toast 悬浮提示架 -->
   <div class="toast-shelf" id="toast-shelf"></div>
 
-  <script src="/static/app.js?v=20260919_v3"></script>
+  <script src="/static/app.js?v=20260926_v4"></script>
 </body>
 </html>
 

@@ -979,8 +979,25 @@ def get_system_info():
 # ==========================================
 # Production Pipeline (全自动流水线 API)
 # ==========================================
-from .pipeline import PIPELINE_MANAGER, start_storyboard_pipeline_async, start_timeline_pipeline_async, start_smart_pipeline_async, extract_tail_anchor_frame
-from .timeline_spec import TimelineSpec, IntentDetector
+from .pipeline import (
+    PIPELINE_MANAGER,
+    start_storyboard_pipeline_async,
+    start_timeline_pipeline_async,
+    start_smart_pipeline_async,
+    start_animatic_pipeline_async,
+    extract_tail_anchor_frame
+)
+from .timeline_spec import (
+    TimelineSpec,
+    IntentDetector,
+    ContinuityAnchors,
+    ShotSpec,
+    VisualConfig,
+    TracksSpec,
+    VoiceTrack,
+    BGMTrack,
+    SubtitleTrack
+)
 
 class StoryboardPipelineReq(BaseModel):
     material_dir: Optional[str] = None
@@ -1119,6 +1136,7 @@ class SmartPipelineReq(BaseModel):
     grid_crop: Optional[bool] = None
     enable_inspect: bool = True
     shots_override: Optional[List[Dict[str, Any]]] = None
+    continuity_anchors: Optional[Dict[str, Any]] = None
 
 class ExtractTailFrameReq(BaseModel):
     video_path: str
@@ -1147,7 +1165,7 @@ def api_pipeline_smart_run(req: SmartPipelineReq):
 
     if req.shots_override:
         for s in req.shots_override:
-            ip = s.get("image_path")
+            ip = s.get("image_path") or s.get("in_frame")
             if ip and Path(ip).exists():
                 img_list.append(str(Path(ip).resolve()))
         img_list = list(dict.fromkeys(img_list))
@@ -1222,7 +1240,8 @@ def api_pipeline_smart_run(req: SmartPipelineReq):
         grid_crop=req.grid_crop,
         output_master_mp4=out_mp4,
         work_dir=work_dir,
-        user_shots_override=req.shots_override
+        user_shots_override=req.shots_override,
+        continuity_anchors=req.continuity_anchors
     )
     return {
         "status": "ok",
@@ -1231,6 +1250,163 @@ def api_pipeline_smart_run(req: SmartPipelineReq):
         "mode": req.mode,
         "shots_count": len(req.shots_override) if req.shots_override else len(img_list)
     }
+
+
+@app.post("/api/pipeline/animatic-preview")
+def api_pipeline_animatic_preview(req: SmartPipelineReq):
+    """极速动态分镜预演：秒级生成高精运镜+配音预演，不消耗云端 Veo 算力"""
+    mat_dir = Path(req.material_dir) if req.material_dir else None
+    img_list: List[str] = req.image_paths or []
+
+    if req.shots_override:
+        for s in req.shots_override:
+            ip = s.get("image_path") or s.get("in_frame")
+            if ip and Path(ip).exists():
+                img_list.append(str(Path(ip).resolve()))
+        img_list = list(dict.fromkeys(img_list))
+
+    if not img_list and mat_dir and mat_dir.exists():
+        img_exts = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
+        for root, _, files in os.walk(str(mat_dir)):
+            r_lower = root.lower()
+            if any(x in r_lower for x in ["output", "temp", "pipeline_temp", "cache"]):
+                continue
+            for f in files:
+                if Path(f).suffix.lower() in img_exts:
+                    img_list.append(str(Path(root) / f))
+        img_list = sorted(list(set(img_list)))
+
+    if not img_list:
+        raise HTTPException(status_code=400, detail="未找到有效图片素材进行预演")
+
+    script_lines: List[str] = []
+    if req.script_text and req.script_text.strip():
+        script_lines = [l.strip() for l in req.script_text.splitlines() if l.strip()]
+
+    final_bgm: Optional[str] = None
+    if req.bgm_mode == "custom" and req.bgm_path and Path(req.bgm_path).exists():
+        final_bgm = str(Path(req.bgm_path).resolve())
+
+    now_ts = int(time.time())
+    out_dir = OUTPUTS_DIR / "pipeline_masters"
+    work_dir = DATA_DIR / f"animatic_{now_ts}"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    work_dir.mkdir(parents=True, exist_ok=True)
+    out_mp4 = out_dir / f"animatic_preview_{now_ts}.mp4"
+
+    job_id = start_animatic_pipeline_async(
+        image_paths=img_list,
+        script_sentences=script_lines,
+        aspect_ratio=req.aspect_ratio,
+        total_duration=req.total_duration,
+        voice_mode=req.voice_mode,
+        voice_name=req.voice_name,
+        bgm_path=final_bgm,
+        user_shots_override=req.shots_override,
+        continuity_anchors=req.continuity_anchors
+    )
+    return {
+        "status": "ok",
+        "job_id": job_id,
+        "output_path": str(out_mp4),
+        "is_animatic": True
+    }
+
+
+class JobSpecValidateReq(BaseModel):
+    job_spec: Dict[str, Any]
+
+
+@app.post("/api/pipeline/job-spec/validate")
+def api_pipeline_job_spec_validate(req: JobSpecValidateReq):
+    """校验声明式 Job Spec 完整性，核对素材并返回规范化时间线"""
+    try:
+        spec = TimelineSpec.from_job_spec(req.job_spec)
+        shots = spec.tracks.video_track
+        missing_assets = []
+        for s in shots:
+            for p in (s.in_frame, s.out_frame, s.visual.start_image, s.visual.end_image):
+                if p and not Path(p).exists():
+                    missing_assets.append(p)
+        missing_assets = list(set(missing_assets))
+        total_dur = sum(s.duration for s in shots)
+        return {
+            "status": "ok",
+            "valid": True,
+            "project_name": spec.project_name,
+            "aspect_ratio": spec.aspect_ratio,
+            "resolution": spec.resolution,
+            "shots_count": len(shots),
+            "total_duration": round(total_dur, 2),
+            "missing_assets": missing_assets,
+            "continuity_anchors": spec.continuity_anchors.dict() if spec.continuity_anchors else None,
+            "spec": spec.export_job_spec()
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Job Spec 格式非法或解析失败: {e}")
+
+
+@app.post("/api/pipeline/job-spec/export")
+def api_pipeline_job_spec_export(req: SmartPipelineReq):
+    """将当前工作台配置导出为跨机器通用的声明式 Job Spec JSON"""
+    res_map = {"16:9": (1920, 1080), "9:16": (1080, 1920), "1:1": (1080, 1080)}
+    target_res = res_map.get(req.aspect_ratio, (1920, 1080))
+    shots = []
+    if req.shots_override:
+        for idx, us in enumerate(req.shots_override):
+            img_p = us.get("image_path") or us.get("in_frame", "")
+            end_img_p = us.get("end_image") or us.get("end_image_path") or us.get("out_frame")
+            txt = us.get("voice_text", "").strip()
+            dur = float(us.get("duration", 2.5))
+            motion = us.get("camera_motion") or us.get("motion", "zoom_in")
+            continuity = us.get("continuity", "cut")
+            shots.append(ShotSpec(
+                id=f"shot_{idx+1:02d}",
+                duration=dur,
+                timing_policy="voice_driven" if req.voice_mode != "none" else "fixed",
+                visual=VisualConfig(
+                    provider="direct_cut" if req.engine_choice == "direct_cut" else ("veo" if req.engine_choice == "flow_veo" else "ken_burns"),
+                    start_image=str(img_p) if img_p else None,
+                    end_image=str(end_img_p) if end_img_p else None,
+                    camera_motion=motion,
+                    motion_preset=motion,
+                    continuity=continuity
+                ),
+                continuity=continuity,
+                camera_motion=motion,
+                in_frame=str(img_p) if img_p else None,
+                out_frame=str(end_img_p) if end_img_p else None,
+                drift_warning=us.get("drift_warning"),
+                locked=bool(us.get("locked", False)),
+                voice_text=txt,
+                subtitle_text=txt
+            ))
+
+    ca_obj = None
+    if req.continuity_anchors:
+        ca_obj = ContinuityAnchors(
+            subject_anchor=req.continuity_anchors.get("subject_anchor"),
+            scene_anchor=req.continuity_anchors.get("scene_anchor"),
+            style_anchor=req.continuity_anchors.get("style_anchor", "商业影视大片质感, 8K超高清, 细腻材质光影, 景深通透"),
+            state_anchor=req.continuity_anchors.get("state_anchor"),
+            locked=bool(req.continuity_anchors.get("locked", True))
+        )
+
+    spec = TimelineSpec(
+        project_id=f"spec_{int(time.time())}",
+        project_name="Exported Job Spec",
+        aspect_ratio=req.aspect_ratio,
+        resolution=list(target_res),
+        fps=30,
+        continuity_anchors=ca_obj,
+        tracks=TracksSpec(
+            video_track=shots,
+            voice_track=VoiceTrack(enabled=(req.voice_mode != "none"), voice_name=req.voice_name),
+            bgm_track=BGMTrack(enabled=bool(req.bgm_path), file_path=req.bgm_path),
+            subtitle_track=SubtitleTrack(enabled=(req.subtitle_mode != "none"))
+        )
+    )
+    return {"status": "ok", "job_spec": spec.export_job_spec()}
 
 @app.post("/api/pipeline/timeline/run")
 def api_pipeline_timeline_run(spec: TimelineSpec):
@@ -1252,7 +1428,30 @@ def api_get_pipeline_job(job_id: str):
     job = PIPELINE_MANAGER.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="流水线作业未找到")
-    return {"status": "ok", "job": job}
+    res = dict(job)
+    if res.get("output_video") and Path(res["output_video"]).exists():
+        res["video_url"] = f"/api/pipeline/video/{job_id}"
+        res["download_url"] = f"/api/pipeline/download?job_id={job_id}"
+    return {"status": "ok", "job": res}
+
+@app.get("/api/pipeline/download")
+def api_pipeline_download(job_id: Optional[str] = None, path: Optional[str] = None):
+    target_path = None
+    filename = "video.mp4"
+    if job_id:
+        job = PIPELINE_MANAGER.get_job(job_id)
+        if job and job.get("output_video"):
+            target_path = Path(job["output_video"]).resolve()
+            filename = target_path.name
+    elif path:
+        p = Path(path).resolve()
+        if p.exists() and p.is_file():
+            target_path = p
+            filename = target_path.name
+
+    if not target_path or not target_path.exists():
+        raise HTTPException(status_code=404, detail="下载文件不存在")
+    return FileResponse(str(target_path), filename=filename, media_type="application/octet-stream")
 
 @app.get("/api/pipeline/video/{job_id}")
 def api_serve_pipeline_video(job_id: str):

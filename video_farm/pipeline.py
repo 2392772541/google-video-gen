@@ -39,7 +39,8 @@ from .timeline_spec import (
     VoiceTrack,
     BGMTrack,
     SubtitleTrack,
-    IntentDetector
+    IntentDetector,
+    ContinuityAnchors
 )
 
 
@@ -302,39 +303,49 @@ class TimelineEngine:
             else:
                 target_input = Path(img_path)
 
-            motion_presets = [
-                {"type": "zoom_in", "s_start": 1.00, "s_end": 1.06},
-                {"type": "pan_left", "scale": 1.05, "x_start": 0.54, "x_end": 0.46},
-                {"type": "zoom_in", "s_start": 1.01, "s_end": 1.05},
-                {"type": "pan_right", "scale": 1.05, "x_start": 0.46, "x_end": 0.54},
-                {"type": "zoom_out", "s_start": 1.06, "s_end": 1.00},
-            ]
+            # 解析 8 宫格动力学运镜 (camera_motion) 与咬合模式
+            user_motion = getattr(shot, "camera_motion", None) or getattr(shot.visual, "camera_motion", None) or getattr(shot.visual, "motion_preset", None)
             continuity_mode = getattr(shot, "continuity", None) or getattr(shot.visual, "continuity", "cut")
-            if continuity_mode == "last_frame":
-                # 连续性咬合镜头：首帧直接承接上一镜头尾部，采用平滑同向微缩放，避免跳帧反弹
-                preset = {"type": "zoom_in", "s_start": 1.00, "s_end": 1.04}
-            else:
-                preset = motion_presets[preset_idx % len(motion_presets)]
-            ptype = preset["type"]
 
-            if shot.visual.provider == "direct_cut":
+            if shot.visual.provider == "direct_cut" or user_motion == "static":
                 vf = f"scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,fps={fps}"
-            elif ptype == "zoom_in":
-                s0, s1 = preset["s_start"], preset["s_end"]
-                vf = f"scale='iw*({s0}+({s1}-{s0})*t/{dur_sec})':'ih*({s0}+({s1}-{s0})*t/{dur_sec})':eval=frame,crop={w}:{h}:'(in_w-{w})/2':'(in_h-{h})/2',fps={fps}"
-            elif ptype == "zoom_out":
-                s0, s1 = preset["s_start"], preset["s_end"]
-                vf = f"scale='iw*({s0}-({s0}-{s1})*t/{dur_sec})':'ih*({s0}-({s0}-{s1})*t/{dur_sec})':eval=frame,crop={w}:{h}:'(in_w-{w})/2':'(in_h-{h})/2',fps={fps}"
-            elif ptype == "pan_left":
-                sc = preset["scale"]
-                x0, x1 = preset["x_start"], preset["x_end"]
-                vf = f"scale=iw*{sc}:ih*{sc},crop={w}:{h}:'(in_w-{w})*({x0}+({x1}-{x0})*t/{dur_sec})':'(in_h-{h})/2',fps={fps}"
-            elif ptype == "pan_right":
-                sc = preset["scale"]
-                x0, x1 = preset["x_start"], preset["x_end"]
-                vf = f"scale=iw*{sc}:ih*{sc},crop={w}:{h}:'(in_w-{w})*({x0}+({x1}-{x0})*t/{dur_sec})':'(in_h-{h})/2',fps={fps}"
             else:
-                vf = f"scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,fps={fps}"
+                if user_motion in ("zoom_in", "zoom_out", "pan_left", "pan_right", "crane_up", "tilt_down", "orbit"):
+                    ptype = user_motion
+                elif continuity_mode in ("last_frame", "continue"):
+                    ptype = "zoom_in"
+                else:
+                    motion_presets = ["zoom_in", "pan_left", "crane_up", "pan_right", "zoom_out", "tilt_down", "orbit"]
+                    ptype = motion_presets[preset_idx % len(motion_presets)]
+
+                if ptype == "zoom_in":
+                    s0, s1 = 1.00, 1.07
+                    vf = f"scale='iw*({s0}+({s1}-{s0})*t/{dur_sec})':'ih*({s0}+({s1}-{s0})*t/{dur_sec})':eval=frame,crop={w}:{h}:'(in_w-{w})/2':'(in_h-{h})/2',fps={fps}"
+                elif ptype == "zoom_out":
+                    s0, s1 = 1.07, 1.00
+                    vf = f"scale='iw*({s0}-({s0}-{s1})*t/{dur_sec})':'ih*({s0}-({s0}-{s1})*t/{dur_sec})':eval=frame,crop={w}:{h}:'(in_w-{w})/2':'(in_h-{h})/2',fps={fps}"
+                elif ptype == "pan_left":
+                    sc = 1.08
+                    x0, x1 = 0.55, 0.45
+                    vf = f"scale=iw*{sc}:ih*{sc},crop={w}:{h}:'(in_w-{w})*({x0}+({x1}-{x0})*t/{dur_sec})':'(in_h-{h})/2',fps={fps}"
+                elif ptype == "pan_right":
+                    sc = 1.08
+                    x0, x1 = 0.45, 0.55
+                    vf = f"scale=iw*{sc}:ih*{sc},crop={w}:{h}:'(in_w-{w})*({x0}+({x1}-{x0})*t/{dur_sec})':'(in_h-{h})/2',fps={fps}"
+                elif ptype == "crane_up":
+                    sc = 1.08
+                    y0, y1 = 0.55, 0.45
+                    vf = f"scale=iw*{sc}:ih*{sc},crop={w}:{h}:'(in_w-{w})/2':'(in_h-{h})*({y0}+({y1}-{y0})*t/{dur_sec})',fps={fps}"
+                elif ptype == "tilt_down":
+                    sc = 1.08
+                    y0, y1 = 0.45, 0.55
+                    vf = f"scale=iw*{sc}:ih*{sc},crop={w}:{h}:'(in_w-{w})/2':'(in_h-{h})*({y0}+({y1}-{y0})*t/{dur_sec})',fps={fps}"
+                elif ptype == "orbit":
+                    s0, s1 = 1.01, 1.06
+                    x0, x1 = 0.47, 0.53
+                    vf = f"scale='iw*({s0}+({s1}-{s0})*t/{dur_sec})':'ih*({s0}+({s1}-{s0})*t/{dur_sec})':eval=frame,crop={w}:{h}:'(in_w-{w})*({x0}+({x1}-{x0})*t/{dur_sec})':'(in_h-{h})/2',fps={fps}"
+                else:
+                    vf = f"scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,fps={fps}"
 
             cmd = [
                 "ffmpeg", "-y", "-loop", "1",
@@ -445,17 +456,24 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             pct = 40 + int(35 * (idx + 1) / len(spec.tracks.video_track))
             continuity_mode = getattr(shot, "continuity", None) or getattr(shot.visual, "continuity", "cut")
 
-            # 连续性衔接处理：如果当前镜头指定为 last_frame 衔接，且不是第一镜
-            if idx > 0 and continuity_mode == "last_frame" and len(clips) > 0:
+            # 连续性衔接处理：支持 continue (尾帧接力)、re_anchor (防漂移重锚)、anchor (首尾插值)
+            if idx > 0 and continuity_mode in ("last_frame", "continue") and len(clips) > 0:
                 prev_clip = clips[idx - 1]
                 if prev_clip and Path(prev_clip).exists():
                     tail_frame_path = self.cache_dir / f"tail_anchor_{spec.tracks.video_track[idx-1].id}.png"
                     try:
                         extract_tail_anchor_frame(prev_clip, tail_frame_path, offset_frames=4)
                         shot.visual.start_image = str(tail_frame_path)
+                        shot.in_frame = str(tail_frame_path)
                         self.log("连续性衔接", pct, f"镜头 [{shot.id}] 启用尾帧接力：继承上一镜 [{spec.tracks.video_track[idx-1].id}] 尾部稳定帧作为首帧")
                     except Exception as e:
                         self.log("连续性警告", pct, f"提取上一镜尾帧异常: {e}，回退使用预设底图")
+            elif continuity_mode == "re_anchor":
+                # 防漂移重锚：重置为全局主体锚点，截断形态畸变累计
+                if spec.continuity_anchors and spec.continuity_anchors.subject_anchor and Path(spec.continuity_anchors.subject_anchor).exists():
+                    shot.visual.start_image = str(spec.continuity_anchors.subject_anchor)
+                    shot.in_frame = str(spec.continuity_anchors.subject_anchor)
+                    self.log("防漂移重锚", pct, f"镜头 [{shot.id}] 触发防漂移重锚：重置入点为全局主体锚点 [{Path(spec.continuity_anchors.subject_anchor).name}]")
             elif continuity_mode == "anchor":
                 self.log("关键帧锚定", pct, f"镜头 [{shot.id}] 启用首尾双锚点插值约束：[首: {Path(shot.visual.start_image).name if shot.visual.start_image else '无'} -> 尾: {Path(shot.visual.end_image).name if shot.visual.end_image else '无'}]")
 
@@ -729,7 +747,8 @@ def start_smart_pipeline_async(
     grid_crop: Optional[bool] = None,
     output_master_mp4: Optional[str | Path] = None,
     work_dir: Optional[str | Path] = None,
-    user_shots_override: Optional[List[Dict[str, Any]]] = None
+    user_shots_override: Optional[List[Dict[str, Any]]] = None,
+    continuity_anchors: Optional[Dict[str, Any]] = None
 ) -> str:
     """全模态自适应流水线启动器：彻底打破死板限制"""
     work_dir = Path(work_dir or (Path("video_farm_data") / f"pipe_{int(time.time())}_{uuid.uuid4().hex[:4]}"))
@@ -746,13 +765,13 @@ def start_smart_pipeline_async(
     shots: List[ShotSpec] = []
     if user_shots_override and len(user_shots_override) > 0:
         for idx, us in enumerate(user_shots_override):
-            img_p = us.get("image_path")
+            img_p = us.get("image_path") or us.get("in_frame")
             if not img_p or not Path(img_p).exists():
                 img_p = str(processed_imgs[idx % len(processed_imgs)]) if processed_imgs else ""
-            end_img_p = us.get("end_image") or us.get("end_image_path")
+            end_img_p = us.get("end_image") or us.get("end_image_path") or us.get("out_frame")
             txt = us.get("voice_text", "").strip()
             dur = float(us.get("duration", 2.5))
-            motion = us.get("motion", "slow_zoom_in")
+            motion = us.get("camera_motion") or us.get("motion", "zoom_in")
             continuity = us.get("continuity", "cut")
             shots.append(ShotSpec(
                 id=f"shot_{idx+1:02d}",
@@ -760,12 +779,18 @@ def start_smart_pipeline_async(
                 timing_policy="voice_driven" if (voice_mode != "none" and duration_mode == "auto") else "fixed",
                 visual=VisualConfig(
                     provider=provider,
-                    start_image=str(img_p),
+                    start_image=str(img_p) if img_p else None,
                     end_image=str(end_img_p) if (end_img_p and Path(end_img_p).exists()) else None,
+                    camera_motion=motion,
                     motion_preset=motion,
                     continuity=continuity
                 ),
                 continuity=continuity,
+                camera_motion=motion,
+                in_frame=str(img_p) if img_p else None,
+                out_frame=str(end_img_p) if (end_img_p and Path(end_img_p).exists()) else None,
+                drift_warning=us.get("drift_warning"),
+                locked=bool(us.get("locked", False)),
                 voice_text=txt,
                 subtitle_text=txt
             ))
@@ -831,12 +856,23 @@ def start_smart_pipeline_async(
     final_bgm_path = None
     if bgm_path and Path(bgm_path).exists():
         final_bgm_path = str(bgm_path)
+    ca_obj = None
+    if continuity_anchors:
+        ca_obj = ContinuityAnchors(
+            subject_anchor=continuity_anchors.get("subject_anchor"),
+            scene_anchor=continuity_anchors.get("scene_anchor"),
+            style_anchor=continuity_anchors.get("style_anchor", "商业影视大片质感, 8K超高清, 细腻材质光影, 景深通透"),
+            state_anchor=continuity_anchors.get("state_anchor"),
+            locked=bool(continuity_anchors.get("locked", True))
+        )
+
     spec = TimelineSpec(
         project_id=f"smart_{int(time.time())}",
         project_name="Smart Video Pipeline",
         aspect_ratio=aspect_ratio,
         resolution=list(target_res),
         fps=30,
+        continuity_anchors=ca_obj,
         tracks=TracksSpec(
             video_track=shots,
             voice_track=VoiceTrack(enabled=has_voice, voice_name=voice_name, source="edge_tts"),
@@ -846,3 +882,35 @@ def start_smart_pipeline_async(
         output_master_path=str(output_master_mp4 or (work_dir / "smart_master_1080p.mp4"))
     )
     return start_timeline_pipeline_async(spec, work_dir)
+
+
+def start_animatic_pipeline_async(
+    image_paths: List[str | Path],
+    script_sentences: Optional[List[str]] = None,
+    aspect_ratio: str = "16:9",
+    total_duration: float = 20.0,
+    voice_mode: str = "auto",
+    voice_name: str = "zh-CN-YunxiNeural",
+    bgm_path: Optional[str | Path] = None,
+    user_shots_override: Optional[List[Dict[str, Any]]] = None,
+    continuity_anchors: Optional[Dict[str, Any]] = None
+) -> str:
+    """极速动态分镜预演 (Animatic Preview):
+    采用高精微运镜 + 真实TTS与BGM在数秒内合成出全片节奏预演视频，
+    方便创作者在实际消耗 Veo 算力前验证运镜、对齐音频并检查节奏。
+    """
+    return start_smart_pipeline_async(
+        image_paths=image_paths,
+        script_sentences=script_sentences,
+        mode="animatic_fast",
+        aspect_ratio=aspect_ratio,
+        duration_mode="fixed",
+        total_duration=total_duration,
+        voice_mode=voice_mode,
+        voice_name=voice_name,
+        bgm_path=bgm_path,
+        subtitle_mode="auto",
+        engine_choice="local",
+        user_shots_override=user_shots_override,
+        continuity_anchors=continuity_anchors
+    )

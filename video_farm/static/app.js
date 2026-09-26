@@ -1911,7 +1911,8 @@ document.addEventListener("DOMContentLoaded", () => {
       state.overview = d;
 
       // 调度器状态
-      if (d.scheduler.running) {
+      const isRunning = (d.scheduler_running !== undefined) ? d.scheduler_running : (d.scheduler && d.scheduler.running);
+      if (isRunning) {
         el.schedulerDot.className = "status-dot dot-running";
         el.schedulerText.textContent = "调度器运行中";
         el.btnToggleScheduler.textContent = "暂停";
@@ -1924,10 +1925,10 @@ document.addEventListener("DOMContentLoaded", () => {
       }
 
       // 顶部统计
-      el.statIdleProf.textContent = d.profiles.idle_count;
-      el.statRunningTask.textContent = d.tasks.running_count;
-      el.statQueuedTask.textContent = d.tasks.queued_count;
-      el.statCompletedTask.textContent = d.tasks.completed_count;
+      el.statIdleProf.textContent = (d.profiles && (d.profiles.idle ?? d.profiles.idle_count)) || 0;
+      el.statRunningTask.textContent = (d.tasks && (d.tasks.running ?? d.tasks.running_count)) || 0;
+      el.statQueuedTask.textContent = (d.tasks && (d.tasks.queued ?? d.tasks.queued_count)) || 0;
+      el.statCompletedTask.textContent = (d.tasks && (d.tasks.completed ?? d.tasks.completed_count)) || 0;
 
       const now = new Date();
       el.lastRefreshTime.textContent = "最后刷新: " + now.toLocaleTimeString();
@@ -2062,6 +2063,52 @@ document.addEventListener("DOMContentLoaded", () => {
   const btnPipeAddShot = document.getElementById("btn-pipe-add-shot");
   const btnPipeClearShots = document.getElementById("btn-pipe-clear-shots");
 
+  // 双层时间轴 Studio 与四维锚点资产 DOM
+  const pipeStoryFlowTrack = document.getElementById("pipe-story-flow-track");
+  const pipeTimelineRulerSection = document.getElementById("pipe-timeline-ruler-section");
+  const pipeRulerTicks = document.getElementById("pipe-ruler-ticks");
+  const pipeRulerVideoTrack = document.getElementById("pipe-ruler-video-track");
+  const rulerTotalLabel = document.getElementById("ruler-total-label");
+
+  const pipeDnaLockToggle = document.getElementById("pipe-dna-lock-toggle");
+  const dnaSubjectStatus = document.getElementById("dna-subject-status");
+  const dnaSubjectThumb = document.getElementById("dna-subject-thumb");
+  const dnaSubjectInput = document.getElementById("dna-subject-input");
+  const dnaSceneStatus = document.getElementById("dna-scene-status");
+  const dnaSceneInput = document.getElementById("dna-scene-input");
+  const dnaStyleStatus = document.getElementById("dna-style-status");
+  const dnaStyleInput = document.getElementById("dna-style-input");
+  const dnaStateStatus = document.getElementById("dna-state-status");
+  const dnaStateInput = document.getElementById("dna-state-input");
+
+  const btnPipeAnimaticPreview = document.getElementById("btn-pipe-animatic-preview");
+  const btnPipeExportSpec = document.getElementById("btn-pipe-export-spec");
+  const btnPipeImportSpec = document.getElementById("btn-pipe-import-spec");
+
+  // 模态框 DOM
+  const pipeSpecModal = document.getElementById("pipe-spec-modal");
+  const pipeSpecJsonTextarea = document.getElementById("pipe-spec-json-textarea");
+  const btnCloseSpecModal = document.getElementById("btn-close-spec-modal");
+  const btnCopySpecJson = document.getElementById("btn-copy-spec-json");
+  const btnApplySpecJson = document.getElementById("btn-apply-spec-json");
+
+  const pipeAnimaticModal = document.getElementById("pipe-animatic-modal");
+  const btnCloseAnimaticModal = document.getElementById("btn-close-animatic-modal");
+  const animaticLoadingSpinner = document.getElementById("animatic-loading-spinner");
+  const animaticVideoPlayer = document.getElementById("animatic-video-player");
+  const animaticModalFooter = document.getElementById("animatic-modal-footer");
+  const btnDoneAnimaticModal = document.getElementById("btn-done-animatic-modal");
+
+  const pipeBiteDrawerModal = document.getElementById("pipe-bite-drawer-modal");
+  const btnCloseBiteModal = document.getElementById("btn-close-bite-modal");
+  const bitePrevLabel = document.getElementById("bite-prev-label");
+  const bitePrevImg = document.getElementById("bite-prev-img");
+  const biteCurrLabel = document.getElementById("bite-curr-label");
+  const biteCurrImg = document.getElementById("bite-curr-img");
+  const biteJointBadge = document.getElementById("bite-joint-badge");
+  const biteJointDesc = document.getElementById("bite-joint-desc");
+  const btnSaveBiteJoint = document.getElementById("btn-save-bite-joint");
+
   const pipeProgressBar = document.getElementById("pipe-progress-bar");
   const pipeLogBox = document.getElementById("pipe-log-box");
   const pipeResultBox = document.getElementById("pipe-result-box");
@@ -2143,7 +2190,7 @@ document.addEventListener("DOMContentLoaded", () => {
       grid_crop: false,
       engine: "local",
       aspect: "16:9",
-      duration: "fixed",
+      duration: "30",
       total_duration: 30,
       voice: true,
       voice_name: "zh-CN-YunxiNeural",
@@ -2157,7 +2204,8 @@ document.addEventListener("DOMContentLoaded", () => {
       grid_crop: false,
       engine: "local",
       aspect: "16:9",
-      duration: "fixed",
+      duration: "custom",
+      custom_duration: 60,
       total_duration: 60,
       voice: true,
       voice_name: "zh-CN-YunxiNeural",
@@ -2171,7 +2219,7 @@ document.addEventListener("DOMContentLoaded", () => {
       grid_crop: false,
       engine: "local",
       aspect: "16:9",
-      duration: "fixed",
+      duration: "30",
       total_duration: 30,
       voice: true,
       voice_name: "zh-CN-YunxiNeural",
@@ -2204,6 +2252,9 @@ document.addEventListener("DOMContentLoaded", () => {
       pipeDuration.value = cfg.duration;
       if (pipeCustomDurationBox) {
         pipeCustomDurationBox.style.display = (cfg.duration === "custom") ? "block" : "none";
+      }
+      if (cfg.custom_duration && pipeCustomDurationInput) {
+        pipeCustomDurationInput.value = cfg.custom_duration;
       }
     }
     if (cfg.voice !== undefined && pipeToggleVoice) pipeToggleVoice.checked = cfg.voice;
@@ -2300,7 +2351,14 @@ document.addEventListener("DOMContentLoaded", () => {
   document.querySelectorAll(".preset-chip").forEach(chip => {
     chip.addEventListener("click", () => {
       const pk = chip.getAttribute("data-preset");
-      if (pk) applyPreset(pk, true);
+      if (pk) {
+        applyPreset(pk, true);
+        if (['long_series_30s', 'long_series_60s', 'one_shot_chain', 'ai_commercial'].includes(pk)) {
+          if (!currentPlanShots || currentPlanShots.length === 0 || confirm("是否同步载入该模式的【官方推荐影视分镜流】？")) {
+            renderTimelineStudio(getDefaultTemplateShots(pk));
+          }
+        }
+      }
     });
   });
 
@@ -2396,150 +2454,691 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // 3. 分镜头预案清单 (增删改查微操)
-  function renderShotsPlan(shots) {
+  // 3. 双层全景时间轴 Studio 与分镜头微操 (Timeline Studio & Story Flow)
+  const CAMERA_MOTIONS = [
+    { value: "zoom_in", label: "🔭 缓慢推进 (Zoom In)", icon: "🔭" },
+    { value: "zoom_out", label: "🔍 缓慢拉远 (Zoom Out)", icon: "🔍" },
+    { value: "pan_left", label: "⬅️ 向左平移 (Pan Left)", icon: "⬅️" },
+    { value: "pan_right", label: "➡️ 向右平移 (Pan Right)", icon: "➡️" },
+    { value: "crane_up", label: "⬆️ 升降摇臂 (Crane Up)", icon: "⬆️" },
+    { value: "tilt_down", label: "⬇️ 俯视下摇 (Tilt Down)", icon: "⬇️" },
+    { value: "orbit", label: "🔄 环绕运镜 (Orbit)", icon: "🔄" },
+    { value: "static", label: "⏸️ 固定平视 (Static)", icon: "⏸️" }
+  ];
+
+  const CONTINUITY_JOINTS = {
+    continue: {
+      name: "尾帧接力",
+      badge: "🟢 尾帧接力 (Continue)",
+      desc: "平滑咬合上一镜头终点画面，保持运动矢量同向，实现无缝连续过渡",
+      class: "mode-continue"
+    },
+    anchor: {
+      name: "首尾插值",
+      badge: "🔵 首尾插值 (Anchor)",
+      desc: "严格约束起点与终点两帧形态，中间由模型生成物理平滑过渡",
+      class: "mode-anchor"
+    },
+    re_anchor: {
+      name: "防漂移重锚",
+      badge: "🟡 防漂移重锚 (Re-Anchor)",
+      desc: "重新注入主体核心特征与材质光影，重置时间累积误差，防止长视频严重漂移变形",
+      class: "mode-re_anchor"
+    },
+    cut: {
+      name: "独立切镜",
+      badge: "🟣 独立切镜 (Cut)",
+      desc: "硬切镜头或场景转换，保留全局主体DNA但机位视角完全独立切换",
+      class: "mode-cut"
+    },
+    extend: {
+      name: "智能续写",
+      badge: "⚪ 智能续写 (Extend)",
+      desc: "以上一镜头终点画面为始，向后推演后续自然演变与物理运动",
+      class: "mode-extend"
+    }
+  };
+
+  let currentContinuityAnchors = {
+    subject_anchor: null,
+    scene_anchor: "统一商业展台与环境光影，柔和冷光",
+    style_anchor: "商业影视大片质感, 8K超高清, 细腻材质光影, 景深通透",
+    state_anchor: "产品平稳陈列，微距慢动作流光",
+    locked: true
+  };
+
+  let currentBitePrevIdx = -1;
+  let currentBiteCurrIdx = -1;
+  let currentBiteSelectedMode = "continue";
+
+  function renderContinuityAnchors(anchors) {
+    if (!anchors) return;
+    currentContinuityAnchors = { ...currentContinuityAnchors, ...anchors };
+
+    if (dnaSubjectInput) {
+      dnaSubjectInput.value = currentContinuityAnchors.subject_anchor || "";
+    }
+    if (dnaSceneInput) {
+      dnaSceneInput.value = currentContinuityAnchors.scene_anchor || "统一商业展台与环境光影，柔和冷光";
+    }
+    if (dnaStyleInput) {
+      dnaStyleInput.value = currentContinuityAnchors.style_anchor || "商业影视大片质感, 8K超高清, 细腻材质光影, 景深通透";
+    }
+    if (dnaStateInput) {
+      dnaStateInput.value = currentContinuityAnchors.state_anchor || "产品平稳陈列，微距慢动作流光";
+    }
+    if (pipeDnaLockToggle) {
+      pipeDnaLockToggle.checked = currentContinuityAnchors.locked !== false;
+    }
+
+    if (dnaSubjectStatus) {
+      dnaSubjectStatus.textContent = currentContinuityAnchors.subject_anchor ? "已锁定" : "未设置";
+    }
+    if (dnaSubjectThumb) {
+      const subVal = currentContinuityAnchors.subject_anchor;
+      if (subVal && (subVal.startsWith("http") || subVal.includes("/") || subVal.includes("\\"))) {
+        const previewSrc = subVal.startsWith("http") ? subVal : `/api/pipeline/file-preview?path=${encodeURIComponent(subVal)}`;
+        dnaSubjectThumb.innerHTML = `<img src="${previewSrc}" alt="DNA" onerror="this.parentElement.innerHTML='<span>参考图</span>'">`;
+      } else if (currentPlanShots && currentPlanShots[0] && currentPlanShots[0].image_path) {
+        const previewSrc = `/api/pipeline/file-preview?path=${encodeURIComponent(currentPlanShots[0].image_path)}`;
+        dnaSubjectThumb.innerHTML = `<img src="${previewSrc}" alt="DNA" onerror="this.parentElement.innerHTML='<span>首镜</span>'">`;
+      } else {
+        dnaSubjectThumb.innerHTML = `<span>无参考图</span>`;
+      }
+    }
+  }
+
+  function syncContinuityAnchorsFromDOM() {
+    if (dnaSubjectInput) currentContinuityAnchors.subject_anchor = dnaSubjectInput.value.trim() || null;
+    if (dnaSceneInput) currentContinuityAnchors.scene_anchor = dnaSceneInput.value.trim() || null;
+    if (dnaStyleInput) currentContinuityAnchors.style_anchor = dnaStyleInput.value.trim() || null;
+    if (dnaStateInput) currentContinuityAnchors.state_anchor = dnaStateInput.value.trim() || null;
+    if (pipeDnaLockToggle) currentContinuityAnchors.locked = pipeDnaLockToggle.checked;
+  }
+
+  
+  function getDefaultTemplateShots(mode = "long_series_30s") {
+    if (mode === "long_series_60s") {
+      return [
+        {
+          id: "shot_01",
+          name: "镜头 1 · 宏观大远景 (环境建置)",
+          image_path: "",
+          image_name: "场景环境全貌",
+          duration: 7.0,
+          voice_text: "清晨第一缕阳光穿透薄雾，整片生机盎然的原野在晨光中逐渐苏醒。",
+          subtitle_text: "清晨第一缕阳光穿透薄雾，整片生机盎然的原野在晨光中逐渐苏醒。",
+          camera_motion: "zoom_in",
+          continuity: "cut",
+          re_anchor: false
+        },
+        {
+          id: "shot_02",
+          name: "镜头 2 · 中景推移 (主体入画)",
+          image_path: "",
+          image_name: "主体位置与形态",
+          duration: 7.5,
+          voice_text: "镜头顺着光影与清风平滑向前推移，核心主体在自然动势中清晰显现。",
+          subtitle_text: "镜头顺着光影与清风平滑向前推移，核心主体在自然动势中清晰显现。",
+          camera_motion: "pan_left",
+          continuity: "continue",
+          re_anchor: false
+        },
+        {
+          id: "shot_03",
+          name: "镜头 3 · 环绕微距 (材质肌理)",
+          image_path: "",
+          image_name: "精细微观细节",
+          duration: 8.0,
+          voice_text: "环绕微距视角捕捉细微的光泽与表面质感，每一处线条都蕴藏着匠心工艺。",
+          subtitle_text: "环绕微距视角捕捉细微的光泽与表面质感，每一处线条都蕴藏着匠心工艺。",
+          camera_motion: "orbit_cw",
+          continuity: "continue",
+          re_anchor: false
+        },
+        {
+          id: "shot_04",
+          name: "镜头 4 · 动态交互 (能量激发)",
+          image_path: "",
+          image_name: "功能作用爆发",
+          duration: 7.5,
+          voice_text: "粒子光晕在空间中自然弥散，活性成分全面渗透，带来澎湃的赋能变化。",
+          subtitle_text: "粒子光晕在空间中自然弥散，活性成分全面渗透，带来澎湃的赋能变化。",
+          camera_motion: "crane_up",
+          continuity: "continue",
+          re_anchor: false
+        },
+        {
+          id: "shot_05",
+          name: "镜头 5 · 空间转换 (防漂移重锚)",
+          image_path: "",
+          image_name: "场景升维过渡",
+          duration: 7.5,
+          voice_text: "镜头瞬息流转至开阔的现代科技实验空间，纯净视效精准再现核心价值。",
+          subtitle_text: "镜头瞬息流转至开阔的现代科技实验空间，纯净视效精准再现核心价值。",
+          camera_motion: "pan_right",
+          continuity: "re_anchor",
+          re_anchor: true
+        },
+        {
+          id: "shot_06",
+          name: "镜头 6 · 仰角仰望 (品质升华)",
+          image_path: "",
+          image_name: "主体仰视光影",
+          duration: 7.5,
+          voice_text: "仰角光束倾泻而下，挺拔轮廓在金色光晕衬托下尽显卓越不凡。",
+          subtitle_text: "仰角光束倾泻而下，挺拔轮廓在金色光晕衬托下尽显卓越不凡。",
+          camera_motion: "tilt_down",
+          continuity: "continue",
+          re_anchor: false
+        },
+        {
+          id: "shot_07",
+          name: "镜头 7 · 广角环景 (生态交融)",
+          image_path: "",
+          image_name: "环境与主体全景",
+          duration: 7.5,
+          voice_text: "视界再度延展，主体与天地自然和谐共生，交织出充满希望的未来图景。",
+          subtitle_text: "视界再度延展，主体与天地自然和谐共生，交织出充满希望的未来图景。",
+          camera_motion: "orbit_ccw",
+          continuity: "continue",
+          re_anchor: false
+        },
+        {
+          id: "shot_08",
+          name: "镜头 8 · 升腾拉远 (定格终章)",
+          image_path: "",
+          image_name: "品牌标语终章定格",
+          duration: 7.5,
+          voice_text: "视线徐徐升腾拉远，在壮阔晨曦中凝炼定格，成就专业信赖的典范。",
+          subtitle_text: "视线徐徐升腾拉远，在壮阔晨曦中凝炼定格，成就专业信赖的典范。",
+          camera_motion: "zoom_out",
+          continuity: "continue",
+          re_anchor: false
+        }
+      ];
+    } else if (mode === "one_shot_chain") {
+      return [
+        {
+          id: "shot_01",
+          name: "镜头 1 · 空间穿梭 (一镜到底入画)",
+          image_path: "",
+          image_name: "长镜头起点",
+          duration: 7.5,
+          voice_text: "摄影机如行云流水般穿梭推进，无断点探索空间的每一寸纵深。",
+          subtitle_text: "摄影机如行云流水般穿梭推进，无断点探索空间的每一寸纵深。",
+          camera_motion: "zoom_in",
+          continuity: "cut",
+          re_anchor: false
+        },
+        {
+          id: "shot_02",
+          name: "镜头 2 · 360°平滑环绕 (无缝接力)",
+          image_path: "",
+          image_name: "环绕运镜段",
+          duration: 7.5,
+          voice_text: "弧形轨道无缝咬合旋转，光影随角度变幻流淌，主体形态完全锁定。",
+          subtitle_text: "弧形轨道无缝咬合旋转，光影随角度变幻流淌，主体形态完全锁定。",
+          camera_motion: "orbit_cw",
+          continuity: "continue",
+          re_anchor: false
+        },
+        {
+          id: "shot_03",
+          name: "镜头 3 · 贴地滑行升腾 (视角变换)",
+          image_path: "",
+          image_name: "低机位升腾",
+          duration: 7.5,
+          voice_text: "镜头顺势贴近地面滑行后垂直升腾，视角切换自然流畅，不着痕迹。",
+          subtitle_text: "镜头顺势贴近地面滑行后垂直升腾，视角切换自然流畅，不着痕迹。",
+          camera_motion: "crane_up",
+          continuity: "continue",
+          re_anchor: false
+        },
+        {
+          id: "shot_04",
+          name: "镜头 4 · 平缓后撤定格 (完美收束)",
+          image_path: "",
+          image_name: "长镜头终点定格",
+          duration: 7.5,
+          voice_text: "最终平稳拉升至全景构图，首尾如一，达成一气呵成的连续视觉体验。",
+          subtitle_text: "最终平稳拉升至全景构图，首尾如一，达成一气呵成的连续视觉体验。",
+          camera_motion: "zoom_out",
+          continuity: "continue",
+          re_anchor: false
+        }
+      ];
+    } else if (mode === "ai_commercial") {
+      return [
+        {
+          id: "shot_01",
+          name: "镜头 1 · 破题吸睛 (光芒绽放)",
+          image_path: "",
+          image_name: "产品破题亮相",
+          duration: 4.5,
+          voice_text: "以自然科技之名，重新定义高品质专业标杆。",
+          subtitle_text: "以自然科技之名，重新定义高品质专业标杆。",
+          camera_motion: "zoom_in",
+          continuity: "cut",
+          re_anchor: false
+        },
+        {
+          id: "shot_02",
+          name: "镜头 2 · 核心质感 (微距特写)",
+          image_path: "",
+          image_name: "包装与工艺质感",
+          duration: 5.5,
+          voice_text: "严谨选材，严控配比，每一处细节皆为卓越而生。",
+          subtitle_text: "严谨选材，严控配比，每一处细节皆为卓越而生。",
+          camera_motion: "orbit_cw",
+          continuity: "continue",
+          re_anchor: false
+        },
+        {
+          id: "shot_03",
+          name: "镜头 3 · 实景应用 (效能迸发)",
+          image_path: "",
+          image_name: "田间与实地应用",
+          duration: 5.0,
+          voice_text: "赋能丰饶大地，见证从根系到果实的每一次蜕变跃迁。",
+          subtitle_text: "赋能丰饶大地，见证从根系到果实的每一次蜕变跃迁。",
+          camera_motion: "pan_right",
+          continuity: "continue",
+          re_anchor: false
+        },
+        {
+          id: "shot_04",
+          name: "镜头 4 · 品牌定格 (号召信任)",
+          image_path: "",
+          image_name: "品牌LOGO与标语定格",
+          duration: 5.0,
+          voice_text: "携手同行，共创现代农业绿色可持续的丰收未来。",
+          subtitle_text: "携手同行，共创现代农业绿色可持续的丰收未来。",
+          camera_motion: "zoom_out",
+          continuity: "re_anchor",
+          re_anchor: true
+        }
+      ];
+    }
+
+    // 默认: long_series_30s (4镜头 · 30秒连续短片)
+    return [
+      {
+        id: "shot_01",
+        name: "镜头 1 · 宏观远景 (建置环境)",
+        image_path: "",
+        image_name: "清晨原野全景",
+        duration: 7.0,
+        voice_text: "清晨第一缕阳光洒落在原野上，天地间苏醒着磅礴生机。",
+        subtitle_text: "清晨第一缕阳光洒落在原野上，天地间苏醒着磅礴生机。",
+        camera_motion: "zoom_in",
+        continuity: "cut",
+        re_anchor: false
+      },
+      {
+        id: "shot_02",
+        name: "镜头 2 · 中景推移 (主体入画)",
+        image_path: "",
+        image_name: "主体位置与形态",
+        duration: 8.0,
+        voice_text: "镜头顺着光影平滑推移，核心形态在自然流动中清晰显现。",
+        subtitle_text: "镜头顺着光影平滑推移，核心形态在自然流动中清晰显现。",
+        camera_motion: "pan_left",
+        continuity: "continue",
+        re_anchor: false
+      },
+      {
+        id: "shot_03",
+        name: "镜头 3 · 环绕特写 (细节纹理)",
+        image_path: "",
+        image_name: "微距材质纹理",
+        duration: 7.5,
+        voice_text: "环绕微距视角捕捉细微纹理，每一处精雕细琢都凝结着极致工艺。",
+        subtitle_text: "环绕微距视角捕捉细微纹理，每一处精雕细琢都凝结着极致工艺。",
+        camera_motion: "orbit_cw",
+        continuity: "continue",
+        re_anchor: false
+      },
+      {
+        id: "shot_04",
+        name: "镜头 4 · 宏大全景 (升空定格)",
+        image_path: "",
+        image_name: "大景别定格收束",
+        duration: 7.5,
+        voice_text: "视线缓缓拉远升腾，在辽阔天地中定格震撼瞬间。",
+        subtitle_text: "视线缓缓拉远升腾，在辽阔天地中定格震撼瞬间。",
+        camera_motion: "zoom_out",
+        continuity: "continue",
+        re_anchor: false
+      }
+    ];
+  }
+
+  function renderTimelineStudio(shots) {
     currentPlanShots = shots || [];
-    if (!pipeShotsList) return;
-    pipeShotsList.innerHTML = "";
+    const container = pipeStoryFlowTrack || pipeShotsList;
+    if (!container) return;
+    container.innerHTML = "";
+
+    const totalDur = currentPlanShots.reduce((acc, s) => acc + (parseFloat(s.duration) || 3.0), 0);
 
     if (pipeShotsCount) {
-      pipeShotsCount.textContent = `(${currentPlanShots.length} 镜头)`;
+      pipeShotsCount.textContent = `(${currentPlanShots.length} 镜头 · ${totalDur.toFixed(1)}s)`;
     }
 
     if (!currentPlanShots || currentPlanShots.length === 0) {
-      pipeShotsList.innerHTML = `
-        <div style="text-align: center; color: #64748b; font-size: 12px; padding: 40px 0;">
-          该路径下未发现图片或镜头文件，请检查目录是否有效，或点击右上角【➕ 加镜头】手动添加
+      container.innerHTML = `
+        <div style="text-align: center; color: #64748b; font-size: 12px; padding: 48px 0; width: 100%;">
+          点击左侧【智能分析】或上方【➕ 加镜头】，在此呈现专业双层时间轴与胶卷工作台
         </div>
       `;
+      renderTimelineRuler([]);
       return;
     }
 
+    let consecutiveContinueCount = 0;
+
     currentPlanShots.forEach((s, idx) => {
-      const item = document.createElement("div");
-      item.className = "pipe-shot-item";
-      item.setAttribute("data-shot-index", idx);
-      const thumbUrl = s.preview_url || `/api/pipeline/file-preview?path=${encodeURIComponent(s.image_path || '')}`;
-      const shotTitle = s.name || `镜头 ${idx + 1}`;
-      const imgName = s.image_name || (s.image_path ? s.image_path.split(/[\\/]/).pop() : "未知素材");
       const isFirst = (idx === 0);
       const isLast = (idx === currentPlanShots.length - 1);
+      const shotDur = parseFloat(s.duration) || 3.0;
+      const shotMotion = s.camera_motion || s.motion || (idx % 2 === 0 ? "zoom_in" : "pan_left");
+      s.camera_motion = shotMotion;
+      const motionObj = CAMERA_MOTIONS.find(m => m.value === shotMotion) || CAMERA_MOTIONS[0];
 
-      const isLastFrame = (s.continuity === 'last_frame' && !isFirst);
-      const isAnchor = (s.continuity === 'anchor');
+      let continuity = s.continuity || (isFirst ? "cut" : "continue");
+      if (s.re_anchor) {
+        continuity = "re_anchor";
+      }
+      s.continuity = continuity;
 
-      item.innerHTML = `
-        ${isLastFrame ? `<div class="pipe-continuity-link-bar"><span class="pipe-continuity-link-tag">🔗 衔接上镜尾帧 (无缝咬合)</span></div>` : ''}
-        <div class="pipe-shot-thumb ${isLastFrame ? 'thumb-linked' : ''}" title="${escapeHtml(s.image_path || '')}">
-          <img src="${thumbUrl}" alt="Shot ${idx + 1}" onerror="this.style.opacity='0.2'">
-          ${isLastFrame ? '<span class="pipe-shot-badge-tag">尾帧接力</span>' : ''}
-          ${isAnchor ? '<span class="pipe-shot-badge-tag anchor-tag">关键锚点</span>' : ''}
+      // 连续接力漂移预警检测
+      if (!isFirst) {
+        if (continuity === "continue") {
+          consecutiveContinueCount++;
+        } else {
+          consecutiveContinueCount = 0;
+        }
+
+        const showDriftWarning = consecutiveContinueCount >= 2;
+
+        // 插入镜头间互锁咬合胶囊
+        const capsule = document.createElement("div");
+        capsule.className = "joint-connector-capsule";
+        capsule.setAttribute("data-joint-index", idx);
+        capsule.setAttribute("title", `点击对比镜头 #${idx} 与 #${idx + 1} 双窗咬合及设置衔接模态`);
+
+        const jointInfo = CONTINUITY_JOINTS[continuity] || CONTINUITY_JOINTS.continue;
+
+        capsule.innerHTML = `
+          <div class="joint-capsule-line"></div>
+          ${showDriftWarning ? `<div class="drift-warning-pulse" title="已连续 ${consecutiveContinueCount} 镜接力，形态可能发生漂移，建议设置【防漂移重锚】重设主体DNA">⚠️ 漂移预警</div>` : ''}
+          <div class="joint-pill ${jointInfo.class}">
+            <span>${jointInfo.badge.split(' ')[0]}</span>
+            <span style="font-size: 8.5px;">${jointInfo.name}</span>
+          </div>
+        `;
+
+        capsule.addEventListener("click", () => {
+          openBiteDrawerModal(idx - 1, idx);
+        });
+
+        container.appendChild(capsule);
+      } else {
+        consecutiveContinueCount = 0;
+      }
+
+      // 创建胶卷卡片 (Film Card)
+      const card = document.createElement("div");
+      card.className = "shot-film-card";
+      card.setAttribute("data-shot-index", idx);
+      card.id = `shot-film-card-${idx}`;
+
+      const thumbUrl = s.preview_url || (s.image_path ? `/api/pipeline/file-preview?path=${encodeURIComponent(s.image_path)}` : '');
+      const shotTitle = s.name || `镜头 ${idx + 1}`;
+      const imgName = s.image_name || (s.image_path ? s.image_path.split(/[\\/]/).pop() : "自定义画面");
+
+      card.innerHTML = `
+        <div class="film-sprockets-top"></div>
+        <div class="film-thumb-box" title="${escapeHtml(s.image_path || '无本地路径')}">
+          ${thumbUrl ? `<img src="${thumbUrl}" alt="Shot ${idx + 1}" onerror="this.style.opacity='0.25'">` : `<span style="font-size:11px;color:#64748b;">🎨 待生成首帧</span>`}
+          <span class="film-shot-idx">#${idx + 1}</span>
+          <span class="film-dur-badge">${shotDur.toFixed(1)}s</span>
+          <span class="camera-motion-badge" data-index="${idx}" title="点击轮换运镜动力学">
+            ${motionObj.icon} ${motionObj.label.split(' ')[1] || motionObj.value}
+          </span>
+          ${s.re_anchor ? `<span class="reanchor-badge">🧬 重锚</span>` : ''}
         </div>
-        <div class="pipe-shot-body">
-          <div class="pipe-shot-header">
-            <span class="pipe-shot-title">#${idx + 1} · ${escapeHtml(shotTitle)} · ${escapeHtml(imgName)}</span>
-            <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
-              ${!isFirst ? `
-              <div class="pipe-shot-continuity-box" title="设定镜头衔接方式">
-                <span>衔接:</span>
-                <select class="pipe-shot-continuity-select" data-index="${idx}">
-                  <option value="cut" ${(!s.continuity || s.continuity === 'cut') ? 'selected' : ''}>✂️ 独立切镜</option>
-                  <option value="last_frame" ${s.continuity === 'last_frame' ? 'selected' : ''}>🔗 接上镜尾帧</option>
-                  <option value="anchor" ${s.continuity === 'anchor' ? 'selected' : ''}>🎯 首尾锚定</option>
-                </select>
-              </div>
-              ` : '<span style="font-size:11px;color:#94a3b8;background:rgba(255,255,255,0.06);padding:2px 6px;border-radius:4px;">🏁 开篇首镜</span>'}
-              <div class="pipe-shot-dur-box">
-                <span>时长:</span>
-                <input type="number" class="pipe-shot-dur-input" data-index="${idx}" value="${s.duration || 2.5}" min="0.5" max="60" step="0.5">
-                <span>秒</span>
-              </div>
-              <button class="pipe-shot-action-btn shot-btn-up" data-index="${idx}" title="上移镜头" ${isFirst ? "disabled style='opacity:0.3;cursor:not-allowed;'" : ""}>⬆️</button>
-              <button class="pipe-shot-action-btn shot-btn-down" data-index="${idx}" title="下移镜头" ${isLast ? "disabled style='opacity:0.3;cursor:not-allowed;'" : ""}>⬇️</button>
-              <button class="pipe-shot-action-btn btn-danger shot-btn-del" data-index="${idx}" title="删除镜头">🗑️</button>
+        <div class="film-card-body">
+          <div class="film-shot-title-row">
+            <span class="film-shot-title" title="${escapeHtml(shotTitle + ' - ' + imgName)}">
+              ${escapeHtml(shotTitle)} · ${escapeHtml(imgName)}
+            </span>
+            <div class="film-shot-actions">
+              <button class="film-action-mini-btn shot-btn-reanchor ${s.re_anchor ? 'active' : ''}" data-index="${idx}" title="${s.re_anchor ? '已开启防漂移重锚（本镜强制注回主体DNA）' : '设为防漂移重锚点'}">🧬</button>
+              <button class="film-action-mini-btn shot-btn-up" data-index="${idx}" title="左移镜头" ${isFirst ? "disabled style='opacity:0.3;cursor:not-allowed;'" : ""}>◀</button>
+              <button class="film-action-mini-btn shot-btn-down" data-index="${idx}" title="右移镜头" ${isLast ? "disabled style='opacity:0.3;cursor:not-allowed;'" : ""}>▶</button>
+              <button class="film-action-mini-btn btn-del shot-btn-del" data-index="${idx}" title="删除镜头">✕</button>
             </div>
           </div>
-          <input type="text" class="pipe-shot-text-input" data-index="${idx}" data-image-path="${escapeHtml(s.image_path || '')}" value="${escapeHtml(s.voice_text || s.subtitle_text || '')}" placeholder="输入该镜头的解说词或台词...">
+          <textarea class="film-prompt-input" data-index="${idx}" placeholder="输入镜头画面描述/台词解说...">${escapeHtml(s.voice_text || s.subtitle_text || '')}</textarea>
+          <div class="film-controls-row">
+            <div class="film-dur-control">
+              <span>时长:</span>
+              <input type="number" class="film-dur-input" data-index="${idx}" value="${shotDur}" min="0.5" max="60" step="0.5">
+              <span>s</span>
+            </div>
+            <select class="film-motion-select" data-index="${idx}" style="background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.1);color:#38bdf8;font-size:10px;border-radius:3px;padding:1px 4px;outline:none;">
+              ${CAMERA_MOTIONS.map(m => `<option value="${m.value}" ${m.value === shotMotion ? 'selected' : ''}>${m.label}</option>`).join('')}
+            </select>
+          </div>
         </div>
+        <div class="film-sprockets-bottom"></div>
       `;
-      pipeShotsList.appendChild(item);
+
+      container.appendChild(card);
     });
 
-    // 绑定各镜头的微调事件
-    pipeShotsList.querySelectorAll(".pipe-shot-continuity-select").forEach(sel => {
+    bindTimelineStudioEvents();
+    renderTimelineRuler(currentPlanShots);
+  }
+
+  function renderTimelineRuler(shots) {
+    if (!pipeRulerTicks || !pipeRulerVideoTrack) return;
+    pipeRulerTicks.innerHTML = "";
+    pipeRulerVideoTrack.innerHTML = "";
+
+    const totalDur = shots.reduce((acc, s) => acc + (parseFloat(s.duration) || 3.0), 0);
+    const rulerDur = Math.max(10.0, Math.ceil(totalDur / 5.0) * 5.0);
+
+    if (rulerTotalLabel) {
+      rulerTotalLabel.textContent = `总时长: ${totalDur.toFixed(1)}s / ${rulerDur.toFixed(1)}s`;
+    }
+
+    const step = rulerDur <= 20 ? 2.5 : 5.0;
+    for (let t = 0; t <= rulerDur; t += step) {
+      const pct = (t / rulerDur) * 100;
+      const tick = document.createElement("div");
+      tick.className = "ruler-tick";
+      tick.style.left = `${pct}%`;
+      tick.textContent = `${t}s`;
+      pipeRulerTicks.appendChild(tick);
+    }
+
+    const trackColors = [
+      "linear-gradient(90deg, #1e40af, #2563eb)",
+      "linear-gradient(90deg, #065f46, #059669)",
+      "linear-gradient(90deg, #581c87, #7c3aed)",
+      "linear-gradient(90deg, #78350f, #d97706)",
+      "linear-gradient(90deg, #155e75, #0891b2)",
+      "linear-gradient(90deg, #831843, #db2777)"
+    ];
+
+    shots.forEach((s, idx) => {
+      const dur = parseFloat(s.duration) || 3.0;
+      const widthPct = (dur / rulerDur) * 100;
+      const seg = document.createElement("div");
+      seg.className = "ruler-shot-segment";
+      seg.style.width = `${widthPct}%`;
+      seg.style.background = trackColors[idx % trackColors.length];
+      seg.setAttribute("data-index", idx);
+      seg.title = `#${idx + 1} ${s.name || '镜头'} (${dur.toFixed(1)}s) - 点击在故事流定位`;
+      seg.textContent = `#${idx + 1} (${dur.toFixed(1)}s)`;
+
+      seg.addEventListener("click", () => {
+        const card = document.getElementById(`shot-film-card-${idx}`);
+        if (card) {
+          card.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+          document.querySelectorAll('.shot-film-card').forEach(c => c.classList.remove('active-selected'));
+          card.classList.add('active-selected');
+        }
+        document.querySelectorAll('.ruler-shot-segment').forEach(sg => sg.classList.remove('active-segment'));
+        seg.classList.add('active-segment');
+      });
+
+      pipeRulerVideoTrack.appendChild(seg);
+    });
+  }
+
+  function bindTimelineStudioEvents() {
+    const container = pipeStoryFlowTrack || pipeShotsList;
+    if (!container) return;
+
+    // 提示词输入绑定
+    container.querySelectorAll(".film-prompt-input").forEach(ta => {
+      ta.addEventListener("input", (e) => {
+        const idx = parseInt(e.target.getAttribute("data-index"), 10);
+        if (currentPlanShots[idx]) {
+          currentPlanShots[idx].voice_text = e.target.value;
+          currentPlanShots[idx].subtitle_text = e.target.value;
+        }
+      });
+    });
+
+    // 时长调整绑定
+    container.querySelectorAll(".film-dur-input").forEach(inp => {
+      inp.addEventListener("change", (e) => {
+        const idx = parseInt(e.target.getAttribute("data-index"), 10);
+        if (currentPlanShots[idx]) {
+          const val = parseFloat(e.target.value) || 3.0;
+          currentPlanShots[idx].duration = val;
+          renderTimelineRuler(currentPlanShots);
+          const totalDur = currentPlanShots.reduce((acc, s) => acc + (parseFloat(s.duration) || 3.0), 0);
+          if (pipeShotsCount) pipeShotsCount.textContent = `(${currentPlanShots.length} 镜头 · ${totalDur.toFixed(1)}s)`;
+          // 更新卡片右上角徽标
+          const card = document.getElementById(`shot-film-card-${idx}`);
+          if (card) {
+            const b = card.querySelector(".film-dur-badge");
+            if (b) b.textContent = `${val.toFixed(1)}s`;
+          }
+        }
+      });
+    });
+
+    // 运镜下拉选择
+    container.querySelectorAll(".film-motion-select").forEach(sel => {
       sel.addEventListener("change", (e) => {
-        const i = parseInt(e.target.getAttribute("data-index"), 10);
-        if (currentPlanShots[i]) {
-          currentPlanShots[i].continuity = e.target.value;
-          syncCurrentShotsFromDOM();
-          renderShotsPlan(currentPlanShots);
+        const idx = parseInt(e.target.getAttribute("data-index"), 10);
+        if (currentPlanShots[idx]) {
+          currentPlanShots[idx].camera_motion = e.target.value;
+          currentPlanShots[idx].motion = e.target.value;
+          const motionObj = CAMERA_MOTIONS.find(m => m.value === e.target.value) || CAMERA_MOTIONS[0];
+          const card = document.getElementById(`shot-film-card-${idx}`);
+          if (card) {
+            const badge = card.querySelector(".camera-motion-badge");
+            if (badge) badge.innerHTML = `${motionObj.icon} ${motionObj.label.split(' ')[1] || motionObj.value}`;
+          }
         }
       });
     });
 
-    pipeShotsList.querySelectorAll(".pipe-shot-dur-input").forEach(input => {
-      input.addEventListener("change", (e) => {
-        const i = parseInt(e.target.getAttribute("data-index"), 10);
-        if (currentPlanShots[i]) {
-          currentPlanShots[i].duration = parseFloat(e.target.value) || 2.5;
+    // 点击运镜徽标快捷轮换运镜
+    container.querySelectorAll(".camera-motion-badge").forEach(badge => {
+      badge.addEventListener("click", (e) => {
+        const idx = parseInt(e.currentTarget.getAttribute("data-index"), 10);
+        if (currentPlanShots[idx]) {
+          const cur = currentPlanShots[idx].camera_motion || "zoom_in";
+          const curIdx = CAMERA_MOTIONS.findIndex(m => m.value === cur);
+          const nextMotion = CAMERA_MOTIONS[(curIdx + 1) % CAMERA_MOTIONS.length];
+          currentPlanShots[idx].camera_motion = nextMotion.value;
+          currentPlanShots[idx].motion = nextMotion.value;
+          badge.innerHTML = `${nextMotion.icon} ${nextMotion.label.split(' ')[1] || nextMotion.value}`;
+          const card = document.getElementById(`shot-film-card-${idx}`);
+          if (card) {
+            const sel = card.querySelector(".film-motion-select");
+            if (sel) sel.value = nextMotion.value;
+          }
         }
       });
     });
 
-    pipeShotsList.querySelectorAll(".pipe-shot-text-input").forEach(input => {
-      input.addEventListener("input", (e) => {
-        const i = parseInt(e.target.getAttribute("data-index"), 10);
-        if (currentPlanShots[i]) {
-          currentPlanShots[i].voice_text = e.target.value;
-          currentPlanShots[i].subtitle_text = e.target.value;
-        }
-      });
-    });
-
-    pipeShotsList.querySelectorAll(".shot-btn-up").forEach(btn => {
+    // 防漂移重锚点切换
+    container.querySelectorAll(".shot-btn-reanchor").forEach(btn => {
       btn.addEventListener("click", (e) => {
-        const i = parseInt(e.currentTarget.getAttribute("data-index"), 10);
-        if (i > 0) {
+        const idx = parseInt(e.currentTarget.getAttribute("data-index"), 10);
+        if (currentPlanShots[idx]) {
           syncCurrentShotsFromDOM();
-          const temp = currentPlanShots[i];
-          currentPlanShots[i] = currentPlanShots[i - 1];
-          currentPlanShots[i - 1] = temp;
-          renderShotsPlan(currentPlanShots);
+          currentPlanShots[idx].re_anchor = !currentPlanShots[idx].re_anchor;
+          if (currentPlanShots[idx].re_anchor) {
+            currentPlanShots[idx].continuity = "re_anchor";
+          } else {
+            currentPlanShots[idx].continuity = idx === 0 ? "cut" : "continue";
+          }
+          renderTimelineStudio(currentPlanShots);
         }
       });
     });
 
-    pipeShotsList.querySelectorAll(".shot-btn-down").forEach(btn => {
+    // 左移镜头
+    container.querySelectorAll(".shot-btn-up").forEach(btn => {
       btn.addEventListener("click", (e) => {
-        const i = parseInt(e.currentTarget.getAttribute("data-index"), 10);
-        if (i < currentPlanShots.length - 1) {
+        const idx = parseInt(e.currentTarget.getAttribute("data-index"), 10);
+        if (idx > 0) {
           syncCurrentShotsFromDOM();
-          const temp = currentPlanShots[i];
-          currentPlanShots[i] = currentPlanShots[i + 1];
-          currentPlanShots[i + 1] = temp;
-          renderShotsPlan(currentPlanShots);
+          const temp = currentPlanShots[idx];
+          currentPlanShots[idx] = currentPlanShots[idx - 1];
+          currentPlanShots[idx - 1] = temp;
+          renderTimelineStudio(currentPlanShots);
         }
       });
     });
 
-    pipeShotsList.querySelectorAll(".shot-btn-del").forEach(btn => {
+    // 右移镜头
+    container.querySelectorAll(".shot-btn-down").forEach(btn => {
       btn.addEventListener("click", (e) => {
-        const i = parseInt(e.currentTarget.getAttribute("data-index"), 10);
+        const idx = parseInt(e.currentTarget.getAttribute("data-index"), 10);
+        if (idx < currentPlanShots.length - 1) {
+          syncCurrentShotsFromDOM();
+          const temp = currentPlanShots[idx];
+          currentPlanShots[idx] = currentPlanShots[idx + 1];
+          currentPlanShots[idx + 1] = temp;
+          renderTimelineStudio(currentPlanShots);
+        }
+      });
+    });
+
+    // 删除镜头
+    container.querySelectorAll(".shot-btn-del").forEach(btn => {
+      btn.addEventListener("click", (e) => {
+        const idx = parseInt(e.currentTarget.getAttribute("data-index"), 10);
         syncCurrentShotsFromDOM();
-        currentPlanShots.splice(i, 1);
-        renderShotsPlan(currentPlanShots);
+        currentPlanShots.splice(idx, 1);
+        renderTimelineStudio(currentPlanShots);
       });
     });
   }
 
   function syncCurrentShotsFromDOM() {
-    if (!pipeShotsList) return;
-    const durInputs = pipeShotsList.querySelectorAll(".pipe-shot-dur-input");
-    const txtInputs = pipeShotsList.querySelectorAll(".pipe-shot-text-input");
+    const container = pipeStoryFlowTrack || pipeShotsList;
+    if (!container) return;
+    const durInputs = container.querySelectorAll(".film-dur-input");
+    const txtInputs = container.querySelectorAll(".film-prompt-input");
+    const motionSelects = container.querySelectorAll(".film-motion-select");
+
     durInputs.forEach(inp => {
       const i = parseInt(inp.getAttribute("data-index"), 10);
       if (currentPlanShots[i]) {
-        currentPlanShots[i].duration = parseFloat(inp.value) || 2.5;
+        currentPlanShots[i].duration = parseFloat(inp.value) || 3.0;
       }
     });
     txtInputs.forEach(inp => {
@@ -2549,12 +3148,346 @@ document.addEventListener("DOMContentLoaded", () => {
         currentPlanShots[i].subtitle_text = inp.value;
       }
     });
-    const contSelects = pipeShotsList.querySelectorAll(".pipe-shot-continuity-select");
-    contSelects.forEach(sel => {
+    motionSelects.forEach(sel => {
       const i = parseInt(sel.getAttribute("data-index"), 10);
       if (currentPlanShots[i]) {
-        currentPlanShots[i].continuity = sel.value;
+        currentPlanShots[i].camera_motion = sel.value;
+        currentPlanShots[i].motion = sel.value;
       }
+    });
+  }
+
+  // 保持向后兼容的别名
+  function renderShotsPlan(shots) {
+    renderTimelineStudio(shots);
+  }
+
+  // 模态框 1：双窗咬合对比抽屉 (Joint Bite Inspection)
+  function openBiteDrawerModal(prevIdx, currIdx) {
+    currentBitePrevIdx = prevIdx;
+    currentBiteCurrIdx = currIdx;
+    const prevShot = currentPlanShots[prevIdx];
+    const currShot = currentPlanShots[currIdx];
+    if (!prevShot || !currShot) return;
+
+    if (bitePrevLabel) bitePrevLabel.textContent = `上一镜 #${prevIdx + 1} 尾帧出点 (${prevShot.name || 'Shot'})`;
+    if (biteCurrLabel) biteCurrLabel.textContent = `本镜 #${currIdx + 1} 起点入帧 (${currShot.name || 'Shot'})`;
+
+    const prevThumb = prevShot.preview_url || (prevShot.image_path ? `/api/pipeline/file-preview?path=${encodeURIComponent(prevShot.image_path)}` : '');
+    const currThumb = currShot.preview_url || (currShot.image_path ? `/api/pipeline/file-preview?path=${encodeURIComponent(currShot.image_path)}` : '');
+
+    if (bitePrevImg) bitePrevImg.src = prevThumb;
+    if (biteCurrImg) biteCurrImg.src = currThumb;
+
+    currentBiteSelectedMode = currShot.continuity || "continue";
+    updateBiteDrawerModeUI(currentBiteSelectedMode);
+
+    if (pipeBiteDrawerModal) pipeBiteDrawerModal.style.display = "flex";
+  }
+
+  function updateBiteDrawerModeUI(mode) {
+    currentBiteSelectedMode = mode;
+    const jointInfo = CONTINUITY_JOINTS[mode] || CONTINUITY_JOINTS.continue;
+    if (biteJointBadge) {
+      biteJointBadge.textContent = jointInfo.badge;
+      biteJointBadge.className = `bite-joint-badge ${jointInfo.class}`;
+    }
+    if (biteJointDesc) {
+      biteJointDesc.textContent = jointInfo.desc;
+    }
+    document.querySelectorAll(".bite-mode-btn").forEach(btn => {
+      if (btn.getAttribute("data-mode") === mode) {
+        btn.classList.add("active");
+      } else {
+        btn.classList.remove("active");
+      }
+    });
+  }
+
+  // 模态框 2：Animatic 极速动态分镜预演
+  async function triggerAnimaticPreview() {
+    syncCurrentShotsFromDOM();
+    syncContinuityAnchorsFromDOM();
+
+    if (!currentPlanShots || currentPlanShots.length === 0) {
+      alert("请先规划或添加分镜头素材后再生成预演！");
+      return;
+    }
+
+    if (pipeAnimaticModal) pipeAnimaticModal.style.display = "flex";
+    if (animaticLoadingSpinner) animaticLoadingSpinner.style.display = "block";
+    if (animaticVideoPlayer) {
+      animaticVideoPlayer.style.display = "none";
+      animaticVideoPlayer.pause();
+      animaticVideoPlayer.src = "";
+    }
+    if (animaticModalFooter) animaticModalFooter.style.display = "none";
+
+    try {
+      const payload = {
+        material_dir: pipeMatDir ? pipeMatDir.value.trim() : null,
+        shots_override: currentPlanShots.map((s, idx) => ({
+          id: s.id || `shot_${String(idx + 1).padStart(2, "0")}`,
+          name: s.name || `镜头 ${idx + 1}`,
+          image_path: s.image_path || "",
+          voice_text: s.voice_text || "",
+          subtitle_text: s.subtitle_text || s.voice_text || "",
+          duration: parseFloat(s.duration) || 3.0,
+          motion: s.camera_motion || s.motion || "zoom_in",
+          camera_motion: s.camera_motion || s.motion || "zoom_in",
+          continuity: s.continuity || "continue",
+          re_anchor: !!s.re_anchor
+        })),
+        continuity_anchors: currentContinuityAnchors,
+        aspect_ratio: pipeAspect ? pipeAspect.value : "16:9",
+        duration_mode: "auto",
+        total_duration: currentPlanShots.reduce((a, s) => a + (parseFloat(s.duration) || 3.0), 0),
+        voice_mode: (pipeToggleVoice && pipeToggleVoice.checked) ? "edge_tts" : "mute",
+        voice_name: pipeVoiceName ? pipeVoiceName.value : "zh-CN-YunxiNeural",
+        bgm_mode: (pipeToggleBgm && pipeToggleBgm.checked) ? (pipeBgmMode ? pipeBgmMode.value : "auto") : "mute",
+        bgm_path: (pipeBgmPath && pipeBgmMode && pipeBgmMode.value === "custom") ? pipeBgmPath.value.trim() : null
+      };
+
+      const res = await fetch("/api/pipeline/animatic-preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.detail || "动态预演启动失败");
+      }
+
+      const jobId = data.job_id;
+      let pollCount = 0;
+      const pollTimer = setInterval(async () => {
+        pollCount++;
+        try {
+          const sRes = await fetch(`/api/pipeline/job/${encodeURIComponent(jobId)}`);
+          if (!sRes.ok) return;
+          const sData = await sRes.json();
+          const job = sData.job;
+          if (!job) return;
+
+          if (job.status === "success" || job.status === "done" || job.status === "completed") {
+            clearInterval(pollTimer);
+            if (animaticLoadingSpinner) animaticLoadingSpinner.style.display = "none";
+            if (animaticVideoPlayer) {
+              animaticVideoPlayer.src = job.video_url || `/api/pipeline/download?job_id=${encodeURIComponent(jobId)}`;
+              animaticVideoPlayer.style.display = "block";
+              animaticVideoPlayer.play().catch(() => {});
+            }
+            if (animaticModalFooter) animaticModalFooter.style.display = "flex";
+          } else if (job.status === "failed") {
+            clearInterval(pollTimer);
+            if (animaticLoadingSpinner) {
+              animaticLoadingSpinner.innerHTML = `
+                <div style="color:#ef4444;font-size:13px;font-weight:700;">❌ 预演生成失败</div>
+                <div style="color:#94a3b8;font-size:11px;margin-top:6px;">${escapeHtml(job.error || '未知错误')}</div>
+              `;
+            }
+          } else if (job.status === "running" || job.status === "processing") {
+            if (animaticLoadingSpinner) {
+              const pct = job.progress || 0;
+              const step = job.step || "渲染中...";
+              animaticLoadingSpinner.innerHTML = `
+                <div class="spinner" style="margin: 0 auto 12px auto;"></div>
+                <div style="color:#f8fafc; font-size:13px; font-weight:700;">动态分镜预演合成中 (${pct}%)</div>
+                <div style="color:#94a3b8; font-size:11px; margin-top:6px;">${escapeHtml(step)}</div>
+              `;
+            }
+          }
+        } catch (e) {
+          console.warn("Poll animatic failed", e);
+        }
+        if (pollCount > 120) {
+          clearInterval(pollTimer);
+        }
+      }, 1000);
+
+    } catch (err) {
+      if (animaticLoadingSpinner) {
+        animaticLoadingSpinner.innerHTML = `
+          <div style="color:#ef4444;font-size:13px;font-weight:700;">❌ 预演启动失败</div>
+          <div style="color:#94a3b8;font-size:11px;margin-top:6px;">${escapeHtml(err.message)}</div>
+        `;
+      }
+    }
+  }
+
+  // 模态框 3：Job Spec 导出与导入
+  async function triggerExportSpec() {
+    syncCurrentShotsFromDOM();
+    syncContinuityAnchorsFromDOM();
+
+    if (!currentPlanShots || currentPlanShots.length === 0) {
+      alert("当前没有可导出的镜头规划！");
+      return;
+    }
+
+    try {
+      const payload = {
+        material_dir: pipeMatDir ? pipeMatDir.value.trim() : null,
+        shots_override: currentPlanShots.map((s, idx) => ({
+          id: s.id || `shot_${String(idx + 1).padStart(2, "0")}`,
+          name: s.name || `镜头 ${idx + 1}`,
+          image_path: s.image_path || "",
+          voice_text: s.voice_text || "",
+          subtitle_text: s.subtitle_text || s.voice_text || "",
+          duration: parseFloat(s.duration) || 3.0,
+          motion: s.camera_motion || s.motion || "zoom_in",
+          camera_motion: s.camera_motion || s.motion || "zoom_in",
+          continuity: s.continuity || "continue",
+          re_anchor: !!s.re_anchor
+        })),
+        continuity_anchors: currentContinuityAnchors,
+        aspect_ratio: pipeAspect ? pipeAspect.value : "16:9"
+      };
+
+      const res = await fetch("/api/pipeline/job-spec/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "导出失败");
+
+      if (pipeSpecJsonTextarea) {
+        pipeSpecJsonTextarea.value = JSON.stringify(data.job_spec, null, 2);
+      }
+      if (pipeSpecModal) pipeSpecModal.style.display = "flex";
+
+    } catch (e) {
+      alert("导出失败: " + e.message);
+    }
+  }
+
+  async function triggerApplySpecJson() {
+    if (!pipeSpecJsonTextarea) return;
+    const raw = pipeSpecJsonTextarea.value.trim();
+    if (!raw) {
+      alert("请输入有效的 Job Spec JSON！");
+      return;
+    }
+
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (e) {
+      alert("JSON 语法解析错误，请检查格式！");
+      return;
+    }
+
+    try {
+      const res = await fetch("/api/pipeline/job-spec/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ job_spec: parsed })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "校验失败");
+
+      if (data.missing_assets && data.missing_assets.length > 0) {
+        alert("⚠️ 提示: 检测到以下素材在本地不存在:\n" + data.missing_assets.slice(0, 3).join("\n") + (data.missing_assets.length > 3 ? `\n...等共${data.missing_assets.length}个文件` : ''));
+      }
+
+      const restoredShots = [];
+      const vTrack = (data.spec && data.spec.tracks && data.spec.tracks.video_track) || [];
+      vTrack.forEach((s, idx) => {
+        restoredShots.push({
+          id: s.id || `shot_${String(idx + 1).padStart(2, "0")}`,
+          name: s.name || `镜头 ${idx + 1}`,
+          image_path: s.in_frame || (s.visual ? s.visual.start_image : ""),
+          image_name: s.in_frame ? s.in_frame.split(/[\\/]/).pop() : `镜头 ${idx + 1}`,
+          duration: s.duration || 3.0,
+          voice_text: s.narration ? s.narration.text : "",
+          subtitle_text: s.narration ? s.narration.text : "",
+          camera_motion: (s.visual && s.visual.camera_motion) || "zoom_in",
+          continuity: s.continuity || "continue",
+          re_anchor: !!(s.visual && s.visual.re_anchor),
+          preview_url: `/api/pipeline/file-preview?path=${encodeURIComponent(s.in_frame || '')}`
+        });
+      });
+
+      if (data.continuity_anchors) {
+        renderContinuityAnchors(data.continuity_anchors);
+      }
+
+      renderTimelineStudio(restoredShots);
+      if (pipeSpecModal) pipeSpecModal.style.display = "none";
+      alert(`✅ 成功应用 Job Spec！已载入 ${restoredShots.length} 个镜头方案`);
+
+    } catch (e) {
+      alert("Job Spec 校验与应用失败: " + e.message);
+    }
+  }
+
+  // 绑定 Studio 工具栏与模态框事件
+  if (btnPipeAnimaticPreview) {
+    btnPipeAnimaticPreview.addEventListener("click", triggerAnimaticPreview);
+  }
+  if (btnPipeExportSpec) {
+    btnPipeExportSpec.addEventListener("click", triggerExportSpec);
+  }
+  if (btnPipeImportSpec) {
+    btnPipeImportSpec.addEventListener("click", () => {
+      if (pipeSpecJsonTextarea) pipeSpecJsonTextarea.value = "";
+      if (pipeSpecModal) pipeSpecModal.style.display = "flex";
+    });
+  }
+
+  if (btnCloseSpecModal) {
+    btnCloseSpecModal.addEventListener("click", () => {
+      if (pipeSpecModal) pipeSpecModal.style.display = "none";
+    });
+  }
+  if (btnCopySpecJson) {
+    btnCopySpecJson.addEventListener("click", () => {
+      if (pipeSpecJsonTextarea && pipeSpecJsonTextarea.value) {
+        navigator.clipboard.writeText(pipeSpecJsonTextarea.value).then(() => {
+          btnCopySpecJson.textContent = "✅ 已复制到剪贴板";
+          setTimeout(() => { btnCopySpecJson.textContent = "📑 复制到剪贴板"; }, 2000);
+        });
+      }
+    });
+  }
+  if (btnApplySpecJson) {
+    btnApplySpecJson.addEventListener("click", triggerApplySpecJson);
+  }
+
+  if (btnCloseAnimaticModal) {
+    btnCloseAnimaticModal.addEventListener("click", () => {
+      if (pipeAnimaticModal) pipeAnimaticModal.style.display = "none";
+      if (animaticVideoPlayer) animaticVideoPlayer.pause();
+    });
+  }
+  if (btnDoneAnimaticModal) {
+    btnDoneAnimaticModal.addEventListener("click", () => {
+      if (pipeAnimaticModal) pipeAnimaticModal.style.display = "none";
+      if (animaticVideoPlayer) animaticVideoPlayer.pause();
+    });
+  }
+
+  if (btnCloseBiteModal) {
+    btnCloseBiteModal.addEventListener("click", () => {
+      if (pipeBiteDrawerModal) pipeBiteDrawerModal.style.display = "none";
+    });
+  }
+  document.querySelectorAll(".bite-mode-btn").forEach(btn => {
+    btn.addEventListener("click", (e) => {
+      const mode = e.currentTarget.getAttribute("data-mode");
+      if (mode) updateBiteDrawerModeUI(mode);
+    });
+  });
+  if (btnSaveBiteJoint) {
+    btnSaveBiteJoint.addEventListener("click", () => {
+      if (currentPlanShots[currentBiteCurrIdx]) {
+        currentPlanShots[currentBiteCurrIdx].continuity = currentBiteSelectedMode;
+        currentPlanShots[currentBiteCurrIdx].re_anchor = (currentBiteSelectedMode === "re_anchor");
+        renderTimelineStudio(currentPlanShots);
+      }
+      if (pipeBiteDrawerModal) pipeBiteDrawerModal.style.display = "none";
     });
   }
 
@@ -2573,9 +3506,11 @@ document.addEventListener("DOMContentLoaded", () => {
         duration: 3.0,
         voice_text: "",
         subtitle_text: "",
-        motion: newIdx % 2 === 0 ? "slow_zoom_in" : "pan_left"
+        camera_motion: newIdx % 2 === 0 ? "zoom_in" : "pan_left",
+        continuity: newIdx === 1 ? "cut" : "continue",
+        re_anchor: false
       });
-      renderShotsPlan(currentPlanShots);
+      renderTimelineStudio(currentPlanShots);
     });
   }
 
@@ -2584,7 +3519,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (currentPlanShots.length === 0) return;
       if (confirm("确定要清空所有已规划的分镜头吗？")) {
         currentPlanShots = [];
-        renderShotsPlan([]);
+        renderTimelineStudio([]);
       }
     });
   }
@@ -2598,7 +3533,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     if (pipeDiagSummary) {
-      pipeDiagSummary.innerHTML = '<span style="color:#60a5fa;">🔍 正在深度诊断素材结构、提取文本并智能规划分镜预案...</span>';
+      pipeDiagSummary.innerHTML = '<span style="color:#60a5fa;">🔍 正在深度诊断素材结构、提取文本并智能规划双层时间轴全案...</span>';
     }
     if (tabPipePlan) tabPipePlan.click();
 
@@ -2620,7 +3555,6 @@ document.addEventListener("DOMContentLoaded", () => {
       const rep = data.report;
       if (!rep) return;
 
-      // 更新诊断卡片
       if (pipeDiagModeTag) {
         pipeDiagModeTag.textContent = rep.mode_title || rep.recommended_mode;
       }
@@ -2631,18 +3565,19 @@ document.addEventListener("DOMContentLoaded", () => {
         pipeDiagSummary.textContent = rep.summary_text || "素材解析完成";
       }
 
-      // 自动选定推荐生产预设
       if (rep.recommended_mode && PRESET_CONFIGS[rep.recommended_mode]) {
         applyPreset(rep.recommended_mode, false);
       }
 
-      // 回填台词文案
       if (rep.script_lines && rep.script_lines.length > 0 && pipeScriptText && !pipeScriptText.value.trim()) {
         pipeScriptText.value = rep.script_lines.join("\n");
       }
 
-      // 渲染分镜头预案详情
-      renderShotsPlan(rep.suggested_shots || []);
+      if (rep.continuity_anchors) {
+        renderContinuityAnchors(rep.continuity_anchors);
+      }
+
+      renderTimelineStudio(rep.suggested_shots || []);
 
     } catch (err) {
       if (pipeDiagSummary) {
@@ -2703,12 +3638,15 @@ document.addEventListener("DOMContentLoaded", () => {
       currentPlanShots.forEach((s, idx) => {
         shotsOverride.push({
           id: s.id || `shot_${String(idx + 1).padStart(2, "0")}`,
+          name: s.name || `镜头 ${idx + 1}`,
           image_path: s.image_path || "",
           voice_text: s.voice_text || "",
           subtitle_text: s.subtitle_text || s.voice_text || "",
-          duration: parseFloat(s.duration) || 2.5,
-          motion: s.motion || (idx % 2 === 0 ? "slow_zoom_in" : "pan_left"),
-          continuity: s.continuity || "cut",
+          duration: parseFloat(s.duration) || 3.0,
+          motion: s.camera_motion || s.motion || (idx % 2 === 0 ? "zoom_in" : "pan_left"),
+          camera_motion: s.camera_motion || s.motion || (idx % 2 === 0 ? "zoom_in" : "pan_left"),
+          continuity: s.continuity || (idx === 0 ? "cut" : "continue"),
+          re_anchor: !!s.re_anchor,
           end_image: s.end_image || null
         });
       });
@@ -2781,7 +3719,8 @@ document.addEventListener("DOMContentLoaded", () => {
         grid_crop: isGridCrop,
         enable_inspect: isInspectOn,
         script_text: pipeScriptText ? pipeScriptText.value.trim() : "",
-        shots_override: shotsOverride.length > 0 ? shotsOverride : null
+        shots_override: shotsOverride.length > 0 ? shotsOverride : null,
+        continuity_anchors: currentContinuityAnchors
       };
 
       const res = await fetch("/api/pipeline/smart-run", {
@@ -2905,6 +3844,15 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // 初始化所有工序的 UI 状态
   updateAllStageUIs();
+
+  // 默认激活 30s 连续剧情短片预设并直接载入4镜头专业故事流模板
+  try {
+    applyPreset("long_series_30s", false);
+    renderTimelineStudio(getDefaultTemplateShots("long_series_30s"));
+  } catch (e) {
+    console.error("Default template initialization error:", e);
+  }
+
 // ==================== 初始化与自动轮询 ====================
   setAspectRatio("16:9");
   setDurationSec(8);
