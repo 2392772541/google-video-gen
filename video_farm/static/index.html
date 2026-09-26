@@ -98,6 +98,167 @@
           <div style="display: grid; grid-template-columns: 1.15fr 1fr; gap: 24px;">
             <!-- 左侧：输入与自由解耦控制矩阵 -->
             <div>
+              <!-- 顶层工作模式切换条 (智能一键 vs 专业工坊) -->
+              <div class="creator-mode-switch-bar">
+                <div class="creator-mode-tabs">
+                  <button class="creator-mode-btn active" id="btn-mode-simple" type="button">
+                    <span>✨ 智能一键模式 (新手推荐 · 0门槛)</span>
+                  </button>
+                  <button class="creator-mode-btn" id="btn-mode-pro" type="button">
+                    <span>🎛️ 专业工坊模式 (自由微调 · 5大工序)</span>
+                  </button>
+                </div>
+                <div class="creator-mode-tip">
+                  <span class="pulse-dot">●</span>
+                  <span id="creator-mode-desc-text">写下你的创意想法或产品卖点，系统自动拆解分镜与连贯衔接</span>
+                </div>
+              </div>
+
+              <!-- ================= 模式 1：智能一键模式 (新手主屏) ================= -->
+              <div id="panel-mode-simple">
+                <!-- 1. 创意与文案输入 -->
+                <div class="simple-box">
+                  <div class="simple-box-header">
+                    <label class="simple-label">1. 告诉我你想制作的视频内容、故事或商品卖点</label>
+                    <span class="simple-sub-tip">写大白话即可，支持多行</span>
+                  </div>
+                  
+                  <!-- 快捷灵感芯片 -->
+                  <div class="simple-chips-row">
+                    <span style="font-size: 11px; color: #64748b; align-self: center;">快捷灵感:</span>
+                    <button type="button" class="simple-chip" data-inspiration="product">📦 商业产品大片</button>
+                    <button type="button" class="simple-chip" data-inspiration="drama">🎬 故事连贯短剧</button>
+                    <button type="button" class="simple-chip" data-inspiration="nature">🏞️ 治愈自然风光</button>
+                    <button type="button" class="simple-chip" data-inspiration="tech">🔬 微观科技原理</button>
+                    <button type="button" class="simple-chip clear-chip" id="btn-simple-clear-idea">🧹 清空</button>
+                  </div>
+
+                  <textarea id="simple-idea-input" class="form-input simple-idea-textarea" placeholder="例如：制作一段农化/日化产品的商业宣传片，从大理石展台缓缓推近，微距特写晶莹水滴与质感包装，随后光影流转，最后镜头拉远定格在震撼全貌..."></textarea>
+
+                  <!-- 可选素材目录 -->
+                  <div style="margin-top: 10px; display: flex; gap: 8px; align-items: center;">
+                    <span style="font-size: 11px; color: #94a3b8; white-space: nowrap;">📁 本地素材目录(可选):</span>
+                    <input type="text" id="simple-mat-dir" class="form-input" style="flex: 1; padding: 6px 10px; font-size: 11.5px; font-family: monospace;" placeholder="若有现成图片或包装文件夹，粘贴到这里 (如 E:\公司素材\产品实景图)">
+                    <button type="button" class="btn btn-secondary btn-sm" id="btn-simple-scan" style="padding: 5px 10px; font-size: 11.5px;">🔍 自动分析</button>
+                  </div>
+                </div>
+
+                <!-- 2. 直观大选项卡片组 -->
+                <div class="simple-box" style="margin-top: 14px;">
+                  <div class="simple-box-header">
+                    <label class="simple-label">2. 视频规格与风格 (点击即生效)</label>
+                    <span class="simple-sub-tip">智能自适应调度</span>
+                  </div>
+
+                  <div class="simple-options-grid">
+                    <!-- 画幅比例 -->
+                    <div class="simple-opt-card-group">
+                      <span class="opt-group-title">📺 画幅比例</span>
+                      <div class="opt-card-row">
+                        <div class="simple-opt-btn active" data-opt="aspect" data-val="16:9">
+                          <span class="opt-btn-icon">📺</span>
+                          <span class="opt-btn-name">16:9 横屏</span>
+                          <span class="opt-btn-sub">影视/电脑/B站</span>
+                        </div>
+                        <div class="simple-opt-btn" data-opt="aspect" data-val="9:16">
+                          <span class="opt-btn-icon">📱</span>
+                          <span class="opt-btn-name">9:16 竖屏</span>
+                          <span class="opt-btn-sub">抖音/小红书</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- 时长 -->
+                    <div class="simple-opt-card-group">
+                      <span class="opt-group-title">⏱️ 期望时长</span>
+                      <div class="opt-card-row">
+                        <div class="simple-opt-btn" data-opt="duration" data-val="15">
+                          <span class="opt-btn-icon">⚡</span>
+                          <span class="opt-btn-name">15 秒</span>
+                          <span class="opt-btn-sub">3镜头 · 快节奏</span>
+                        </div>
+                        <div class="simple-opt-btn active" data-opt="duration" data-val="30">
+                          <span class="opt-btn-icon">🎬</span>
+                          <span class="opt-btn-name">30 秒 (推荐)</span>
+                          <span class="opt-btn-sub">4镜头 · 连贯完整</span>
+                        </div>
+                        <div class="simple-opt-btn" data-opt="duration" data-val="60">
+                          <span class="opt-btn-icon">🎥</span>
+                          <span class="opt-btn-name">60 秒</span>
+                          <span class="opt-btn-sub">6~8镜 · 故事大片</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- 配音音色 -->
+                    <div class="simple-opt-card-group">
+                      <span class="opt-group-title">🗣️ 人声解说与配音</span>
+                      <div class="opt-card-row">
+                        <div class="simple-opt-btn active" data-opt="voice" data-val="zh-CN-YunxiNeural">
+                          <span class="opt-btn-icon">🗣️</span>
+                          <span class="opt-btn-name">云希 (青年男声)</span>
+                          <span class="opt-btn-sub">自然活力解说</span>
+                        </div>
+                        <div class="simple-opt-btn" data-opt="voice" data-val="zh-CN-XiaoxiaoNeural">
+                          <span class="opt-btn-icon">🗣️</span>
+                          <span class="opt-btn-name">晓晓 (温柔女声)</span>
+                          <span class="opt-btn-sub">商务知性温婉</span>
+                        </div>
+                        <div class="simple-opt-btn" data-opt="voice" data-val="zh-CN-YunjianNeural">
+                          <span class="opt-btn-icon">🗣️</span>
+                          <span class="opt-btn-name">云健 (纪录片男)</span>
+                          <span class="opt-btn-sub">浑厚磁性大气</span>
+                        </div>
+                        <div class="simple-opt-btn" data-opt="voice" data-val="none">
+                          <span class="opt-btn-icon">🔕</span>
+                          <span class="opt-btn-name">关闭配音</span>
+                          <span class="opt-btn-sub">纯享画面与配乐</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- 画面质感 -->
+                    <div class="simple-opt-card-group">
+                      <span class="opt-group-title">🎨 画面艺术风格</span>
+                      <div class="opt-card-row">
+                        <div class="simple-opt-btn active" data-opt="style" data-val="commercial">
+                          <span class="opt-btn-icon">🌟</span>
+                          <span class="opt-btn-name">商业电影大片</span>
+                          <span class="opt-btn-sub">超清景深 · 细腻光影</span>
+                        </div>
+                        <div class="simple-opt-btn" data-opt="style" data-val="tech">
+                          <span class="opt-btn-icon">🔬</span>
+                          <span class="opt-btn-name">微观科技机理</span>
+                          <span class="opt-btn-sub">微距透亮 · 粒子流光</span>
+                        </div>
+                        <div class="simple-opt-btn" data-opt="style" data-val="natural">
+                          <span class="opt-btn-icon">🏞️</span>
+                          <span class="opt-btn-name">自然治愈纪实</span>
+                          <span class="opt-btn-sub">晨昏生机 · 真实通透</span>
+                        </div>
+                        <div class="simple-opt-btn" data-opt="style" data-val="anime">
+                          <span class="opt-btn-icon">🎨</span>
+                          <span class="opt-btn-name">奇幻唯美二次元</span>
+                          <span class="opt-btn-sub">浪漫色彩 · 唯美画风</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 3. 核心生成按钮组 -->
+                <div style="margin-top: 16px; display: grid; grid-template-columns: 1.35fr 1fr; gap: 12px;">
+                  <button id="btn-simple-generate" class="btn btn-primary" style="padding: 14px 18px; font-size: 15px; font-weight: 700; display: flex; justify-content: center; align-items: center; gap: 10px; box-shadow: 0 0 20px rgba(59, 130, 246, 0.4);">
+                    <span>✨ 智能一键生成完整连续视频</span>
+                  </button>
+                  <button id="btn-simple-preview-animatic" class="btn btn-secondary" style="padding: 14px 18px; font-size: 13px; font-weight: 600; display: flex; justify-content: center; align-items: center; gap: 8px; border-color: rgba(56, 189, 248, 0.4); color: #38bdf8;">
+                    <span>⚡ 5秒极速试看小样 (不耗额度)</span>
+                  </button>
+                </div>
+              </div>
+
+              <!-- ================= 模式 2：专业工坊模式 (自由微调) ================= -->
+              <div id="panel-mode-pro" style="display: none;">
               <!-- 1. 快捷场景预设 (一键快速切换，亦可随时手动自由微调) -->
               <div style="margin-bottom: 14px;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
@@ -309,6 +470,7 @@
                   <span>⚡ 极速直通生成</span>
                 </button>
               </div>
+            </div> <!-- 闭合 panel-mode-pro -->
             </div>
 
             <!-- 右侧：方案看板 / 实时生产监控 -->
@@ -343,23 +505,23 @@
                   </div>
                 </div>
 
-                <!-- 四维连续性锚点资产 (DNA Lock) 专区 -->
+                <!-- ✨ 全局画面防走样设置 (全片一致性锁定) 专区 -->
                 <div id="pipe-dna-anchors-section" class="dna-anchors-section">
                   <div class="dna-anchors-header">
                     <div style="display: flex; align-items: center; gap: 6px;">
                       <span class="dna-icon">🧬</span>
-                      <span style="font-size: 12px; font-weight: 700; color: #f1f5f9;">四维连续性锚点资产 (DNA Lock)</span>
-                      <span style="font-size: 10.5px; color: #94a3b8;">长视频防漂移与全剧一致性基准</span>
+                      <span style="font-size: 12px; font-weight: 700; color: #f1f5f9;">✨ 全局画面防走样设置 (全片一致性锁定)</span>
+                      <span style="font-size: 10.5px; color: #94a3b8;">防止多镜头生成过程中主角变形或场景走样</span>
                     </div>
                     <label class="dna-lock-toggle" title="全局锁定锚点资产，防止后续镜头形态衰减">
                       <input type="checkbox" id="pipe-dna-lock-toggle" checked>
-                      <span>🔒 全局锚定锁定</span>
+                      <span>🔒 锁定全局基准</span>
                     </label>
                   </div>
                   <div class="dna-anchors-grid">
                     <div class="dna-anchor-card" id="card-anchor-subject">
                       <div class="dna-card-top">
-                        <span class="dna-badge badge-subject">👤 主体锚点</span>
+                        <span class="dna-badge badge-subject">👤 核心主角 / 产品外观</span>
                         <span class="dna-status" id="dna-subject-status">未设置</span>
                       </div>
                       <div class="dna-thumb-row">
@@ -371,24 +533,24 @@
                     </div>
                     <div class="dna-anchor-card" id="card-anchor-scene">
                       <div class="dna-card-top">
-                        <span class="dna-badge badge-scene">🏞️ 场景锚点</span>
+                        <span class="dna-badge badge-scene">🏞️ 统一场景与环境光影</span>
                         <span class="dna-status" id="dna-scene-status">环境锁定</span>
                       </div>
-                      <input type="text" class="dna-input" id="dna-scene-input" placeholder="设定统一光影、色温与空间背景..." value="统一商业展台与环境光影，柔和冷光">
+                      <input type="text" class="dna-input" id="dna-scene-input" placeholder="设定统一空间背景与光影 (如：柔和冷光展台，留空自动提取)...">
                     </div>
                     <div class="dna-anchor-card" id="card-anchor-style">
                       <div class="dna-card-top">
-                        <span class="dna-badge badge-style">🎨 风格锚点</span>
+                        <span class="dna-badge badge-style">🎨 画面风格与画质</span>
                         <span class="dna-status" id="dna-style-status">8K质感</span>
                       </div>
-                      <input type="text" class="dna-input" id="dna-style-input" placeholder="输入统一风格规范..." value="商业影视大片质感, 8K超高清, 细腻材质光影, 景深通透">
+                      <input type="text" class="dna-input" id="dna-style-input" placeholder="设定统一画面艺术风格 (如：商业大片8K高清，留空自动提取)...">
                     </div>
                     <div class="dna-anchor-card" id="card-anchor-state">
                       <div class="dna-card-top">
-                        <span class="dna-badge badge-state">⚡ 状态锚点</span>
+                        <span class="dna-badge badge-state">⚡ 初始姿态与动作基准</span>
                         <span class="dna-status" id="dna-state-status">动作基准</span>
                       </div>
-                      <input type="text" class="dna-input" id="dna-state-input" placeholder="物体朝向/放置姿态/动作基准..." value="产品平稳陈列，微距慢动作流光">
+                      <input type="text" class="dna-input" id="dna-state-input" placeholder="物体初始朝向与运动基准 (如：平稳陈列、微距慢动作，留空自动提取)...">
                     </div>
                   </div>
                 </div>
@@ -402,14 +564,14 @@
                     </span>
                   </div>
                   <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
-                    <button class="pipe-studio-btn btn-animatic" id="btn-pipe-animatic-preview" title="毫秒级本地合成高精动态分镜预演，不耗云端 Veo 算力" type="button">
-                      ⚡ 极速分镜预演 (Animatic)
+                    <button class="pipe-studio-btn btn-animatic" id="btn-pipe-animatic-preview" title="5秒极速生成动态镜头小样，快速检查节奏与台词，不消耗云端算力" type="button">
+                      ⚡ 5秒极速试看 (不耗额度)
                     </button>
-                    <button class="pipe-studio-btn" id="btn-pipe-export-spec" title="导出当前全案规范为通用 JSON Job Spec" type="button">
-                      📋 导出 Job Spec
+                    <button class="pipe-studio-btn" id="btn-pipe-export-spec" title="导出当前所有分镜头与设置到本地保存" type="button">
+                      📋 导出项目方案
                     </button>
-                    <button class="pipe-studio-btn" id="btn-pipe-import-spec" title="导入已有 Job Spec JSON 恢复全案" type="button">
-                      📥 导入 Job Spec
+                    <button class="pipe-studio-btn" id="btn-pipe-import-spec" title="导入此前保存的视频方案" type="button">
+                      📥 导入项目方案
                     </button>
                     <button class="pipe-studio-btn" id="btn-pipe-add-shot" title="追加一个镜头" type="button">
                       ➕ 加镜头
@@ -1068,18 +1230,18 @@
   <div class="studio-modal-overlay" id="pipe-job-spec-modal" style="display: none;">
     <div class="studio-modal-card">
       <div class="studio-modal-header">
-        <h3 id="spec-modal-title">📋 声明式 Job Spec (Timeline JSON)</h3>
+        <h3 id="spec-modal-title">📋 视频项目方案 (Project Spec JSON)</h3>
         <button class="studio-modal-close" id="btn-close-spec-modal">✕</button>
       </div>
       <div class="studio-modal-body">
         <p style="font-size: 12px; color: #94a3b8; margin-bottom: 8px;">
-          声明式 Job Spec 封装了四维锚点资产、分镜头运镜参数与连续性语义。可在多台电脑间完全复用，或直接提供给 Agent 调度。
+          视频方案封装了所有分镜、运镜方式、台词、画质与衔接策略。可在多台电脑间完全复用，或直接供自动化程序调用。
         </p>
-        <textarea id="pipe-spec-json-textarea" class="spec-json-textarea" placeholder="在此查看或粘贴 Job Spec JSON 规范..."></textarea>
+        <textarea id="pipe-spec-json-textarea" class="spec-json-textarea" placeholder="在此查看或粘贴视频方案 JSON..."></textarea>
       </div>
       <div class="studio-modal-footer">
         <button class="btn btn-secondary" id="btn-copy-spec-json">📑 复制到剪贴板</button>
-        <button class="btn btn-primary" id="btn-apply-spec-json">✅ 校验并应用此规范</button>
+        <button class="btn btn-primary" id="btn-apply-spec-json">✅ 应用此方案</button>
       </div>
     </div>
   </div>
@@ -1088,20 +1250,20 @@
   <div class="studio-modal-overlay" id="pipe-animatic-modal" style="display: none;">
     <div class="studio-modal-card animatic-card">
       <div class="studio-modal-header">
-        <h3>⚡ 极速动态分镜预演 (Animatic Preview)</h3>
+        <h3>⚡ 5秒极速试看小样 (不耗额度)</h3>
         <button class="studio-modal-close" id="btn-close-animatic-modal">✕</button>
       </div>
       <div class="studio-modal-body" style="display: flex; flex-direction: column; align-items: center;">
         <div id="animatic-loading-spinner" style="padding: 40px; text-align: center;">
           <div class="spinner-border" style="width: 3rem; height: 3rem; color: #38bdf8; margin-bottom: 12px;"></div>
           <div style="font-size: 13px; color: #e2e8f0; font-weight: 600;">正在极速合成动态分镜预演...</div>
-          <div style="font-size: 11px; color: #94a3b8; margin-top: 4px;">装配高精微运镜、TTS 语音与背景音乐，完全在本地瞬时完成</div>
+          <div style="font-size: 11px; color: #94a3b8; margin-top: 4px;">快速装配微运镜、人声配音与背景音乐，完全在本地瞬时完成</div>
         </div>
         <video id="animatic-video-player" controls autoplay style="display: none; width: 100%; max-height: 480px; border-radius: 6px; background: #000;"></video>
       </div>
       <div class="studio-modal-footer" id="animatic-modal-footer" style="display: none;">
         <span style="font-size: 12px; color: #10b981;">✨ 预演节奏满意？可直接关闭弹窗并点击【🚀 确认方案并开始生产】执行云端高精 Veo 渲染</span>
-        <button class="btn btn-secondary" id="btn-done-animatic-modal">关闭预演</button>
+        <button class="btn btn-secondary" id="btn-done-animatic-modal">完成试看并关闭</button>
       </div>
     </div>
   </div>
@@ -1110,7 +1272,7 @@
   <div class="studio-modal-overlay" id="pipe-bite-drawer-modal" style="display: none;">
     <div class="studio-modal-card bite-drawer-card">
       <div class="studio-modal-header">
-        <h3>🔗 镜头连续性咬合对比 (Joint Bite Inspection)</h3>
+        <h3>🔗 镜头衔接方式与过渡对比</h3>
         <button class="studio-modal-close" id="btn-close-bite-modal">✕</button>
       </div>
       <div class="studio-modal-body">
@@ -1124,7 +1286,7 @@
           <div class="bite-connector-center">
             <div class="bite-joint-badge" id="bite-joint-badge">🟢 尾帧接力 (Continue)</div>
             <div style="font-size: 11px; color: #94a3b8; text-align: center; margin: 8px 0;" id="bite-joint-desc">
-              平滑咬合上一镜头终点画面，保持运动矢量同向
+              平滑咬合上一镜头终点画面，前后动作自然连贯
             </div>
             <div class="bite-mode-selector">
               <button class="bite-mode-btn" data-mode="continue">🟢 尾帧接力</button>
@@ -1143,7 +1305,7 @@
         </div>
       </div>
       <div class="studio-modal-footer">
-        <button class="btn btn-primary" id="btn-save-bite-joint">应用衔接设置</button>
+        <button class="btn btn-primary" id="btn-save-bite-joint">确定并应用此衔接方式</button>
       </div>
     </div>
   </div>

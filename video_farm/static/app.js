@@ -2000,6 +2000,19 @@ document.addEventListener("DOMContentLoaded", () => {
   let currentPlanShots = [];
 
   // DOM 元素引用
+  // 智能一键模式 DOM 元素
+  const btnModeSimple = document.getElementById("btn-mode-simple");
+  const btnModePro = document.getElementById("btn-mode-pro");
+  const creatorModeDescText = document.getElementById("creator-mode-desc-text");
+  const panelModeSimple = document.getElementById("panel-mode-simple");
+  const panelModePro = document.getElementById("panel-mode-pro");
+  const simpleIdeaInput = document.getElementById("simple-idea-input");
+  const btnSimpleClearIdea = document.getElementById("btn-simple-clear-idea");
+  const simpleMatDir = document.getElementById("simple-mat-dir");
+  const btnSimpleScan = document.getElementById("btn-simple-scan");
+  const btnSimpleGenerate = document.getElementById("btn-simple-generate");
+  const btnSimplePreviewAnimatic = document.getElementById("btn-simple-preview-animatic");
+
   const btnPipeLoadSampleProducts = document.getElementById("btn-pipe-load-sample-products");
   const btnPipeLoadSampleStoryboard = document.getElementById("btn-pipe-load-sample-storyboard");
   const pipePresetsContainer = document.getElementById("pipe-presets-container");
@@ -2468,42 +2481,42 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const CONTINUITY_JOINTS = {
     continue: {
-      name: "尾帧接力",
-      badge: "🟢 尾帧接力 (Continue)",
-      desc: "平滑咬合上一镜头终点画面，保持运动矢量同向，实现无缝连续过渡",
+      name: "无缝连贯",
+      badge: "🟢 无缝连贯 (衔接上一镜)",
+      desc: "平滑接续上一镜头的结束画面与运动，实现前后镜头无缝连贯",
       class: "mode-continue"
     },
     anchor: {
-      name: "首尾插值",
-      badge: "🔵 首尾插值 (Anchor)",
-      desc: "严格约束起点与终点两帧形态，中间由模型生成物理平滑过渡",
+      name: "首尾固定",
+      badge: "🔵 首尾固定 (首尾帧约束)",
+      desc: "严格约束开始和结束两张画面，中间由AI自动生成自然过渡",
       class: "mode-anchor"
     },
     re_anchor: {
-      name: "防漂移重锚",
-      badge: "🟡 防漂移重锚 (Re-Anchor)",
-      desc: "重新注入主体核心特征与材质光影，重置时间累积误差，防止长视频严重漂移变形",
+      name: "防走样重置",
+      badge: "🟡 防走样重置 (校准主体)",
+      desc: "重新注入主体核心特征与光影，重置累积误差，防止长视频多镜后人物或物体变形走样",
       class: "mode-re_anchor"
     },
     cut: {
-      name: "独立切镜",
-      badge: "🟣 独立切镜 (Cut)",
-      desc: "硬切镜头或场景转换，保留全局主体DNA但机位视角完全独立切换",
+      name: "自然切镜",
+      badge: "🟣 自然切镜 (切换新视角)",
+      desc: "切换机位视角或景别，主体一致但切换为新的角度或分镜",
       class: "mode-cut"
     },
     extend: {
-      name: "智能续写",
-      badge: "⚪ 智能续写 (Extend)",
-      desc: "以上一镜头终点画面为始，向后推演后续自然演变与物理运动",
+      name: "智能延长",
+      badge: "⚪ 智能延长 (自动向后推演)",
+      desc: "以上一镜头结束画面为起点，AI自动向后推演更多后续动作",
       class: "mode-extend"
     }
   };
 
   let currentContinuityAnchors = {
     subject_anchor: null,
-    scene_anchor: "统一商业展台与环境光影，柔和冷光",
-    style_anchor: "商业影视大片质感, 8K超高清, 细腻材质光影, 景深通透",
-    state_anchor: "产品平稳陈列，微距慢动作流光",
+    scene_anchor: "",
+    style_anchor: "",
+    state_anchor: "",
     locked: true
   };
 
@@ -2519,13 +2532,13 @@ document.addEventListener("DOMContentLoaded", () => {
       dnaSubjectInput.value = currentContinuityAnchors.subject_anchor || "";
     }
     if (dnaSceneInput) {
-      dnaSceneInput.value = currentContinuityAnchors.scene_anchor || "统一商业展台与环境光影，柔和冷光";
+      dnaSceneInput.value = currentContinuityAnchors.scene_anchor || "";
     }
     if (dnaStyleInput) {
-      dnaStyleInput.value = currentContinuityAnchors.style_anchor || "商业影视大片质感, 8K超高清, 细腻材质光影, 景深通透";
+      dnaStyleInput.value = currentContinuityAnchors.style_anchor || "";
     }
     if (dnaStateInput) {
-      dnaStateInput.value = currentContinuityAnchors.state_anchor || "产品平稳陈列，微距慢动作流光";
+      dnaStateInput.value = currentContinuityAnchors.state_anchor || "";
     }
     if (pipeDnaLockToggle) {
       pipeDnaLockToggle.checked = currentContinuityAnchors.locked !== false;
@@ -2828,8 +2841,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
     if (!currentPlanShots || currentPlanShots.length === 0) {
       container.innerHTML = `
-        <div style="text-align: center; color: #64748b; font-size: 12px; padding: 48px 0; width: 100%;">
-          点击左侧【智能分析】或上方【➕ 加镜头】，在此呈现专业双层时间轴与胶卷工作台
+        <div style="text-align: center; color: #94a3b8; font-size: 13px; padding: 48px 20px; width: 100%; background: rgba(15,23,42,0.4); border: 1px dashed rgba(255,255,255,0.1); border-radius: 8px;">
+          <div style="font-size: 28px; margin-bottom: 8px;">🎬</div>
+          <div style="font-weight: 600; color: #e2e8f0; margin-bottom: 4px;">时间轴空态待命中</div>
+          <div style="font-size: 12px; color: #64748b;">
+            在左侧输入你的创意想法或选择预设，镜头将自动拆解并在此呈现；也可随时点击上方【➕ 加镜头】手动添加。
+          </div>
         </div>
       `;
       renderTimelineRuler([]);
@@ -2907,7 +2924,7 @@ document.addEventListener("DOMContentLoaded", () => {
           <span class="camera-motion-badge" data-index="${idx}" title="点击轮换运镜动力学">
             ${motionObj.icon} ${motionObj.label.split(' ')[1] || motionObj.value}
           </span>
-          ${s.re_anchor ? `<span class="reanchor-badge">🧬 重锚</span>` : ''}
+          ${s.re_anchor ? `<span class="reanchor-badge">🎯 防走样</span>` : ''}
         </div>
         <div class="film-card-body">
           <div class="film-shot-title-row">
@@ -2915,7 +2932,7 @@ document.addEventListener("DOMContentLoaded", () => {
               ${escapeHtml(shotTitle)} · ${escapeHtml(imgName)}
             </span>
             <div class="film-shot-actions">
-              <button class="film-action-mini-btn shot-btn-reanchor ${s.re_anchor ? 'active' : ''}" data-index="${idx}" title="${s.re_anchor ? '已开启防漂移重锚（本镜强制注回主体DNA）' : '设为防漂移重锚点'}">🧬</button>
+              <button class="film-action-mini-btn shot-btn-reanchor ${s.re_anchor ? 'active' : ''}" data-index="${idx}" title="${s.re_anchor ? '已开启防走样重置（本镜注回核心特征）' : '设为防走样校准点'}">🎯</button>
               <button class="film-action-mini-btn shot-btn-up" data-index="${idx}" title="左移镜头" ${isFirst ? "disabled style='opacity:0.3;cursor:not-allowed;'" : ""}>◀</button>
               <button class="film-action-mini-btn shot-btn-down" data-index="${idx}" title="右移镜头" ${isLast ? "disabled style='opacity:0.3;cursor:not-allowed;'" : ""}>▶</button>
               <button class="film-action-mini-btn btn-del shot-btn-del" data-index="${idx}" title="删除镜头">✕</button>
@@ -3524,6 +3541,311 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  // ================= 智能一键模式核心逻辑与数据流驱动 =================
+  const simpleModeState = {
+    aspect: "16:9",
+    duration: 30,
+    voice: "zh-CN-YunxiNeural",
+    style: "commercial"
+  };
+
+  const STYLE_PROMPT_MAP = {
+    commercial: "商业电影大片质感, 8K超高清, 细腻材质光影, 景深通透, 现代极简布光",
+    tech: "微观科技机理, 显微镜特写, 晶莹微距透亮, 粒子游走流光, 4K精微结构",
+    natural: "自然治愈纪实风光, 真实通透晨光, 柔和丁达尔光线, 纯净生态质感",
+    anime: "奇幻唯美二次元画风, 浪漫细腻色彩, 柔光动漫光晕, 唯美手绘笔触质感"
+  };
+
+  const INSPIRATION_TEMPLATES = {
+    product: {
+      text: "高端商业产品展示大片。从现代展台缓缓推近，微距特写产品精湛质感与光泽，随后光束流转展现核心细节，最后镜头拉远平稳定格，尽显卓越专业品质。",
+      style: "commercial",
+      shots: [
+        { name: "镜头 1 · 宏观远景 (建置环境)", dur: 7.0, motion: "zoom_in", continuity: "cut", text: "光影穿透极简空间，精工锻造的标杆之作缓缓入画。" },
+        { name: "镜头 2 · 中景推移 (主体入画)", dur: 8.0, motion: "pan_left", continuity: "continue", text: "镜头顺着光影平滑推移，核心形态在自然流动中清晰显现。" },
+        { name: "镜头 3 · 环绕特写 (细节纹理)", dur: 7.5, motion: "orbit_cw", continuity: "continue", text: "环绕微距视角捕捉细微纹理，每一处精雕细琢都凝结着极致工艺。" },
+        { name: "镜头 4 · 宏大全景 (升空定格)", dur: 7.5, motion: "zoom_out", continuity: "re_anchor", re_anchor: true, text: "视线缓缓拉远升腾，在辽阔天地中定格震撼瞬间。" }
+      ]
+    },
+    drama: {
+      text: "都市微电影连续故事片段。主角神情专注地推开玻璃门走进咖啡馆，镜头平滑跟拍坐下翻看信件，特写信纸上的关键文字，随后主角若有所思地望向窗外雨景。",
+      style: "commercial",
+      shots: [
+        { name: "镜头 1 · 侧面跟拍 (推门入画)", dur: 7.0, motion: "pan_right", continuity: "cut", text: "雨幕朦胧的午后街头，主角若有所思地推开咖啡馆门扉。" },
+        { name: "镜头 2 · 缓慢推近 (落座拆信)", dur: 8.0, motion: "zoom_in", continuity: "continue", text: "步入窗边座位坐下，指尖轻轻启封那封保存已久的信函。" },
+        { name: "镜头 3 · 俯视特写 (信件文字)", dur: 7.5, motion: "tilt_down", continuity: "continue", text: "墨迹跃然纸上，昔日的字句在这一刻唤醒了封存的记忆。" },
+        { name: "镜头 4 · 平缓拉远 (定格凝望)", dur: 7.5, motion: "zoom_out", continuity: "re_anchor", re_anchor: true, text: "视线抬起望向窗外雨丝，神情舒展，心中的困惑悄然解开。" }
+      ]
+    },
+    nature: {
+      text: "高山晨曦治愈风光大片。清晨第一缕阳光穿透山谷薄雾，镜头沿着潺潺清澈溪流低空滑翔穿行，穿过静谧森林，随后无人机大俯冲升腾，豁然展现群山日出的壮阔全景。",
+      style: "natural",
+      shots: [
+        { name: "镜头 1 · 穿透薄雾 (晨光初现)", dur: 7.0, motion: "zoom_in", continuity: "cut", text: "清晨第一缕金色阳光穿透薄雾，整片山川在此刻苏醒。" },
+        { name: "镜头 2 · 贴水滑翔 (溪流穿越)", dur: 8.0, motion: "pan_left", continuity: "continue", text: "镜头贴着清冽山溪低空疾驰，溅起的水珠映照出斑斓光斑。" },
+        { name: "镜头 3 · 穿梭林冠 (斑驳树影)", dur: 7.5, motion: "crane_up", continuity: "continue", text: "顺势穿过古老静谧的林冠，光影交错在枝叶间婆娑起舞。" },
+        { name: "镜头 4 · 峰顶升腾 (万丈朝阳)", dur: 7.5, motion: "zoom_out", continuity: "re_anchor", re_anchor: true, text: "镜头豁然冲出云海直上云霄，万丈朝阳普照壮丽群山。" }
+      ]
+    },
+    tech: {
+      text: "微观科技分子作用动画。显微镜视角深入微观世界，发光活性粒子如银河般游走汇聚，精准穿透细胞膜完成赋能激活动作，最后能量向外绽放，微光点亮整个空间。",
+      style: "tech",
+      shots: [
+        { name: "镜头 1 · 深入微观 (深邃世界)", dur: 7.0, motion: "zoom_in", continuity: "cut", text: "微观视角极速下潜，璀璨的微观生命场域豁然展现。" },
+        { name: "镜头 2 · 粒子汇聚 (动态游走)", dur: 8.0, motion: "orbit_cw", continuity: "continue", text: "高活性科技分子如星芒般汇聚旋转，释放纯净生命动能。" },
+        { name: "镜头 3 · 穿透靶向 (精准赋能)", dur: 7.5, motion: "pan_right", continuity: "continue", text: "精准触达靶向核心，澎湃活性成分瞬时深层渗透激活。" },
+        { name: "镜头 4 · 能量绽放 (整体升维)", dur: 7.5, motion: "zoom_out", continuity: "re_anchor", re_anchor: true, text: "强劲能量呈同心圆环层层激荡绽放，完成由内而外的生机蜕变。" }
+      ]
+    }
+  };
+
+  function generateShotsFromSimpleInput(text, predefShots = null) {
+    const durSec = simpleModeState.duration || 30;
+    let count = 4;
+    let perShotDur = 7.5;
+    if (durSec <= 15) {
+      count = 3;
+      perShotDur = 5.0;
+    } else if (durSec >= 60) {
+      count = 6;
+      perShotDur = 10.0;
+    }
+
+    if (predefShots && predefShots.length > 0) {
+      const scale = durSec / (predefShots.reduce((a, b) => a + (b.dur || 7.5), 0) || 30);
+      const res = predefShots.map((s, idx) => ({
+        id: `shot_${String(idx + 1).padStart(2, "0")}`,
+        name: s.name || `镜头 ${idx + 1}`,
+        image_path: s.image_path || "",
+        image_name: s.image_name || "智能构图画面",
+        duration: Math.max(3.0, Math.round(s.dur * scale * 10) / 10),
+        voice_text: s.text || text,
+        subtitle_text: s.text || text,
+        camera_motion: s.motion || (idx === 0 ? "zoom_in" : "orbit_cw"),
+        continuity: s.continuity || (idx === 0 ? "cut" : "continue"),
+        re_anchor: !!s.re_anchor
+      }));
+      renderTimelineStudio(res);
+      return;
+    }
+
+    const rawSentences = text
+      .split(/[。！？\n]+/)
+      .map(s => s.trim())
+      .filter(s => s.length > 0);
+
+    const shots = [];
+    const motions = ["zoom_in", "pan_left", "orbit_cw", "crane_up", "pan_right", "zoom_out"];
+    const titles = [
+      "镜头 1 · 宏观远景 (建置环境)",
+      "镜头 2 · 中景推移 (主体入画)",
+      "镜头 3 · 环绕特写 (细节纹理)",
+      "镜头 4 · 视角转换 (动态交互)",
+      "镜头 5 · 空间升维 (光影流转)",
+      "镜头 6 · 宏大全景 (定格终章)"
+    ];
+
+    for (let i = 0; i < count; i++) {
+      let sentence = "";
+      if (rawSentences.length === 0) {
+        sentence = text;
+      } else if (rawSentences.length <= count) {
+        sentence = rawSentences[i % rawSentences.length];
+      } else {
+        const start = Math.floor((i * rawSentences.length) / count);
+        const end = Math.floor(((i + 1) * rawSentences.length) / count);
+        sentence = rawSentences.slice(start, Math.max(start + 1, end)).join("，");
+      }
+
+      const isFirst = (i === 0);
+      const isAnchorPoint = (i === count - 1 || (count >= 6 && i === 3));
+
+      shots.push({
+        id: `shot_${String(i + 1).padStart(2, "0")}`,
+        name: titles[i] || `镜头 ${i + 1}`,
+        image_path: "",
+        image_name: "智能生成画面",
+        duration: perShotDur,
+        voice_text: sentence,
+        subtitle_text: sentence,
+        camera_motion: motions[i % motions.length],
+        continuity: isFirst ? "cut" : (isAnchorPoint ? "re_anchor" : "continue"),
+        re_anchor: isAnchorPoint
+      });
+    }
+
+    renderTimelineStudio(shots);
+  }
+
+  // 模式切换监听 (智能一键 vs 专业工坊)
+  if (btnModeSimple && btnModePro) {
+    btnModeSimple.addEventListener("click", () => {
+      btnModeSimple.classList.add("active");
+      btnModePro.classList.remove("active");
+      if (panelModeSimple) panelModeSimple.style.display = "block";
+      if (panelModePro) panelModePro.style.display = "none";
+      if (creatorModeDescText) {
+        creatorModeDescText.textContent = "写下你的创意想法或产品卖点，系统自动拆解分镜与连贯衔接";
+      }
+    });
+
+    btnModePro.addEventListener("click", () => {
+      btnModePro.classList.add("active");
+      btnModeSimple.classList.remove("active");
+      if (panelModeSimple) panelModeSimple.style.display = "none";
+      if (panelModePro) panelModePro.style.display = "block";
+      if (creatorModeDescText) {
+        creatorModeDescText.textContent = "专业模式：可单独微调 5 大工序参数、全局画面防走样锚点及高级合成配置";
+      }
+    });
+  }
+
+  // 选项卡片点击同步
+  document.querySelectorAll(".simple-opt-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const opt = btn.getAttribute("data-opt");
+      const val = btn.getAttribute("data-val");
+      if (!opt) return;
+
+      const groupRow = btn.closest(".opt-card-row");
+      if (groupRow) {
+        groupRow.querySelectorAll(".simple-opt-btn").forEach(b => b.classList.remove("active"));
+      }
+      btn.classList.add("active");
+
+      if (opt === "aspect") {
+        simpleModeState.aspect = val;
+        if (pipeAspect) pipeAspect.value = val;
+        setAspectRatio(val);
+      } else if (opt === "duration") {
+        simpleModeState.duration = parseInt(val, 10) || 30;
+        if (pipeDuration) {
+          if (val === "60") {
+            pipeDuration.value = "custom";
+            if (pipeCustomDurationBox) pipeCustomDurationBox.style.display = "block";
+            if (pipeCustomDurationInput) pipeCustomDurationInput.value = "60";
+          } else {
+            pipeDuration.value = val;
+            if (pipeCustomDurationBox) pipeCustomDurationBox.style.display = "none";
+          }
+        }
+      } else if (opt === "voice") {
+        simpleModeState.voice = val;
+        if (val === "none") {
+          if (pipeToggleVoice) pipeToggleVoice.checked = false;
+        } else {
+          if (pipeToggleVoice) pipeToggleVoice.checked = true;
+          if (pipeVoiceName) pipeVoiceName.value = val;
+        }
+        updateVoiceStageUI();
+      } else if (opt === "style") {
+        simpleModeState.style = val;
+        const styleText = STYLE_PROMPT_MAP[val] || STYLE_PROMPT_MAP.commercial;
+        currentContinuityAnchors.style_anchor = styleText;
+        if (dnaStyleInput) dnaStyleInput.value = styleText;
+      }
+
+      const currentText = simpleIdeaInput ? simpleIdeaInput.value.trim() : "";
+      if (currentText) {
+        generateShotsFromSimpleInput(currentText);
+      }
+    });
+  });
+
+  // 灵感芯片点击绑定
+  document.querySelectorAll(".simple-chip[data-inspiration]").forEach(chip => {
+    chip.addEventListener("click", () => {
+      const key = chip.getAttribute("data-inspiration");
+      const tmpl = INSPIRATION_TEMPLATES[key];
+      if (!tmpl) return;
+
+      if (simpleIdeaInput) {
+        simpleIdeaInput.value = tmpl.text;
+      }
+
+      const targetStyle = tmpl.style || "commercial";
+      simpleModeState.style = targetStyle;
+      document.querySelectorAll(".simple-opt-btn[data-opt='style']").forEach(b => {
+        b.classList.toggle("active", b.getAttribute("data-val") === targetStyle);
+      });
+      const styleText = STYLE_PROMPT_MAP[targetStyle] || STYLE_PROMPT_MAP.commercial;
+      currentContinuityAnchors.style_anchor = styleText;
+      if (dnaStyleInput) dnaStyleInput.value = styleText;
+
+      generateShotsFromSimpleInput(tmpl.text, tmpl.shots);
+    });
+  });
+
+  if (btnSimpleClearIdea) {
+    btnSimpleClearIdea.addEventListener("click", () => {
+      if (simpleIdeaInput) simpleIdeaInput.value = "";
+      currentPlanShots = [];
+      renderTimelineStudio([]);
+    });
+  }
+
+  if (simpleIdeaInput) {
+    let ideaDebounceTimer = null;
+    simpleIdeaInput.addEventListener("input", () => {
+      clearTimeout(ideaDebounceTimer);
+      ideaDebounceTimer = setTimeout(() => {
+        const val = simpleIdeaInput.value.trim();
+        if (val) {
+          generateShotsFromSimpleInput(val);
+        }
+      }, 600);
+    });
+  }
+
+  if (simpleMatDir) {
+    simpleMatDir.addEventListener("input", () => {
+      if (pipeMatDir) pipeMatDir.value = simpleMatDir.value.trim();
+    });
+  }
+
+  if (btnSimpleScan) {
+    btnSimpleScan.addEventListener("click", () => {
+      const dirVal = simpleMatDir ? simpleMatDir.value.trim() : "";
+      if (!dirVal) {
+        alert("请先输入本地素材文件夹路径，例如 E:\公司素材\产品实景图");
+        return;
+      }
+      if (pipeMatDir) pipeMatDir.value = dirVal;
+      doSmartInspect(dirVal);
+    });
+  }
+
+  if (btnSimpleGenerate) {
+    btnSimpleGenerate.addEventListener("click", () => {
+      const idea = simpleIdeaInput ? simpleIdeaInput.value.trim() : "";
+      if (!idea && (!currentPlanShots || currentPlanShots.length === 0)) {
+        alert("请先在上方输入你想制作的视频内容，或点击任一快捷灵感芯片！");
+        if (simpleIdeaInput) simpleIdeaInput.focus();
+        return;
+      }
+      if ((!currentPlanShots || currentPlanShots.length === 0) && idea) {
+        generateShotsFromSimpleInput(idea);
+      }
+      if (tabPipeMonitor) tabPipeMonitor.click();
+      startProductionPipeline();
+    });
+  }
+
+  if (btnSimplePreviewAnimatic) {
+    btnSimplePreviewAnimatic.addEventListener("click", () => {
+      const idea = simpleIdeaInput ? simpleIdeaInput.value.trim() : "";
+      if (!idea && (!currentPlanShots || currentPlanShots.length === 0)) {
+        alert("请先输入视频创意或点击快捷灵感芯片生成分镜后再进行试看！");
+        if (simpleIdeaInput) simpleIdeaInput.focus();
+        return;
+      }
+      if ((!currentPlanShots || currentPlanShots.length === 0) && idea) {
+        generateShotsFromSimpleInput(idea);
+      }
+      triggerAnimaticPreview();
+    });
+  }
+
   // 4. 智能素材诊断与分镜预案规划
   async function doSmartInspect(targetPath) {
     const p = (targetPath || (pipeMatDir ? pipeMatDir.value : "")).trim();
@@ -3845,12 +4167,12 @@ document.addEventListener("DOMContentLoaded", () => {
   // 初始化所有工序的 UI 状态
   updateAllStageUIs();
 
-  // 默认激活 30s 连续剧情短片预设并直接载入4镜头专业故事流模板
+  // 初始化时间轴为空态，不强加预设模板
   try {
     applyPreset("long_series_30s", false);
-    renderTimelineStudio(getDefaultTemplateShots("long_series_30s"));
+    renderTimelineStudio([]);
   } catch (e) {
-    console.error("Default template initialization error:", e);
+    console.error("Default initialization error:", e);
   }
 
 // ==================== 初始化与自动轮询 ====================
