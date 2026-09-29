@@ -12,6 +12,8 @@ from fastapi import APIRouter, HTTPException, Query, Body, Request, UploadFile, 
 from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel
 
+import urllib.parse
+from .models import Task
 from . import db
 from . import vids_workflow
 
@@ -73,6 +75,7 @@ class UpdateShotRequest(BaseModel):
     progress: Optional[int] = None
     video_url: Optional[str] = None
     error_message: Optional[str] = None
+    task_id: Optional[str] = None
 
 
 class ParseScriptRequest(BaseModel):
@@ -453,3 +456,182 @@ def fail_shot(shot_id: str, payload: Dict[str, Any] = Body(...)):
         "error_message": error_msg
     })
     return {"success": True}
+
+
+def _resolve_local_image_path(p_str: str) -> str:
+    """标准化解析本地首尾帧图片绝对路径"""
+    if not p_str or not isinstance(p_str, str):
+        return ""
+    p_str = p_str.strip().strip('"\'')
+    if not p_str:
+        return ""
+    if p_str.startswith("file:///"):
+        p_str = p_str[8:]
+    elif p_str.startswith("file://"):
+        p_str = p_str[7:]
+    if "/media/file" in p_str and "path=" in p_str:
+        parsed = urllib.parse.urlparse(p_str)
+        qs = urllib.parse.parse_qs(parsed.query)
+        if "path" in qs and qs["path"]:
+            p_str = qs["path"][0].strip().strip('"\'')
+    if "/api/vids/assets/" in p_str:
+        fname = p_str.split("/api/vids/assets/")[-1].split("?")[0]
+        local_p = (UPLOADS_VIDS_DIR / fname).resolve()
+        if local_p.exists():
+            return str(local_p)
+    p = Path(p_str)
+    if p.exists() and p.is_file():
+        return str(p.resolve())
+    return p_str
+
+
+def _enqueue_shot_task(shot: Dict[str, Any], wf: Dict[str, Any]) -> str:
+    """将分镜转换为底层的真实 Task 并写入 tasks 数据库进入队列调度"""
+    raw_start = shot.get("image_url") or ""
+    raw_end = shot.get("end_image_url") or ""
+    start_path = _resolve_local_image_path(raw_start)
+    end_path = _resolve_local_image_path(raw_end)
+    
+    mode = shot.get("mode") or "text2video"
+    is_first_last = (mode == "first_last_frame") or (bool(start_path) and bool(end_path))
+    
+    shot_model = (shot.get("model_name") or wf.get("model_name") or "Omni").strip()
+    shot_res = (shot.get("resolution") or wf.get("resolution") or "1080p").strip()
+    
+    # 核心映射逻辑：
+    # 1. 首尾帧插值：底层 flow 官方约束只支持 veo-quality (1080p) 与 veo-lite (720p)，标准时长为 8s
+    if is_first_last:
+        if shot_res == "720p":
+            final_model = "veo-lite"
+            duration_sec = 8
+        else:
+            final_model = "veo-quality"
+            duration_sec = 8
+    else:
+        # 单图/图生视频或文生视频
+        if shot_model.lower() in ("omni", "omni-flash"):
+            final_model = "omni-flash"
+            duration_sec = shot.get("duration") or 5
+        elif shot_res == "1080p" or shot_model.lower() in ("veo", "veo-quality"):
+            final_model = "veo-quality"
+            duration_sec = 8
+        elif shot_model.lower() in ("veo-lite", "veolite"):
+            final_model = "veo-lite"
+            duration_sec = 8
+        else:
+            final_model = "veo-lite"
+            duration_sec = 8
+
+    aspect_ratio = wf.get("aspect_ratio") or "16:9"
+    if aspect_ratio not in ("16:9", "9:16"):
+        aspect_ratio = "9:16" if ("9:16" in aspect_ratio or "竖" in aspect_ratio) else "16:9"
+
+    task_id = f"task_{uuid.uuid4().hex[:10]}"
+    
+    task = Task(
+        id=task_id,
+        prompt=shot.get("prompt", "").strip(),
+        start_image_path=start_path if (is_first_last or mode in ("image2video", "extend") or start_path) else "",
+        end_image_path=end_path if is_first_last else "",
+        engine="flow",
+        task_type="video",
+        model=final_model,
+        aspect_ratio=aspect_ratio,
+        duration_sec=duration_sec,
+        status="queued",
+        priority=10,
+        require_clean_watermark=False,
+        assigned_profile_id=None  # 由账号池空闲可用账号动态调度抢占
+    )
+    
+    db.add_task(task)
+    db.log_task_event(
+        task_id,
+        "TASK_CREATED_VIDS",
+        f"Google Vids 任务下发: [{shot.get('name')}] (所属工程: {wf.get('title')}), 模型: {final_model}, 画质: {shot_res}, 时长: {duration_sec}s"
+    )
+    
+    db.update_vids_shot(shot["id"], {
+        "task_id": task_id,
+        "status": "running",
+        "progress": 5,
+        "error_message": ""
+    })
+    
+    return task_id
+
+
+@router.post("/shots/{shot_id}/generate")
+def generate_single_shot(shot_id: str):
+    """单个镜头立即提交生成调度任务"""
+    shot = db.get_vids_shot(shot_id)
+    if not shot:
+        raise HTTPException(status_code=404, detail="分镜不存在")
+    wf = db.get_vids_workflow(shot["workflow_id"])
+    if not wf:
+        raise HTTPException(status_code=404, detail="所属工作流不存在")
+    
+    task_id = _enqueue_shot_task(shot, wf)
+    updated_shot = db.get_vids_shot(shot_id)
+    return {
+        "success": True,
+        "task_id": task_id,
+        "shot": updated_shot,
+        "message": f"分镜 [{shot.get('name')}] 已加入真实调度队列 (Task ID: {task_id})"
+    }
+
+
+@router.post("/workflows/{workflow_id}/generate_all")
+def generate_all_shots(workflow_id: str):
+    """整个工作流连续批量排队生成"""
+    wf = db.get_vids_workflow(workflow_id)
+    if not wf:
+        raise HTTPException(status_code=404, detail="工作流不存在")
+    
+    shots = wf.get("shots", [])
+    target_shots = [s for s in shots if s.get("status") in ("pending", "failed")]
+    if not target_shots:
+        target_shots = [s for s in shots if s.get("status") != "completed"]
+    if not target_shots:
+        raise HTTPException(status_code=400, detail="没有待生成的镜头。如需全量重新生成，请先点击【重置全部状态】。")
+        
+    task_ids = []
+    for s in target_shots:
+        tid = _enqueue_shot_task(s, wf)
+        task_ids.append(tid)
+        
+    db.update_vids_workflow(workflow_id, {"status": "generating"})
+    updated_wf = db.get_vids_workflow(workflow_id)
+    return {
+        "success": True,
+        "queued_count": len(task_ids),
+        "task_ids": task_ids,
+        "workflow": updated_wf,
+        "message": f"成功将 {len(task_ids)} 个镜头加入生成队列，调度器将按序连续执行"
+    }
+
+
+@router.post("/workflows/{workflow_id}/reset_status")
+def reset_workflow_shots_status(workflow_id: str):
+    """重置工作流全部镜头状态为待生成"""
+    wf = db.get_vids_workflow(workflow_id)
+    if not wf:
+        raise HTTPException(status_code=404, detail="工作流不存在")
+    
+    shots = db.list_vids_shots(workflow_id)
+    for s in shots:
+        db.update_vids_shot(s["id"], {
+            "status": "pending",
+            "progress": 0,
+            "error_message": "",
+            "video_url": "",
+            "task_id": ""
+        })
+        
+    db.update_vids_workflow(workflow_id, {"status": "draft"})
+    updated_wf = db.get_vids_workflow(workflow_id)
+    return {
+        "success": True,
+        "workflow": updated_wf,
+        "message": "所有镜头已重置为待生成状态"
+    }

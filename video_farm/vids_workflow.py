@@ -381,8 +381,11 @@ def normalize_imported_workflow_json(raw_input: Any, default_workflow: Optional[
             s.get('image_url') or
             s.get('start_image_path') or
             s.get('start_image') or
-            s.get('reference_image') or
+            s.get('start_frame') or
             s.get('first_frame') or
+            s.get('first_image') or
+            s.get('first_image_path') or
+            s.get('reference_image') or
             s.get('ref_image') or
             ''
         )
@@ -390,9 +393,16 @@ def normalize_imported_workflow_json(raw_input: Any, default_workflow: Optional[
             s.get('end_image_url') or
             s.get('end_image_path') or
             s.get('end_image') or
+            s.get('end_frame') or
             s.get('last_frame') or
+            s.get('last_image') or
+            s.get('last_image_path') or
             ''
         )
+        if isinstance(img_url, str):
+            img_url = img_url.strip().strip('"\'')
+        if isinstance(end_img_url, str):
+            end_img_url = end_img_url.strip().strip('"\'')
 
         mode = s.get('mode') or ''
         if not mode:

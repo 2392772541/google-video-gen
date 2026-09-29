@@ -148,9 +148,9 @@ def classify_failure(err_code: str, err_msg: str, logs: str) -> tuple[str, str, 
     if is_unusual:
         return (
             "UNUSUAL_ACTIVITY",
-            "Google Flow 拦截异常活动检测 (Unusual Activity，官方未扣除点数)。该账号已自动休眠 30 分钟，任务已换号接力。",
-            1800,  # 30 分钟长冷却
-            False  # 不在本账号重试
+            "Google Flow 拦截频控检测 (Unusual Activity)。系统已启动 5 分钟安全避让，家庭住宅IP无需换节点，静置后自动继续。",
+            300,  # 5 分钟安全避让
+            False
         )
 
     # 3.1 触发高频频控 (429, Rate limit)
@@ -237,23 +237,30 @@ class VideoScheduler:
         print(f"[Scheduler] 🛡️ 触发全池安全避让 (Fleet Cooldown): 暂停新任务派发 {seconds} 秒直至 {target.strftime('%H:%M:%S')} (原因: {reason})")
 
     def clear_fleet_cooldown(self) -> int:
-        """手动解除全池避让，并将因为 WAF 等待的任务立即唤醒重排"""
+        """手动解除全池避让，并将因为 WAF 等待的任务与冷却中的账号立即唤醒重排"""
         with self.lock:
             self.fleet_cooldown_until = None
             self.recent_waf_hits.clear()
         conn = db.get_db_connection(self.db_path)
         recovered = 0
+        now_iso = datetime.now().astimezone().isoformat()
         try:
             with conn:
                 cur = conn.execute("""
                 UPDATE tasks
-                SET status = 'queued', assigned_profile_id = NULL, updated_at = ?
+                SET status = 'queued', updated_at = ?
                 WHERE status = 'retry_wait' AND error_code = 'UNUSUAL_ACTIVITY'
-                """, (datetime.now().astimezone().isoformat(),))
+                """, (now_iso,))
                 recovered = cur.rowcount
+                # 同时将处于 cooldown 的账号一并复位为 idle
+                conn.execute("""
+                UPDATE profiles
+                SET status = 'idle', cooldown_until = NULL, updated_at = ?
+                WHERE status = 'cooldown' OR cooldown_until IS NOT NULL
+                """, (now_iso,))
         finally:
             conn.close()
-        print(f"[Scheduler] ⚡ 手动解除全池冷却，恢复了 {recovered} 个等待重试的任务")
+        print(f"[Scheduler] ⚡ 手动解除全池冷却，恢复了 {recovered} 个等待重试的任务，并复位所有账号为空闲")
         return recovered
 
     def recover_orphans(self) -> None:
@@ -283,8 +290,7 @@ class VideoScheduler:
                 conn.execute("""
                 UPDATE profiles
                 SET status = 'idle', cooldown_until = NULL, updated_at = ?
-                WHERE status = 'cooldown'
-                  AND cooldown_until IS NOT NULL
+                WHERE (status = 'cooldown' OR (status = 'idle' AND cooldown_until IS NOT NULL))
                   AND cooldown_until <= ?
                 """, (now, now))
         finally:
@@ -419,9 +425,9 @@ class VideoScheduler:
                     db.update_task_status(
                         task_id=task_id,
                         status="retry_wait",
-                        clear_assigned_profile=True,
+                        clear_assigned_profile=False,
                         error_code="UNUSUAL_ACTIVITY",
-                        error_message="Google Flow 拦截异常活动检测 (Unusual Activity)。系统已自动进入全池安全避让（5分钟），建议更换代理节点后点击【一键恢复】或等待避让结束。",
+                        error_message="Google Flow 拦截短时频控检测 (Unusual Activity)。系统已自动进入安全避让（5分钟）；家庭住宅IP无需更换节点，静置后点击【恢复】即可继续。",
                         logs=logs,
                         db_path=self.db_path
                     )
@@ -462,7 +468,7 @@ class VideoScheduler:
                 db.update_task_status(
                     task_id=task_id,
                     status=new_status,
-                    clear_assigned_profile=True,
+                    clear_assigned_profile=False,
                     error_code=raw_code,
                     error_message=friendly_msg,
                     logs=logs,
@@ -544,7 +550,8 @@ class VideoScheduler:
 
             if v_res["success"]:
                 db.update_task_status(task_id=task_id, status="completed", db_path=self.db_path)
-                db.update_profile_status(profile_id=profile_id, status="idle", success=True, db_path=self.db_path)
+                pacing_cooldown = (datetime.now().astimezone() + timedelta(seconds=60)).isoformat()
+                db.update_profile_status(profile_id=profile_id, status="idle", cooldown_until=pacing_cooldown, success=True, db_path=self.db_path)
 
                 if v_res["watermark_status"] == "visible_veo" and profile.watermark_mode == "unknown":
                     conn = db.get_db_connection(self.db_path)
@@ -601,7 +608,7 @@ class VideoScheduler:
             with conn:
                 conn.execute("""
                 UPDATE tasks 
-                SET status = 'queued', assigned_profile_id = NULL, updated_at = ?
+                SET status = 'queued', updated_at = ?
                 WHERE status = 'retry_wait' 
                   AND retry_count < max_retries
                   AND updated_at <= ?
@@ -633,7 +640,7 @@ class VideoScheduler:
                 WHERE status = 'queued'
                 ORDER BY priority DESC, submit_time ASC
                 LIMIT ?
-                """, (available_slots * 4,)).fetchall()
+                """, (max(50, available_slots * 10),)).fetchall()
                 queued_tasks = [db.row_to_task(r) for r in rows]
         finally:
             conn.close()

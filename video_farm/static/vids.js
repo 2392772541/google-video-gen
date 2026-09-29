@@ -35,6 +35,23 @@ async function api(path, options = {}) {
   return await res.json();
 }
 
+const BROKEN_IMG_SVG = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='70' viewBox='0 0 120 70'%3E%3Crect width='100%25' height='100%25' fill='%231e293b'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' fill='%23ef4444' font-size='11' font-family='sans-serif'%3E未找到本地图片%3C/text%3E%3C/svg%3E";
+
+// 转换首尾帧资产为可正常在浏览器展示的 URL
+function getAssetDisplayUrl(raw) {
+  if (!raw) return '';
+  let s = String(raw).trim().replace(/^["']|["']$/g, '');
+  if (!s) return '';
+  if (s.startsWith('http://') || s.startsWith('https://') || s.startsWith('data:') || s.startsWith('/api/') || s.startsWith('/media/')) {
+    return s;
+  }
+  let cleanPath = s;
+  if (cleanPath.startsWith('file:///')) cleanPath = cleanPath.slice(8);
+  else if (cleanPath.startsWith('file://')) cleanPath = cleanPath.slice(7);
+  cleanPath = cleanPath.replace(/\\/g, '/');
+  return `/media/file?path=${encodeURIComponent(cleanPath)}`;
+}
+
 // 格式化时间戳
 function getTimestamp() {
   const now = new Date();
@@ -297,13 +314,13 @@ function renderShots(shots) {
                   <input type="file" accept="image/*" style="display: none;" onchange="handleAssetUpload(this, '${shot.id}', 'image_url')" />
                 </label>
                 ${hasStartImg ? `
-                  <button class="btn btn-secondary btn-sm" style="padding: 4px 8px; font-size: 11px;" onclick="window.open('${shot.image_url}', '_blank')" title="大图预览">👁️</button>
+                  <button class="btn btn-secondary btn-sm" style="padding: 4px 8px; font-size: 11px;" onclick="window.open('${getAssetDisplayUrl(shot.image_url)}', '_blank')" title="大图预览">👁️</button>
                   <button class="btn btn-secondary btn-sm" style="padding: 4px 8px; font-size: 11px; color: #ef4444;" onclick="clearShotAsset('${shot.id}', 'image_url')" title="清除图片">❌</button>
                 ` : ''}
               </div>
               ${hasStartImg ? `
                 <div style="margin-top: 4px;">
-                  <img src="${shot.image_url}" class="frame-asset-thumb" title="点击新窗口预览" onclick="window.open('${shot.image_url}', '_blank')" />
+                  <img src="${getAssetDisplayUrl(shot.image_url)}" class="frame-asset-thumb" title="点击新窗口预览" onerror="this.onerror=null; this.src=BROKEN_IMG_SVG;" onclick="window.open('${getAssetDisplayUrl(shot.image_url)}', '_blank')" />
                 </div>
               ` : `
                 <div class="frame-asset-thumb-placeholder">暂未绑定首帧（可贴入路径或点击上传）</div>
@@ -336,7 +353,7 @@ function renderShots(shots) {
                 ` : ''}
               </div>
               ${hasStartImg ? `
-                <img src="${shot.image_url}" class="frame-asset-thumb" title="点击查看大图" onclick="window.open('${shot.image_url}', '_blank')" />
+                <img src="${getAssetDisplayUrl(shot.image_url)}" class="frame-asset-thumb" title="点击查看大图" onerror="this.onerror=null; this.src=BROKEN_IMG_SVG;" onclick="window.open('${getAssetDisplayUrl(shot.image_url)}', '_blank')" />
               ` : `
                 <div class="frame-asset-thumb-placeholder">未设置起始帧</div>
               `}
@@ -362,7 +379,7 @@ function renderShots(shots) {
                 ` : ''}
               </div>
               ${hasEndImg ? `
-                <img src="${shot.end_image_url}" class="frame-asset-thumb" title="点击查看大图" onclick="window.open('${shot.end_image_url}', '_blank')" />
+                <img src="${getAssetDisplayUrl(shot.end_image_url)}" class="frame-asset-thumb" title="点击查看大图" onerror="this.onerror=null; this.src=BROKEN_IMG_SVG;" onclick="window.open('${getAssetDisplayUrl(shot.end_image_url)}', '_blank')" />
               ` : `
                 <div class="frame-asset-thumb-placeholder">未设置目标尾帧</div>
               `}
@@ -393,9 +410,9 @@ function renderShots(shots) {
           <div style="padding: 12px; border-radius: 8px; background: rgba(0,0,0,0.25); border: 1px dashed var(--border-color); display: flex; flex-direction: column; gap: 8px; align-items: center; justify-content: center;">
             <div style="font-size: 11px; color: var(--cyan-accent); font-weight: 600;">🎞️ 首尾帧过渡设计预览</div>
             <div style="display: flex; align-items: center; gap: 8px; width: 100%; justify-content: center;">
-              <img src="${shot.image_url}" style="width: 44%; height: 60px; object-fit: cover; border-radius: 4px; border: 1px solid var(--border-color);" />
+              <img src="${getAssetDisplayUrl(shot.image_url)}" style="width: 44%; height: 60px; object-fit: cover; border-radius: 4px; border: 1px solid var(--border-color);" onerror="this.onerror=null; this.src=BROKEN_IMG_SVG;" />
               <span style="font-size: 14px; color: var(--blue-primary); font-weight: 700;">➔</span>
-              <img src="${shot.end_image_url}" style="width: 44%; height: 60px; object-fit: cover; border-radius: 4px; border: 1px solid var(--border-color);" />
+              <img src="${getAssetDisplayUrl(shot.end_image_url)}" style="width: 44%; height: 60px; object-fit: cover; border-radius: 4px; border: 1px solid var(--border-color);" onerror="this.onerror=null; this.src=BROKEN_IMG_SVG;" />
             </div>
             <span style="font-size: 11px; color: var(--text-sub);">待触发 1080p 连续流水线生成</span>
           </div>
@@ -404,7 +421,7 @@ function renderShots(shots) {
         mediaPreview = `
           <div style="padding: 12px; border-radius: 8px; background: rgba(0,0,0,0.25); border: 1px dashed var(--border-color); display: flex; flex-direction: column; gap: 6px; align-items: center; justify-content: center;">
             <div style="font-size: 11px; color: var(--cyan-accent); font-weight: 600;">🖼️ 首帧参考设计</div>
-            <img src="${shot.image_url}" style="width: 80%; height: 64px; object-fit: cover; border-radius: 4px; border: 1px solid var(--border-color);" />
+            <img src="${getAssetDisplayUrl(shot.image_url)}" style="width: 80%; height: 64px; object-fit: cover; border-radius: 4px; border: 1px solid var(--border-color);" onerror="this.onerror=null; this.src=BROKEN_IMG_SVG;" />
             <span style="font-size: 11px; color: var(--text-sub);">待触发 1080p 图生视频渲染</span>
           </div>
         `;
@@ -458,6 +475,7 @@ function renderShots(shots) {
             <select class="form-select" style="width: 90px; padding: 3px 8px; font-size: 11px; height: 28px;" onchange="updateShotField('${shot.id}', 'model_name', this.value)">
               <option value="Omni" ${shotModel === 'Omni' ? 'selected' : ''}>Omni</option>
               <option value="Veo" ${shotModel === 'Veo' ? 'selected' : ''}>Veo</option>
+              <option value="Veo-Lite" ${shotModel === 'Veo-Lite' ? 'selected' : ''}>Veo-Lite</option>
             </select>
           </div>
 
@@ -558,6 +576,14 @@ async function updateShotField(shotId, field, value) {
       body: { [field]: value }
     });
     appendLog(`分镜 [${shotId.slice(0, 6)}] 已更新 ${field}`, 'info');
+    // 若修改了媒体帧或关键属性，即刻重绘分镜卡片，提供无缝即时反馈
+    if (['image_url', 'end_image_url', 'mode', 'resolution', 'model_name'].includes(field)) {
+      if (state.currentWorkflowId) {
+        const wf = await api(`/workflows/${state.currentWorkflowId}`);
+        state.workflow = wf;
+        renderShots(wf.shots || []);
+      }
+    }
   } catch (e) {
     appendLog(`更新分镜失败: ${e.message}`, 'error');
   }
@@ -703,7 +729,7 @@ async function resetShot(shotId) {
   try {
     await api(`/shots/${shotId}`, {
       method: 'PUT',
-      body: { status: 'pending', progress: 0, error_message: '' }
+      body: { status: 'pending', progress: 0, error_message: '', video_url: '', task_id: '' }
     });
     await selectWorkflow(state.currentWorkflowId);
     appendLog(`分镜 [${shotId.slice(0, 6)}] 已重置为待生成`, 'info');
@@ -714,16 +740,15 @@ async function resetShot(shotId) {
 
 // 重置所有分镜状态
 async function resetAllShotsStatus() {
-  if (!state.workflow?.shots) return;
+  if (!state.currentWorkflowId) return;
   if (!confirm('确定要重置所有分镜的状态为待生成吗？')) return;
-  for (const s of state.workflow.shots) {
-    await api(`/shots/${s.id}`, {
-      method: 'PUT',
-      body: { status: 'pending', progress: 0, error_message: '' }
-    });
+  try {
+    const res = await api(`/workflows/${state.currentWorkflowId}/reset_status`, { method: 'POST' });
+    appendLog(`✅ ${res.message || '所有分镜状态已重置为待生成'}`, 'success');
+    await selectWorkflow(state.currentWorkflowId);
+  } catch (e) {
+    appendLog('重置全部状态失败: ' + e.message, 'error');
   }
-  await selectWorkflow(state.currentWorkflowId);
-  appendLog('所有分镜状态已重置为待生成！', 'success');
 }
 
 // 移动分镜 (up / down)
@@ -753,14 +778,11 @@ async function moveShot(shotId, direction) {
 
 // 单独测试生成一个镜头
 async function runSingleShot(shotId) {
-  appendLog(`已下发单镜头测试任务 [${shotId.slice(0, 6)}]...`, 'highlight');
+  appendLog(`正在下发单镜头生成任务 [${shotId.slice(0, 6)}]...`, 'highlight');
   try {
-    await api(`/shots/${shotId}/progress`, {
-      method: 'POST',
-      body: { status: 'running', progress: 10 }
-    });
+    const res = await api(`/shots/${shotId}/generate`, { method: 'POST' });
+    appendLog(`✅ ${res.message || '任务已成功加入调度队列'} (Task ID: ${res.task_id})`, 'success');
     await selectWorkflow(state.currentWorkflowId);
-    appendLog('分镜已标记为运行中，自动化调度驱动中...', 'info');
   } catch (e) {
     appendLog('触发单镜头失败: ' + e.message, 'error');
   }
@@ -772,21 +794,34 @@ async function startContinuousGeneration() {
     alert('请先选择工作流！');
     return;
   }
-  const pendingShots = (state.workflow?.shots || []).filter(s => s.status === 'pending');
+  const pendingShots = (state.workflow?.shots || []).filter(s => s.status === 'pending' || s.status === 'failed');
   if (pendingShots.length === 0) {
-    alert('当前工作流没有待生成的镜头！可以点击「🔄 重置全部状态」或新增分镜。');
-    return;
+    const nonDone = (state.workflow?.shots || []).filter(s => s.status !== 'completed');
+    if (nonDone.length === 0) {
+      alert('当前工作流所有镜头均已生成完成！如需全量重新生成，请先点击「🔄 重置全部状态」。');
+      return;
+    }
   }
 
-  state.isContinuousRunning = true;
   const btn = document.getElementById('btn-start-continuous');
   if (btn) {
-    btn.innerHTML = '⚡ 连续连拍执行中...';
+    btn.innerHTML = '⚡ 任务已下发调度中...';
     btn.classList.add('loading');
   }
 
-  appendLog(`【开始连续连拍流水线】待处理镜头数: ${pendingShots.length} 个 (分辨率: ${state.workflow?.resolution || '1080p'})`, 'highlight');
-  appendLog('自动化调度器正在接管 Google Vids 页面...', 'info');
+  appendLog(`【开始连续流水线调度】正在排队下发全量待生成镜头...`, 'highlight');
+  try {
+    const res = await api(`/workflows/${state.currentWorkflowId}/generate_all`, { method: 'POST' });
+    appendLog(`✅ ${res.message || '连续生成任务已全部入库并启动调度'}`, 'success');
+    await selectWorkflow(state.currentWorkflowId);
+  } catch (e) {
+    appendLog('连续生成下发失败: ' + e.message, 'error');
+  } finally {
+    if (btn) {
+      btn.innerHTML = '⚡ 开始连续生成并置入画布';
+      btn.classList.remove('loading');
+    }
+  }
 }
 
 // 刷新总进度条
@@ -811,9 +846,14 @@ function startAutoRefresh() {
   state.autoRefreshTimer = setInterval(async () => {
     if (state.currentWorkflowId) {
       try {
+        const activeTag = document.activeElement ? document.activeElement.tagName.toLowerCase() : '';
+        const isEditing = (activeTag === 'input' || activeTag === 'textarea' || activeTag === 'select');
+        
         const wf = await api(`/workflows/${state.currentWorkflowId}`);
         state.workflow = wf;
-        renderShots(wf.shots || []);
+        if (!isEditing) {
+          renderShots(wf.shots || []);
+        }
         updateOverallProgress(wf.shots || []);
       } catch (e) {
         // 静默刷新失败不打扰

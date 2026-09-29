@@ -1623,7 +1623,7 @@ def serve_vids_page():
     vids_file = STATIC_DIR / "vids.html"
     if not vids_file.exists():
         return JSONResponse({"message": "Google Vids Studio static/vids.html is not created yet."})
-    return FileResponse(str(vids_file))
+    return FileResponse(str(vids_file), headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache"})
 
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 

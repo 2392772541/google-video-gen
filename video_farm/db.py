@@ -158,6 +158,8 @@ def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
                 conn.execute("ALTER TABLE vids_shots ADD COLUMN resolution TEXT DEFAULT '1080p'")
             if "model_name" not in vids_shot_cols:
                 conn.execute("ALTER TABLE vids_shots ADD COLUMN model_name TEXT DEFAULT 'Omni'")
+            if "task_id" not in vids_shot_cols:
+                conn.execute("ALTER TABLE vids_shots ADD COLUMN task_id TEXT DEFAULT ''")
 
             event_cols = [r["name"] for r in conn.execute("PRAGMA table_info(task_events)").fetchall()]
             if "detail" not in event_cols:
@@ -646,6 +648,59 @@ def create_vids_workflow(
     finally:
         conn.close()
 
+
+def sync_shot_with_task(shot_dict: Dict[str, Any], conn: sqlite3.Connection) -> Dict[str, Any]:
+    t_id = shot_dict.get("task_id")
+    if not t_id:
+        return shot_dict
+    t_row = conn.execute("SELECT status, output_video_path, error_message FROM tasks WHERE id = ?", (t_id,)).fetchone()
+    if not t_row:
+        return shot_dict
+    
+    t_status = t_row["status"]
+    t_out = t_row["output_video_path"]
+    t_err = t_row["error_message"]
+    updates = {}
+    
+    if t_status == "completed":
+        if shot_dict.get("status") != "completed":
+            updates["status"] = "completed"
+            updates["progress"] = 100
+        if t_out:
+            p_out = Path(t_out)
+            v_url = f"/media/outputs/{p_out.name}"
+            if shot_dict.get("video_url") != v_url:
+                updates["video_url"] = v_url
+        if shot_dict.get("error_message"):
+            updates["error_message"] = ""
+    elif t_status in ("running", "dispatching", "verifying"):
+        if shot_dict.get("status") != "running":
+            updates["status"] = "running"
+        prog = 50 if t_status == "running" else (90 if t_status == "verifying" else 15)
+        if (shot_dict.get("progress") or 0) < prog:
+            updates["progress"] = prog
+    elif t_status == "queued":
+        if shot_dict.get("status") != "running":
+            updates["status"] = "running"
+            updates["progress"] = 5
+    elif t_status == "failed":
+        if shot_dict.get("status") != "failed":
+            updates["status"] = "failed"
+            updates["error_message"] = t_err or "视频生成失败"
+    elif t_status == "retry_wait":
+        if shot_dict.get("status") != "running":
+            updates["status"] = "running"
+        updates["error_message"] = t_err or "调度避让重试中..."
+        
+    if updates:
+        now = datetime.now().astimezone().isoformat()
+        updates["updated_at"] = now
+        flds = [f"{k} = ?" for k in updates.keys()]
+        vals = list(updates.values()) + [shot_dict["id"]]
+        conn.execute(f"UPDATE vids_shots SET {', '.join(flds)} WHERE id = ?", vals)
+        shot_dict.update(updates)
+        
+    return shot_dict
 def get_vids_workflow(workflow_id: str, db_path: Path = DEFAULT_DB_PATH) -> Optional[Dict[str, Any]]:
     conn = get_db_connection(db_path)
     try:
@@ -655,7 +710,7 @@ def get_vids_workflow(workflow_id: str, db_path: Path = DEFAULT_DB_PATH) -> Opti
                 return None
             wf = dict(row)
             shots = conn.execute("SELECT * FROM vids_shots WHERE workflow_id = ? ORDER BY sequence ASC", (workflow_id,)).fetchall()
-            wf["shots"] = [dict(s) for s in shots]
+            wf["shots"] = [sync_shot_with_task(dict(s), conn) for s in shots]
             return wf
     finally:
         conn.close()
@@ -669,9 +724,10 @@ def list_vids_workflows(db_path: Path = DEFAULT_DB_PATH) -> List[Dict[str, Any]]
             res = []
             for r in rows:
                 wf = dict(r)
-                shots = conn.execute("SELECT id, status, video_url FROM vids_shots WHERE workflow_id = ?", (wf["id"],)).fetchall()
-                wf["total_shots"] = len(shots)
-                wf["completed_shots"] = sum(1 for s in shots if s["status"] == "completed")
+                shots = conn.execute("SELECT * FROM vids_shots WHERE workflow_id = ?", (wf["id"],)).fetchall()
+                synced_shots = [sync_shot_with_task(dict(s), conn) for s in shots]
+                wf["total_shots"] = len(synced_shots)
+                wf["completed_shots"] = sum(1 for s in synced_shots if s["status"] == "completed")
                 res.append(wf)
             return res
     finally:
@@ -711,6 +767,7 @@ def create_vids_shot(
     end_image_url: str = "",
     resolution: str = "1080p",
     model_name: str = "Omni",
+    task_id: str = "",
     shot_id: Optional[str] = None,
     db_path: Path = DEFAULT_DB_PATH
 ) -> Dict[str, Any]:
@@ -722,9 +779,9 @@ def create_vids_shot(
     try:
         with conn:
             conn.execute("""
-                INSERT INTO vids_shots (id, workflow_id, sequence, name, prompt, narration, duration, scene_index, mode, image_url, end_image_url, resolution, model_name, status, progress, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?)
-            """, (sid, workflow_id, sequence, name, prompt, narration, duration, s_idx, mode, image_url, end_image_url, resolution, model_name, now, now))
+                INSERT INTO vids_shots (id, workflow_id, sequence, name, prompt, narration, duration, scene_index, mode, image_url, end_image_url, resolution, model_name, status, progress, task_id, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?)
+            """, (sid, workflow_id, sequence, name, prompt, narration, duration, s_idx, mode, image_url, end_image_url, resolution, model_name, task_id, now, now))
             row = conn.execute("SELECT * FROM vids_shots WHERE id = ?", (sid,)).fetchone()
             return dict(row)
     finally:
@@ -756,7 +813,9 @@ def get_vids_shot(shot_id: str, db_path: Path = DEFAULT_DB_PATH) -> Optional[Dic
     try:
         with conn:
             row = conn.execute("SELECT * FROM vids_shots WHERE id = ?", (shot_id,)).fetchone()
-            return dict(row) if row else None
+            if not row:
+                return None
+            return sync_shot_with_task(dict(row), conn)
     finally:
         conn.close()
 
