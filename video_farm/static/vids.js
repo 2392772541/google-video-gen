@@ -482,6 +482,11 @@ function renderShots(shots) {
           <!-- 首尾帧资产展示区 -->
           ${frameAssetHtml}
 
+          ${shot.error_message && !isDone ? `
+          <div style="font-size: 11px; color: #fbbf24; background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.25); border-radius: 4px; padding: 4px 8px; margin-bottom: 6px;">
+            ⚠️ 状态提示: ${shot.error_message} (可点击下方单独生成或上方连续生成)
+          </div>` : ''}
+
           <div>
             <label style="font-size: 12px; color: var(--text-sub); font-weight: 500; display: block; margin-bottom: 4px;">镜头提示词 (Prompt):</label>
             <textarea class="form-textarea" rows="2" style="font-size: 13px;" onchange="updateShotField('${shot.id}', 'prompt', this.value)">${shot.prompt || ''}</textarea>

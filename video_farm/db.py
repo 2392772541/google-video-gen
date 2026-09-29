@@ -691,6 +691,12 @@ def sync_shot_with_task(shot_dict: Dict[str, Any], conn: sqlite3.Connection) -> 
         if shot_dict.get("status") != "running":
             updates["status"] = "running"
         updates["error_message"] = t_err or "调度避让重试中..."
+    elif t_status == "cancelled":
+        if shot_dict.get("status") != "pending":
+            updates["status"] = "pending"
+            updates["progress"] = 0
+            updates["error_message"] = t_err or "任务已中断，点击即可重新生成"
+            updates["task_id"] = ""
         
     if updates:
         now = datetime.now().astimezone().isoformat()
@@ -792,7 +798,7 @@ def list_vids_shots(workflow_id: str, db_path: Path = DEFAULT_DB_PATH) -> List[D
     try:
         with conn:
             rows = conn.execute("SELECT * FROM vids_shots WHERE workflow_id = ? ORDER BY sequence ASC", (workflow_id,)).fetchall()
-            return [dict(r) for r in rows]
+            return [sync_shot_with_task(dict(r), conn) for r in rows]
     finally:
         conn.close()
 
