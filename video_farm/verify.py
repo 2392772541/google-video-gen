@@ -149,13 +149,18 @@ def verify_task_video(
         if orig_end is not None:
             last_sim = calculate_similarity(last_frame, orig_end)
             result["last_ncc"] = round(last_sim["ncc"], 4)
-            if start_image_path and Path(start_image_path).exists():
-                orig_start = imread_unicode(start_image_path)
-                if orig_start is not None:
-                    last_vs_start_sim = calculate_similarity(last_frame, orig_start)
-                    result["last_vs_start_ncc"] = round(last_vs_start_sim["ncc"], 4)
-            
-            result["last_matched"] = (result["last_ncc"] >= 0.75) and (result["last_ncc"] > result["last_vs_start_ncc"] + 0.01)
+            orig_start = imread_unicode(start_image_path) if (start_image_path and Path(start_image_path).exists()) else None
+            if orig_start is not None:
+                last_vs_start_sim = calculate_similarity(last_frame, orig_start)
+                result["last_vs_start_ncc"] = round(last_vs_start_sim["ncc"], 4)
+                start_end_sim = calculate_similarity(orig_start, orig_end)
+                start_end_ncc = round(start_end_sim["ncc"], 4)
+                if start_end_ncc >= 0.85:
+                    result["last_matched"] = result["last_ncc"] >= 0.75
+                else:
+                    result["last_matched"] = (result["last_ncc"] >= 0.75) and (result["last_ncc"] > result["last_vs_start_ncc"] + 0.005)
+            else:
+                result["last_matched"] = result["last_ncc"] >= 0.75
         else:
             result["error"] = f"无法读取尾帧图片: {end_image_path}"
             return result

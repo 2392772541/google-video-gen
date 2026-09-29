@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Optional, List, Dict, Any
 
 import uvicorn
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query, Body
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query, Body, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
@@ -111,7 +111,7 @@ class SchedulerManager:
             gflow_dir=GFLOW_DIR,
             output_dir=OUTPUTS_DIR,
             qa_dir=QA_DIR,
-            max_workers=4,
+            max_workers=1,
             worker_timeout_sec=360
         )
         self.scheduler.recover_orphans()
@@ -193,8 +193,16 @@ def get_overview():
         "cancelled": sum(1 for t in tasks if t.status == "cancelled")
     }
     
+    fleet_cooldown_sec = 0
+    if mgr.scheduler and mgr.scheduler.fleet_cooldown_until:
+        from datetime import datetime
+        now_dt = datetime.now().astimezone()
+        if mgr.scheduler.fleet_cooldown_until > now_dt:
+            fleet_cooldown_sec = max(0, int((mgr.scheduler.fleet_cooldown_until - now_dt).total_seconds()))
+
     return {
         "scheduler_running": mgr.is_running(),
+        "fleet_cooldown_sec": fleet_cooldown_sec,
         "profiles": prof_stats,
         "tasks": task_stats
     }
@@ -206,6 +214,13 @@ class ToggleSchedulerReq(BaseModel):
 def toggle_scheduler(req: ToggleSchedulerReq):
     mgr.set_running(req.running)
     return {"scheduler_running": mgr.is_running()}
+
+@app.post("/api/fleet/resume")
+def api_fleet_resume():
+    recovered = 0
+    if mgr.scheduler:
+        recovered = mgr.scheduler.clear_fleet_cooldown()
+    return {"status": "ok", "recovered_tasks": recovered, "fleet_cooldown_sec": 0}
 
 @app.get("/api/profiles")
 def get_profiles():
@@ -836,47 +851,116 @@ async def create_image_task_endpoint(
     db.log_task_event(task_id, "TASK_CREATED_WEB", f"通过Web控制台提交图像任务 ({mode_desc})，模型: {task.model}", db_path=DB_PATH)
     return {"id": task_id, "status": "queued", "task_type": "image", "message": f"图像任务创建成功，已提交调度排队"}
 
-class BatchShotItem(BaseModel):
-    prompt: str
-    start_image_path: str
-    end_image_path: str
-    priority: Optional[int] = 10
-    duration_sec: Optional[int] = 8
-
-class BatchTasksReq(BaseModel):
-    shots: List[BatchShotItem]
-
 @app.post("/api/tasks/batch")
-def create_batch_tasks(req: BatchTasksReq):
-    if not req.shots:
-        raise HTTPException(status_code=400, detail="分镜列表不能为空")
-        
+async def create_batch_tasks(request: Request):
+    try:
+        body = await request.json()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"JSON 解析失败: {str(e)}")
+
+    raw_shots = []
+    top_profile_id = ""
+    if isinstance(body, list):
+        raw_shots = body
+    elif isinstance(body, dict):
+        top_profile_id = str(body.get("profile_id") or body.get("assigned_profile_id") or "").strip()
+        for k in ["shots", "tasks", "items", "data", "list", "scenes", "storyboard"]:
+            if k in body and isinstance(body[k], list):
+                raw_shots = body[k]
+                break
+        if not raw_shots and ("prompt" in body or "text" in body or "description" in body):
+            raw_shots = [body]
+
+    if not raw_shots:
+        raise HTTPException(status_code=400, detail="分镜列表不能为空，需提供镜头数组")
+
+    # 确定整批任务绑定的专属执行账号（避免中途跳换账号）
+    target_prof = None
+    if top_profile_id and top_profile_id.lower() not in ("auto", "none", "null"):
+        target_prof = db.get_profile_by_id(top_profile_id, DB_PATH) or db.get_profile_by_name(top_profile_id, DB_PATH)
+
+    if not target_prof:
+        # 自动锁定当前最优空闲主账号（优先无水印、空闲就绪）
+        target_prof = db.pick_best_profile(require_clean=True, db_path=DB_PATH) or db.pick_best_profile(require_clean=False, db_path=DB_PATH)
+
+    locked_profile_id = target_prof.id if target_prof else None
+    locked_profile_name = target_prof.name if target_prof else "系统调度"
+
     created_ids = []
-    for shot in req.shots:
+    for item in raw_shots:
+        if not isinstance(item, dict):
+            continue
+        prompt = (item.get("prompt") or item.get("description") or item.get("text") or item.get("caption") or item.get("content") or "").strip()
+        if not prompt:
+            continue
+
+        raw_start = (item.get("start_image_path") or item.get("start_image") or item.get("initial_frame") or item.get("start_frame") or item.get("first_frame") or item.get("first_image") or "").strip()
+        raw_end = (item.get("end_image_path") or item.get("end_image") or item.get("end_frame") or item.get("last_frame") or item.get("final_frame") or item.get("last_image") or "").strip()
+
+        s_path_str = ""
+        if raw_start:
+            s_path = Path(raw_start)
+            if not s_path.is_absolute():
+                s_path = (BASE_DIR / s_path).resolve()
+            s_path_str = str(s_path)
+
+        e_path_str = ""
+        if raw_end:
+            e_path = Path(raw_end)
+            if not e_path.is_absolute():
+                e_path = (BASE_DIR / e_path).resolve()
+            e_path_str = str(e_path)
+
+        engine = str(item.get("engine") or "flow").strip().lower()
+        if engine not in ["flow", "gemini"]:
+            engine = "flow"
+
+        model = str(item.get("model") or "").strip()
+        aspect_ratio = str(item.get("aspect_ratio") or item.get("ratio") or "9:16").strip()
+
+        try:
+            duration_sec = int(item.get("duration_sec") or item.get("duration") or item.get("seconds") or 8)
+        except Exception:
+            duration_sec = 8
+
+        try:
+            priority = int(item.get("priority") or 10)
+        except Exception:
+            priority = 10
+
+        # 单项显式指定优先，未指定则统一锁定到当前主账号
+        item_pid = str(item.get("assigned_profile_id") or item.get("profile_id") or "").strip()
+        final_assigned_profile = item_pid or locked_profile_id
+
         t_id = f"task_{uuid.uuid4().hex[:12]}"
-        # If relative paths provided, resolve against workspace
-        s_path = Path(shot.start_image_path)
-        if not s_path.is_absolute():
-            s_path = (BASE_DIR / s_path).resolve()
-        e_path = Path(shot.end_image_path)
-        if not e_path.is_absolute():
-            e_path = (BASE_DIR / e_path).resolve()
-            
         task = Task(
             id=t_id,
-            prompt=shot.prompt.strip(),
-            start_image_path=str(s_path),
-            end_image_path=str(e_path),
-            aspect_ratio="9:16",
-            duration_sec=shot.duration_sec or 8,
+            prompt=prompt,
+            start_image_path=s_path_str,
+            end_image_path=e_path_str,
+            engine=engine,
+            task_type="video",
+            model=model,
+            aspect_ratio=aspect_ratio,
+            duration_sec=duration_sec,
             status="queued",
-            priority=shot.priority or 10
+            priority=priority,
+            assigned_profile_id=final_assigned_profile
         )
         db.add_task(task, DB_PATH)
-        db.log_task_event(t_id, "TASK_CREATED_BATCH", "通过Web控制台批量导入分镜", db_path=DB_PATH)
+        db.log_task_event(t_id, "TASK_CREATED_BATCH", f"通过Web控制台批量导入分镜 ({engine})，已锁定绑定账号: [{locked_profile_name}]", db_path=DB_PATH)
         created_ids.append(t_id)
-        
-    return {"created_count": len(created_ids), "task_ids": created_ids}
+
+    if not created_ids:
+        raise HTTPException(status_code=400, detail="未能识别到有效分镜，每项至少需包含 prompt 提示词")
+
+    return {
+        "created_count": len(created_ids),
+        "task_ids": created_ids,
+        "assigned_profile_id": locked_profile_id,
+        "assigned_profile_name": locked_profile_name,
+        "message": f"成功创建 {len(created_ids)} 个分镜任务！已全量锁定使用账号 [{locked_profile_name}] 顺次排队生成，中途绝不跳号。"
+    }
 
 @app.post("/api/tasks/{task_id}/retry")
 def retry_task(task_id: str):
@@ -1530,6 +1614,16 @@ def serve_arbitrary_local_file(path: str = Query(...)):
     elif ext == ".mp4":
         media_type = "video/mp4"
     return FileResponse(str(p), media_type=media_type)
+
+from .vids_router import router as vids_router
+app.include_router(vids_router)
+
+@app.get("/vids")
+def serve_vids_page():
+    vids_file = STATIC_DIR / "vids.html"
+    if not vids_file.exists():
+        return JSONResponse({"message": "Google Vids Studio static/vids.html is not created yet."})
+    return FileResponse(str(vids_file))
 
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 

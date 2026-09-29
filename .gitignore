@@ -73,3 +73,22 @@ scripts/check_*.py
 scripts/read_*.py
 scripts/test_*.py
 scripts/apply_*.py
+
+# 8. 本地备份与临时脚本
+*.bak*
+*.bak
+=
+tmp/
+temp_*.txt
+vids_workbench_view.png
+apply_update.py
+check_*.py
+inspect_*.py
+create_vids_page.py
+print_task_log.py
+read_*.py
+scripts/inspect_tasks.py
+scripts/monitor_tasks.py
+scripts/poll_loop.py
+scripts/run_shot1.py
+scripts/submit_6_shots.py

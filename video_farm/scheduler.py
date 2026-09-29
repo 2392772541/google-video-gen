@@ -27,16 +27,54 @@ def classify_failure(err_code: str, err_msg: str, logs: str) -> tuple[str, str, 
     code_up = (err_code or "").upper()
     content = f"{err_code} {err_msg} {logs}".lower()
 
+    # Flow already received a submit of the wrong shape. Do not retry on this or
+    # another account: the first attempt may have spent credits without a usable MP4.
+    if code_up == "WIRE_FORMAT_MISMATCH" or (
+        code_up == "EXIT_7" and ("wireformaterror" in content or "wire-format" in content)
+    ):
+        return (
+            "WIRE_FORMAT_MISMATCH",
+            "Flow 实际提交未满足首尾帧约束；已停止重试，请人工核对模型和帧绑定。",
+            0,
+            False,
+        )
+
     # 0. 浏览器目录锁冲突 (Chrome 窗口仍在运行中)
     if code_up == "PROFILE_LOCKED" or any(k in content for k in [
         "profile_locked", "profilelockederror", "profile is in use", "is already in use",
-        "lockfile", "singletonlock", "processsingleton", "browser has been closed",
+        "lockfile", "singletonlock", "processsingleton",
         "chrome 窗口正被占用", "被当前打开的 chrome 窗口独占锁定"
     ]):
         return (
             "PROFILE_LOCKED",
             "Chrome Profile 正在被外部浏览器窗口独占占用，请关闭桌面 Chrome 窗口后系统将自动继续执行",
             10,
+            False
+        )
+
+    # 0.3 浏览器会话或进程意外中断 (EXIT_15 / BrowserSessionClosedError)
+    if code_up in ("EXIT_15", "BROWSER_CLOSED") or any(k in content for k in [
+        "browsersessionclosederror", "browser has been closed", "target page, context or browser has been closed",
+        "browser closed", "browser disconnected"
+    ]):
+        return (
+            "BROWSER_SESSION_CLOSED",
+            "浏览器会话意外中断，已自动解绑并由空闲账号接单重试",
+            15,
+            False
+        )
+
+    # 0.4 Google Flow 远端服务短暂波动 (Status 4 / Generation Failed)
+    if any(k in content for k in [
+        "migrated host reported status 4",
+        "media_generation_status_failed",
+        "generation_status_failed",
+        "rpc error: status 4"
+    ]):
+        return (
+            "TRANSIENT_SERVER_ERROR",
+            "Google Flow 远端生成队列偶发波动(Status 4)，已自动解绑并由其他空闲账号重新排队重试",
+            20,
             False
         )
 
@@ -100,16 +138,43 @@ def classify_failure(err_code: str, err_msg: str, logs: str) -> tuple[str, str, 
             False
         )
 
-    # 3. 触发风控/频控 (429, Unusual activity, Rate limit)
-    is_429 = bool(re.search(r"429", content)) or 'status": 429' in content or 'http 429' in content
+    # 3. 触发 Google Flow 真实异常活动限制 (Unusual Activity / WAF)
+    is_unusual = code_up == "UNUSUAL_ACTIVITY" or any(k in content for k in [
+        "unusual activity",
+        "unusual_activity",
+        "public_error_unusual_activity",
+        "we noticed some unusual activity"
+    ])
+    if is_unusual:
+        return (
+            "UNUSUAL_ACTIVITY",
+            "Google Flow 拦截异常活动检测 (Unusual Activity，官方未扣除点数)。该账号已自动休眠 30 分钟，任务已换号接力。",
+            1800,  # 30 分钟长冷却
+            False  # 不在本账号重试
+        )
+
+    # 3.1 触发高频频控 (429, Rate limit)
+    is_429 = bool(re.search(r"\b429\b", content)) or 'status": 429' in content or 'http 429' in content
     if code_up == "RATE_LIMITED" or is_429 or any(k in content for k in [
-        "rate_limited", "unusual_activity", "rate_limit", "too many requests",
-        "public_error_unusual_activity", "频控", "限流", "请求过多"
+        "rate_limited", "rate_limit", "too many requests", "频控", "限流", "请求过多"
     ]):
         return (
             "RATE_LIMITED",
-            "触发 Google 频控/异常活动检测，冷却 20 分钟后自动恢复",
+            "触发 Google 高频频控保护 (429 Too Many Requests)，该账号冷却 20 分钟并自动换号重试",
             1200,
+            False
+        )
+
+    # 3.5 网络传输/远端生成超时 (TransportTimeoutError, EXIT_9, etc.)
+    if code_up in ("EXIT_9", "TRANSPORT_TIMEOUT", "TIMEOUT") or any(k in content for k in [
+        "transporttimeouterror", "transport timeout", "timed out waiting for response",
+        "timed out", "timeout 180000ms exceeded", "timeout 120000ms exceeded",
+        "operation timed out", "connection reset", "exited with code 9", "exit code 9"
+    ]):
+        return (
+            "NETWORK_TIMEOUT",
+            "Google Flow 远端响应超时（网络拥堵或生成队列波动）。已自动解绑故障通道，正由空闲账号接力换号重试",
+            60,
             False
         )
 
@@ -121,7 +186,7 @@ class VideoScheduler:
     def __init__(
         self,
         db_path: Path = db.DEFAULT_DB_PATH,
-        max_workers: int = 4,
+        max_workers: int = 1,
         gflow_dir: Path = Path("gflow-cli"),
         output_dir: Path = Path("video_farm_data/outputs"),
         qa_dir: Path = Path("video_farm_data/qa"),
@@ -148,9 +213,48 @@ class VideoScheduler:
             headless=True
         )
         
+        self.max_workers = max_workers
         self.active_tasks: Dict[str, threading.Event] = {}
         self.lock = threading.Lock()
         self.running = False
+        self.fleet_cooldown_until: Optional[datetime] = None
+        self.recent_waf_hits: list[tuple[datetime, str]] = []
+
+    def record_waf_hit(self, profile_id_or_name: str) -> bool:
+        """记录 WAF / 异常活动命中：单次触发即开启全池避让，杜绝同 IP 连环撞墙"""
+        now_dt = datetime.now().astimezone()
+        with self.lock:
+            self.recent_waf_hits.append((now_dt, str(profile_id_or_name)))
+            cutoff = now_dt - timedelta(minutes=10)
+            self.recent_waf_hits = [(t, p) for (t, p) in self.recent_waf_hits if t >= cutoff]
+            return True
+
+    def trigger_fleet_cooldown(self, seconds: int = 300, reason: str = "WAF_UNUSUAL_ACTIVITY"):
+        now_dt = datetime.now().astimezone()
+        target = now_dt + timedelta(seconds=seconds)
+        if self.fleet_cooldown_until is None or target > self.fleet_cooldown_until:
+            self.fleet_cooldown_until = target
+        print(f"[Scheduler] 🛡️ 触发全池安全避让 (Fleet Cooldown): 暂停新任务派发 {seconds} 秒直至 {target.strftime('%H:%M:%S')} (原因: {reason})")
+
+    def clear_fleet_cooldown(self) -> int:
+        """手动解除全池避让，并将因为 WAF 等待的任务立即唤醒重排"""
+        with self.lock:
+            self.fleet_cooldown_until = None
+            self.recent_waf_hits.clear()
+        conn = db.get_db_connection(self.db_path)
+        recovered = 0
+        try:
+            with conn:
+                cur = conn.execute("""
+                UPDATE tasks
+                SET status = 'queued', assigned_profile_id = NULL, updated_at = ?
+                WHERE status = 'retry_wait' AND error_code = 'UNUSUAL_ACTIVITY'
+                """, (datetime.now().astimezone().isoformat(),))
+                recovered = cur.rowcount
+        finally:
+            conn.close()
+        print(f"[Scheduler] ⚡ 手动解除全池冷却，恢复了 {recovered} 个等待重试的任务")
+        return recovered
 
     def recover_orphans(self) -> None:
         """自愈保护：将因服务重启或意外终止遗留在 running/busy 的任务与账号平稳重置"""
@@ -223,7 +327,7 @@ class VideoScheduler:
                 now_dt = datetime.now().astimezone()
                 cooldown_until = (now_dt + timedelta(seconds=cooldown_sec)).isoformat()
 
-                if category == "UNSUPPORTED_FEATURE":
+                if category in ("UNSUPPORTED_FEATURE", "WIRE_FORMAT_MISMATCH"):
                     db.update_profile_status(
                         profile_id=profile_id,
                         status="idle",
@@ -240,7 +344,7 @@ class VideoScheduler:
                         db_path=self.db_path
                     )
                     db.log_task_event(task_id, "TASK_FAILED", f"❌ {friendly_msg}", db_path=self.db_path)
-                    print(f"[{thread_name}] ❌ 任务 [{task_id}] 特性不支持直接标记失败: {friendly_msg}")
+                    print(f"[{thread_name}] ❌ 任务 [{task_id}] 不可自动重试: {friendly_msg}")
                     return
 
                 if category == "PROJECT_INIT_REQUIRED":
@@ -298,7 +402,34 @@ class VideoScheduler:
                     print(f"[{thread_name}] {failover_msg}")
                     return
 
-                if category in ("AUTH_EXPIRED", "QUOTA_EXHAUSTED", "RATE_LIMITED"):
+                if category == "UNUSUAL_ACTIVITY":
+                    # 账号长冷却 30 分钟
+                    db.update_profile_status(
+                        profile_id=profile_id,
+                        status="cooldown",
+                        cooldown_until=cooldown_until,
+                        success=False,
+                        db_path=self.db_path
+                    )
+                    # 立即触发全池避让 300 秒，保护所有账号免受同 IP 连带风控
+                    self.record_waf_hit(profile.name)
+                    self.trigger_fleet_cooldown(300, f"账号 [{profile.name}] 触发 Google 异常活动检测，启动全池避让 300 秒")
+
+                    # 任务置为 retry_wait（绝不在短时间内无脑切号撞墙，等待冷却结束或用户换 IP 恢复）
+                    db.update_task_status(
+                        task_id=task_id,
+                        status="retry_wait",
+                        clear_assigned_profile=True,
+                        error_code="UNUSUAL_ACTIVITY",
+                        error_message="Google Flow 拦截异常活动检测 (Unusual Activity)。系统已自动进入全池安全避让（5分钟），建议更换代理节点后点击【一键恢复】或等待避让结束。",
+                        logs=logs,
+                        db_path=self.db_path
+                    )
+                    db.log_task_event(task_id, "TASK_WAF_COOLDOWN", "🛡️ Google Flow 拦截异常活动检测 (Unusual Activity)。系统已启动 5 分钟全池避让保护，避免账号连带受控。", db_path=self.db_path)
+                    print(f"[{thread_name}] 🛡️ 账号 [{profile.name}] 触发异常活动限制，已启动全池避让至 {self.fleet_cooldown_until.strftime('%H:%M:%S')}，任务 [{task_id}] 已转入安全等待")
+                    return
+
+                if category in ("AUTH_EXPIRED", "QUOTA_EXHAUSTED", "RATE_LIMITED", "NETWORK_TIMEOUT", "TRANSIENT_SERVER_ERROR", "BROWSER_SESSION_CLOSED"):
                     # 关键逻辑：如果是账号凭据失效、额度耗尽或频控，绝不消耗任务的 max_retries 额度！
                     # 而是将当前账号冷却/标记，并将任务直接重新投回 queued，自动寻找下一个可用账号
                     prof_new_status = "auth_expired" if category == "AUTH_EXPIRED" else "cooldown"
@@ -331,6 +462,7 @@ class VideoScheduler:
                 db.update_task_status(
                     task_id=task_id,
                     status=new_status,
+                    clear_assigned_profile=True,
                     error_code=raw_code,
                     error_message=friendly_msg,
                     logs=logs,
@@ -454,7 +586,43 @@ class VideoScheduler:
 
     def dispatch_cycle(self) -> int:
         """检查等待排队任务并派发到空闲可用 Profile"""
+        now_dt = datetime.now().astimezone()
+        if self.fleet_cooldown_until and now_dt < self.fleet_cooldown_until:
+            # 账号池处于削峰熔断保护期，暂停派发新任务
+            return 0
+
         self.recover_cooldowns()
+
+        # 冷却防抖：先将等待超过 15 秒且未达到最大重试次数的 retry_wait 任务推回 queued 并解绑账号
+        now_iso = datetime.now().astimezone().isoformat()
+        threshold_iso = (datetime.now().astimezone() - timedelta(seconds=15)).isoformat()
+        conn = db.get_db_connection(self.db_path)
+        try:
+            with conn:
+                conn.execute("""
+                UPDATE tasks 
+                SET status = 'queued', assigned_profile_id = NULL, updated_at = ?
+                WHERE status = 'retry_wait' 
+                  AND retry_count < max_retries
+                  AND updated_at <= ?
+                """, (now_iso, threshold_iso))
+
+                # 超过最大重试次数的任务自动归为 failed，脱离 retry_wait 死锁状态
+                conn.execute("""
+                UPDATE tasks 
+                SET status = 'failed', updated_at = ?
+                WHERE status = 'retry_wait' 
+                  AND retry_count >= max_retries
+                """, (now_iso,))
+        finally:
+            conn.close()
+
+        # 计算当前可用槽位
+        with self.lock:
+            active_count = len(self.active_tasks)
+        available_slots = max(0, self.max_workers - active_count)
+        if available_slots <= 0:
+            return 0
 
         conn = db.get_db_connection(self.db_path)
         queued_tasks = []
@@ -464,25 +632,9 @@ class VideoScheduler:
                 SELECT * FROM tasks
                 WHERE status = 'queued'
                 ORDER BY priority DESC, submit_time ASC
-                LIMIT 8
-                """).fetchall()
+                LIMIT ?
+                """, (available_slots * 4,)).fetchall()
                 queued_tasks = [db.row_to_task(r) for r in rows]
-        finally:
-            conn.close()
-
-        # 冷却防抖：只有等待超过 30 秒且未达到最大重试次数的 retry_wait 任务才允许推回 queued
-        now_iso = datetime.now().astimezone().isoformat()
-        threshold_iso = (datetime.now().astimezone() - timedelta(seconds=30)).isoformat()
-        conn = db.get_db_connection(self.db_path)
-        try:
-            with conn:
-                conn.execute("""
-                UPDATE tasks 
-                SET status = 'queued', updated_at = ?
-                WHERE status = 'retry_wait' 
-                  AND retry_count < max_retries
-                  AND updated_at <= ?
-                """, (now_iso, threshold_iso))
         finally:
             conn.close()
 
@@ -491,6 +643,9 @@ class VideoScheduler:
 
         dispatched = 0
         for task in queued_tasks:
+            if dispatched >= available_slots:
+                break
+
             profile = db.acquire_idle_profile(
                 require_clean=task.require_clean_watermark,
                 profile_id=task.assigned_profile_id,
@@ -513,7 +668,6 @@ class VideoScheduler:
 
             self.executor.submit(self.process_task_execution, task, profile)
             dispatched += 1
-            break
 
         return dispatched
 

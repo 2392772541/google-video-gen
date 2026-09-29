@@ -231,6 +231,9 @@ class VideoWorker:
                 "--out-dir", str(self.output_dir),
                 "--json",
             ]
+        # Keep the model the user chose. Never silently downgrade a Quality job to Lite;
+        # a mismatch in Flow's start/end submit is a terminal failure, not permission
+        # to use a cheaper model or ignore the end frame.
         if getattr(task, "model", None) and task.model:
             cmd.extend(["--model", task.model])
         # 注意：新版 flow.google.com 上 Veo 3.1 Lite 界面往往无 8s 选项，强加 --duration 会触发 Configuration error
@@ -315,7 +318,42 @@ class VideoWorker:
             if proc.returncode != 0:
                 err_code = f"EXIT_{proc.returncode}"
                 err_msg = f"Process exited with code {proc.returncode}\n{stderr[:400]}"
-                if proc.returncode == 11 or any(k in stderr.lower() for k in ["profilelocked", "already in use", "is locked", "lockfile"]):
+                is_unusual_activity = (
+                    proc.returncode == 10
+                    or any(k in stdout.lower() or k in stderr.lower() for k in [
+                        "unusual activity", "unusual_activity", "public_error_unusual_activity",
+                        "we noticed some unusual activity", "wafrejectionerror"
+                    ])
+                )
+                if is_unusual_activity:
+                    err_code = "UNUSUAL_ACTIVITY"
+                    err_msg = "Google Flow 拦截异常活动检测 (Unusual Activity，官方未扣除点数)。该账号已休眠，正由其他空闲账号接力运行。"
+                elif any(k in stdout.lower() or k in stderr.lower() for k in [
+                    "migrated host reported status 4", "media_generation_status_failed", "status 4"
+                ]):
+                    err_code = "TRANSIENT_SERVER_ERROR"
+                    err_msg = "Google Flow 远端服务生成中断或拥堵(status 4，官方未扣点)。已自动触发换号接力重试。"
+                elif proc.returncode == 15 or any(k in stdout.lower() or k in stderr.lower() for k in [
+                    "browsersessionclosederror", "browser session closed", "target closed"
+                ]):
+                    err_code = "BROWSER_SESSION_CLOSED"
+                    err_msg = "Chrome 页面或会话意外中断(EXIT_15)。已自动重置任务排队，由其他账号接力。"
+                elif proc.returncode == 9 or any(k in stdout.lower() or k in stderr.lower() for k in [
+                    "transporttimeouterror", "transport timeout"
+                ]):
+                    err_code = "NETWORK_TIMEOUT"
+                    err_msg = "Google Flow 远端轮询超时(EXIT_9)。已自动换号接力重试。"
+                elif proc.returncode == 7 and (
+                    'wireformaterror' in stdout.lower()
+                    or 'wire-format' in stdout.lower()
+                    or 'wireformaterror' in stderr.lower()
+                ):
+                    err_code = "WIRE_FORMAT_MISMATCH"
+                    err_msg = (
+                        "Flow 提交请求未同时包含指定首尾帧/模型；已停止自动重试，"
+                        "避免再次消耗额度。请检查任务日志后人工处理。"
+                    )
+                elif proc.returncode == 11 or any(k in stderr.lower() for k in ["profilelocked", "already in use", "is locked", "lockfile"]):
                     err_code = "PROFILE_LOCKED"
                     err_msg = f"Profile [{profile.name}] 被当前打开的 Chrome 窗口独占锁定。请在桌面关闭 Chrome 窗口或在控制台点击【⏹ 关闭占用 Chrome】后系统将自动恢复任务。"
                 elif proc.returncode == 25 or any(k in stderr.lower() for k in ["flowagentuierror", "agentic ui", "settings-trigger-button"]):
@@ -535,6 +573,26 @@ class VideoWorker:
                 if proc.returncode == 36 or "FlowHostMigratedError" in stdout or "not ported yet" in stdout or "not ported yet" in stderr:
                     err_code = "UNSUPPORTED_FEATURE"
                     err_msg = "Google Flow (flow.google.com) 当前仅支持 Nano Banana Pro (nano-pro) 与 Nano Banana 2 (nano2) 生图模型；Imagen 3.5 官方尚未适配，请切换模型为 Nano Banana Pro。"
+                elif any(k in stdout.lower() or k in stderr.lower() for k in [
+                    "unusual activity", "unusual_activity", "public_error_unusual_activity", "we noticed some unusual activity"
+                ]):
+                    err_code = "UNUSUAL_ACTIVITY"
+                    err_msg = "Google Flow 拦截异常活动检测 (Unusual Activity)。该账号已休眠，由其他账号接力。"
+                elif any(k in stdout.lower() or k in stderr.lower() for k in [
+                    "migrated host reported status 4", "media_generation_status_failed", "status 4"
+                ]):
+                    err_code = "TRANSIENT_SERVER_ERROR"
+                    err_msg = "Google Flow 生图服务端状态异常(status 4)。已自动换号接力重试。"
+                elif proc.returncode == 15 or any(k in stdout.lower() or k in stderr.lower() for k in [
+                    "browsersessionclosederror", "browser session closed", "target closed"
+                ]):
+                    err_code = "BROWSER_SESSION_CLOSED"
+                    err_msg = "Chrome 页面或会话意外中断(EXIT_15)。已自动重置任务排队，由其他账号接力。"
+                elif proc.returncode == 9 or any(k in stdout.lower() or k in stderr.lower() for k in [
+                    "transporttimeouterror", "transport timeout"
+                ]):
+                    err_code = "NETWORK_TIMEOUT"
+                    err_msg = "Google Flow 远端轮询超时(EXIT_9)。已自动换号接力重试。"
                 elif proc.returncode == 25 or any(k in stderr.lower() for k in ["flowagentuierror", "agentic ui", "settings-trigger-button"]):
                     err_code = "AGENTIC_UI_BLOCKED"
                     err_msg = f"Google Flow 处于智能体或遮罩状态。系统已执行自动去遮罩自愈，请重试。"

@@ -73,6 +73,7 @@ document.addEventListener("DOMContentLoaded", () => {
     selectDuration: document.getElementById("select-duration"),
     selectPriority: document.getElementById("select-priority"),
     selectAssignedProf: document.getElementById("select-assigned-profile"),
+    selectBatchProfile: document.getElementById("select-batch-profile"),
     checkRequireClean: document.getElementById("check-require-clean"),
     btnSubmitTask: document.getElementById("btn-submit-task"),
     btnResetForm: document.getElementById("btn-reset-form"),
@@ -769,6 +770,105 @@ document.addEventListener("DOMContentLoaded", () => {
     ], null, 2);
   });
 
+  // 健壮的批量分镜 JSON 容错解析器（自动兼容 HTML 实体、未转义反斜杠、尾随逗号、顶层对象包裹及中英文字段别名）
+  function robustParseBatchJson(raw) {
+    if (!raw || typeof raw !== "string") {
+      throw new Error("输入内容为空");
+    }
+    let text = raw.trim();
+
+    // 1. 去除 Markdown 代码块标记 (```json ... ```)
+    text = text.replace(/^```(?:json|javascript|js)?\s*/i, "");
+    text = text.replace(/\s*```$/, "");
+
+    // 2. 解码常见 HTML / XML 实体及特殊不可见字符
+    text = text.replace(/&#(?:x0*20|32);/gi, " "); // 网页空格实体
+    text = text.replace(/&quot;/gi, '"');
+    text = text.replace(/&apos;/gi, "'");
+    text = text.replace(/&lt;/gi, "<");
+    text = text.replace(/&gt;/gi, ">");
+    text = text.replace(/&amp;/gi, "&");
+    text = text.replace(/[\u00A0\u1680\u180E\u2000-\u200B\u202F\u205F\u3000\uFEFF]/g, " ");
+
+    // 3. 修复 Windows 路径中的未转义反斜杠
+    text = text.replace(/([a-zA-Z]:)\\(?![\\"])/g, "$1/");
+    text = text.replace(/(["'])(?:(?=(\\?))\2.)*?\1/g, (strMatch) => {
+      return strMatch.replace(/\\(?![\"/bfnrt]|u[0-9a-fA-F]{4})/g, "/");
+    });
+
+    // 4. 清除尾随逗号 (Trailing commas)
+    text = text.replace(/,\s*([\]\}])/g, "$1");
+
+    // 5. 尝试标准解析
+    let parsed;
+    try {
+      parsed = JSON.parse(text);
+    } catch (err) {
+      try {
+        const relaxed = text.replace(/'([^'\\]*(?:\\.[^'\\]*)*)'/g, '"$1"');
+        parsed = JSON.parse(relaxed);
+      } catch (e2) {
+        throw new Error("JSON 格式无法解析: " + err.message);
+      }
+    }
+
+    // 6. 顶层结构解包 (Array 或 Object)
+    let rawList = [];
+    if (Array.isArray(parsed)) {
+      rawList = parsed;
+    } else if (parsed && typeof parsed === "object") {
+      const candidate = parsed.shots || parsed.tasks || parsed.items || parsed.data || parsed.list || parsed.scenes || parsed.storyboard;
+      if (Array.isArray(candidate)) {
+        rawList = candidate;
+      } else if (parsed.prompt || parsed.description || parsed.text) {
+        rawList = [parsed];
+      } else {
+        throw new Error("JSON 顶层必须是镜头数组，或包含 shots/tasks 列表字段");
+      }
+    } else {
+      throw new Error("无效的 JSON 数据类型");
+    }
+
+    // 7. 字段标准化映射
+    const normalizedShots = [];
+    for (let i = 0; i < rawList.length; i++) {
+      const item = rawList[i];
+      if (!item || typeof item !== "object") continue;
+      const prompt = (item.prompt || item.description || item.text || item.caption || item.content || "").trim();
+      if (!prompt) continue;
+
+      let startImage = (item.start_image_path || item.start_image || item.initial_frame || item.start_frame || item.first_frame || item.first_image || "").trim();
+      let endImage = (item.end_image_path || item.end_image || item.end_frame || item.last_frame || item.final_frame || item.last_image || "").trim();
+
+      // 路径正斜杠标准化
+      startImage = startImage.replace(/\\+/g, "/");
+      endImage = endImage.replace(/\\+/g, "/");
+
+      const engine = (item.engine || "flow").toLowerCase();
+      const model = (item.model || "").trim();
+      const aspectRatio = (item.aspect_ratio || item.ratio || "9:16").trim();
+      const duration = parseInt(item.duration_sec || item.duration || item.seconds || item.length || 8, 10) || 8;
+      const priority = parseInt(item.priority || 10, 10) || 10;
+
+      normalizedShots.push({
+        prompt: prompt,
+        start_image_path: startImage,
+        end_image_path: endImage,
+        engine: engine,
+        model: model,
+        aspect_ratio: aspectRatio,
+        duration_sec: duration,
+        priority: priority
+      });
+    }
+
+    if (normalizedShots.length === 0) {
+      throw new Error("未发现有效分镜，每项至少需包含 prompt 提示词描述");
+    }
+
+    return normalizedShots;
+  }
+
   el.btnSubmitBatch.addEventListener("click", async () => {
     const raw = el.inputBatchJson.value.trim();
     if (!raw) {
@@ -777,23 +877,27 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     let list;
     try {
-      list = JSON.parse(raw);
-      if (!Array.isArray(list)) throw new Error("必须是 JSON 数组结构");
+      list = robustParseBatchJson(raw);
     } catch (e) {
       showToast("JSON 格式错误: " + e.message, "error");
       return;
     }
 
+    const selectedProfile = el.selectBatchProfile ? el.selectBatchProfile.value : "auto";
+
     try {
       const resp = await fetch("/api/tasks/batch", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tasks: list })
+        body: JSON.stringify({
+          shots: list,
+          profile_id: selectedProfile
+        })
       });
       const data = await resp.json();
       if (resp.ok) {
-        showToast("✅ 成功批量创建 " + data.created_count + " 个分镜任务！", "success");
-        document.querySelector(".tab-button[data-target=\"view-tasks\"]").click();
+        showToast(data.message || ("✅ 成功解析并批量创建 " + data.created_count + " 个分镜任务！"), "success");
+        document.querySelector('.tab-button[data-target="view-tasks"]').click();
       } else {
         showToast("批量提交失败: " + (data.detail || "未知错误"), "error");
       }
@@ -801,6 +905,26 @@ document.addEventListener("DOMContentLoaded", () => {
       showToast("网络错误: " + err.message, "error");
     }
   });
+
+  // ==================== 全池避让解除 ====================
+  const btnFleetResume = document.getElementById("btn-fleet-resume");
+  if (btnFleetResume) {
+    btnFleetResume.addEventListener("click", async () => {
+      btnFleetResume.disabled = true;
+      btnFleetResume.textContent = "正在恢复...";
+      try {
+        const res = await fetch("/api/fleet/resume", { method: "POST" });
+        const data = await res.json();
+        showToast(`已解除避让，并唤醒了 ${data.recovered_tasks || 0} 个等待任务！`, "success");
+        await refreshAll();
+      } catch (err) {
+        showToast("恢复失败: " + err.message, "error");
+      } finally {
+        btnFleetResume.disabled = false;
+        btnFleetResume.textContent = "⚡ 我已换 IP，立即恢复生成";
+      }
+    });
+  }
 
   // ==================== 调度器启停控制 ====================
   el.btnToggleScheduler.addEventListener("click", async () => {
@@ -956,34 +1080,72 @@ document.addEventListener("DOMContentLoaded", () => {
         watermarkClass = "qa-val-bad";
       }
 
-      // 智能异常提示展示（仅失败任务展示，成功任务绝不展示异常信息）
+      // 智能异常提示与对策方案展示（覆盖等待重试与失败任务）
       let errorNoticeHtml = "";
-      if (t.status === "failed") {
+      if (t.status === "retry_wait") {
+        let reasonDesc = t.error_message || "上一轮生成网络响应超时或环境链路抖动";
+        let solutionDesc = "系统已自动解绑故障通道，15秒内将自动分配池中空闲账号接力重试";
+        if (t.error_code === "NETWORK_TIMEOUT" || reasonDesc.includes("code 9") || reasonDesc.includes("TransportTimeout")) {
+          reasonDesc = "Google Flow 远端响应超时 (网络拥堵或生成队列延迟)";
+          solutionDesc = "已自动冷却故障通道并解绑，账号池中其他就绪账号将自动接单继续生成";
+        } else if (t.error_code === "PROFILE_LOCKED") {
+          reasonDesc = "Chrome Profile 正在被外部浏览器窗口独占占用";
+          solutionDesc = "请关闭桌面冲突的 Chrome 窗口，系统将自动继续执行";
+        }
+        errorNoticeHtml = `
+          <div style="margin-top:8px; padding:10px 12px; background:rgba(59,130,246,0.12); border-left:3px solid #3b82f6; border-radius:4px; font-size:12px; color:#93c5fd; line-height:1.5;">
+            <div style="font-weight:600; margin-bottom:4px; display:flex; align-items:center; gap:4px; color:#60a5fa;">
+              <span>⏳ 状态诊断与对策方案</span>
+            </div>
+            <div><b>原因分析：</b>${escapeHtml(reasonDesc)}</div>
+            <div style="margin-top:2px;"><b>系统对策：</b>${escapeHtml(solutionDesc)}（已试 ${t.retry_count || 1}/${t.max_retries || 3} 次）。</div>
+            <div style="margin-top:4px; color:#bfdbfe;"><b>手动干预：</b>您可等待系统自动调度，或点击下方<b>【🔄 立即换号重试】</b>直接唤醒。</div>
+          </div>
+        `;
+      } else if (t.status === "failed") {
         if (t.error_code === "AUTH_EXPIRED") {
           errorNoticeHtml = `
-            <div style="margin-top:8px; padding:8px 10px; background:rgba(239,68,68,0.12); border-left:3px solid var(--red-err); border-radius:4px; font-size:12px; color:#fca5a5;">
-              <b>⚠️ 授权已失效 (401 UNAUTHORIZED)</b><br>
-              Google Flow / Gemini 会话凭据已过期或未完成首次服务条款同意。请前往【账号管理】点击<b>【✨ 自动过协议】</b>或在 Chrome 中点一次【同意】后关闭。
+            <div style="margin-top:8px; padding:10px 12px; background:rgba(239,68,68,0.12); border-left:3px solid var(--red-err); border-radius:4px; font-size:12px; color:#fca5a5; line-height:1.5;">
+              <div style="font-weight:600; margin-bottom:4px; color:#f87171;">⚠️ 授权已失效 (401 UNAUTHORIZED)</div>
+              <div><b>原因分析：</b>Google Flow / Gemini 会话凭据已过期或未完成首次服务条款同意。</div>
+              <div style="margin-top:2px;"><b>解决方案：</b>请前往顶部【账号管理】点击【✨ 自动过协议】或在 Chrome 中点一次同意，然后点击下方【🔄 立即换号重试】。</div>
             </div>
           `;
         } else if (t.error_code === "QUOTA_EXHAUSTED") {
           errorNoticeHtml = `
-            <div style="margin-top:8px; padding:8px 10px; background:rgba(245,158,11,0.12); border-left:3px solid var(--orange-warn); border-radius:4px; font-size:12px; color:#fde68a;">
-              <b>⚡ 账号额度耗尽</b><br>
-              原账号今日已用尽配额，系统已自动熔断冷却并将该任务无缝切换至下一个空闲账号。
+            <div style="margin-top:8px; padding:10px 12px; background:rgba(245,158,11,0.12); border-left:3px solid var(--orange-warn); border-radius:4px; font-size:12px; color:#fde68a; line-height:1.5;">
+              <div style="font-weight:600; margin-bottom:4px; color:#fbbf24;">⚡ 账号额度耗尽</div>
+              <div><b>原因分析：</b>原账号今日已用尽配额。</div>
+              <div style="margin-top:2px;"><b>解决方案：</b>系统已将原账号切入冷却，请点击下方【🔄 立即换号重试】使用池中其他空闲账号。</div>
+            </div>
+          `;
+        } else if (t.error_code === "UNUSUAL_ACTIVITY") {
+          errorNoticeHtml = `
+            <div style="margin-top:8px; padding:10px 12px; background:rgba(245,158,11,0.12); border-left:3px solid var(--orange-warn); border-radius:4px; font-size:12px; color:#fde68a; line-height:1.5;">
+              <div style="font-weight:600; margin-bottom:4px; color:#fbbf24; display:flex; align-items:center; gap:6px;">
+                <span>🛡️ Google 异常活动风控保护 (Unusual Activity)</span>
+                <span style="font-size:11px; background:rgba(245,158,11,0.25); color:#fef08a; padding:1px 6px; border-radius:10px;">官方未扣除额度</span>
+              </div>
+              <div><b>原因分析：</b>Google Flow 远端触发临时频控拦截。官方提示本次生成未扣费。</div>
+              <div style="margin-top:2px;"><b>安全对策：</b>原账号已切入 30 分钟静默休眠，全池已开启 5 分钟削峰熔断缓冲（防止连带撞墙封池）。</div>
+              <div style="margin-top:4px;"><b>操作建议：</b>可等待系统安全削峰自愈，或点击下方【🔄 立即换号重试】手动指定其他健康账号。</div>
             </div>
           `;
         } else if (t.error_code === "RATE_LIMITED") {
           errorNoticeHtml = `
-            <div style="margin-top:8px; padding:8px 10px; background:rgba(245,158,11,0.12); border-left:3px solid var(--orange-warn); border-radius:4px; font-size:12px; color:#fde68a;">
-              <b>⏳ 触发高频频控保护</b><br>
-              账号暂时触发 Google 异常活动限制，已自动切入 20 分钟休眠，任务已无缝移交。
+            <div style="margin-top:8px; padding:10px 12px; background:rgba(245,158,11,0.12); border-left:3px solid var(--orange-warn); border-radius:4px; font-size:12px; color:#fde68a; line-height:1.5;">
+              <div style="font-weight:600; margin-bottom:4px; color:#fbbf24;">⏳ 触发高频频控保护</div>
+              <div><b>原因分析：</b>账号暂时触发 Google 异常活动限制。</div>
+              <div style="margin-top:2px;"><b>解决方案：</b>已自动切入冷却，点击下方【🔄 立即换号重试】即可换新账号接力。</div>
             </div>
           `;
-        } else if (t.error_message) {
+        } else {
+          let reasonDesc = t.error_message || "任务遇到异常中断或已达到最大重试次数";
           errorNoticeHtml = `
-            <div style="margin-top:8px; padding:8px 10px; background:rgba(239,68,68,0.12); border-left:3px solid var(--red-err); border-radius:4px; font-size:12px; color:#fca5a5;">
-              ${escapeHtml(t.error_message.slice(0, 160))}
+            <div style="margin-top:8px; padding:10px 12px; background:rgba(239,68,68,0.12); border-left:3px solid var(--red-err); border-radius:4px; font-size:12px; color:#fca5a5; line-height:1.5;">
+              <div style="font-weight:600; margin-bottom:4px; color:#f87171;">⚠️ 任务中断或需重试</div>
+              <div><b>原因分析：</b>${escapeHtml(reasonDesc.slice(0, 160))}</div>
+              <div style="margin-top:2px;"><b>解决方案：</b>点击下方【🔄 立即换号重试】按钮，系统将重置计数并重新分配账号生成。</div>
             </div>
           `;
         }
@@ -1069,7 +1231,7 @@ document.addEventListener("DOMContentLoaded", () => {
             ${!isImageTask && t.has_video ? `<button class="btn btn-primary btn-sm btn-play-video" data-id="${t.id}" data-url="${t.video_url}">🎥 播放</button>` : ""}
             ${!isImageTask && t.status === "completed" && t.engine !== "gemini" ? `<button class="btn btn-secondary btn-sm btn-view-qa" data-id="${t.id}">🔍 质检对比</button>` : ""}
             <button class="btn btn-secondary btn-sm btn-view-log" data-id="${t.id}">📋 日志</button>
-            ${t.status === "failed" ? `<button class="btn btn-warning btn-sm btn-retry-task" data-id="${t.id}">🔄 重试</button>` : ""}
+            ${(t.status === "failed" || t.status === "retry_wait") ? `<button class="btn btn-warning btn-sm btn-retry-task" data-id="${t.id}" title="重置计数并换用空闲账号立即生成">🔄 立即换号重试</button>` : ""}
           </div>
           <button class="btn btn-secondary btn-sm btn-open-folder" data-id="${t.id}" title="在资源管理器中打开">📂</button>
         </div>
@@ -1816,8 +1978,10 @@ document.addEventListener("DOMContentLoaded", () => {
   function updateAssignedProfSelect() {
     const sel = el.selectAssignedProf;
     const imgSel = el.selectImageProfile;
+    const batchSel = el.selectBatchProfile;
     const currentVal = sel ? sel.value : "";
     const currentImgVal = imgSel ? imgSel.value : "";
+    const currentBatchVal = batchSel ? batchSel.value : "auto";
 
     if (sel) {
       sel.innerHTML = '<option value="">自动调度（负载均衡 + 额度耗尽自动轮换）</option>';
@@ -1843,6 +2007,20 @@ document.addEventListener("DOMContentLoaded", () => {
         }
       });
       imgSel.value = currentImgVal;
+    }
+
+    if (batchSel) {
+      batchSel.innerHTML = '<option value="auto">🌟 自动锁定最优空闲账号（推荐，整批不切号）</option>';
+      state.profiles.forEach(p => {
+        if (p.enabled) {
+          const opt = document.createElement("option");
+          opt.value = p.id;
+          const cleanTag = p.watermark_mode === "clean" ? " [无水印]" : "";
+          opt.textContent = p.name + " (" + (p.account_label || "无备注") + ")" + cleanTag + " [" + p.status + "]";
+          batchSel.appendChild(opt);
+        }
+      });
+      batchSel.value = currentBatchVal || "auto";
     }
   }
 
@@ -1912,9 +2090,27 @@ document.addEventListener("DOMContentLoaded", () => {
 
       // 调度器状态
       const isRunning = (d.scheduler_running !== undefined) ? d.scheduler_running : (d.scheduler && d.scheduler.running);
+      const fleetCooldown = d.fleet_cooldown_sec || 0;
+      const bannerEl = document.getElementById("fleet-cooldown-banner");
+      const countdownEl = document.getElementById("fleet-cooldown-countdown");
+      if (bannerEl && countdownEl) {
+        if (fleetCooldown > 0) {
+          bannerEl.style.display = "block";
+          countdownEl.textContent = fleetCooldown;
+        } else {
+          bannerEl.style.display = "none";
+        }
+      }
       if (isRunning) {
-        el.schedulerDot.className = "status-dot dot-running";
-        el.schedulerText.textContent = "调度器运行中";
+        if (fleetCooldown > 0) {
+          el.schedulerDot.className = "status-dot dot-busy";
+          el.schedulerText.textContent = `🛡️ 安全避让中 (${fleetCooldown}s)`;
+          el.schedulerText.title = "已触发全池安全避让，暂停新任务派发，保护账号池免受连带风控";
+        } else {
+          el.schedulerDot.className = "status-dot dot-running";
+          el.schedulerText.textContent = "调度器运行中";
+          el.schedulerText.title = "调度器正在正常轮询并分发任务";
+        }
         el.btnToggleScheduler.textContent = "暂停";
         el.btnToggleScheduler.className = "btn btn-secondary btn-sm";
       } else {

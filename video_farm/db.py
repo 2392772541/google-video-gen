@@ -77,6 +77,47 @@ def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
             """)
 
             conn.execute("""
+            CREATE TABLE IF NOT EXISTS vids_workflows (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                doc_url TEXT,
+                style_prompt TEXT,
+                aspect_ratio TEXT DEFAULT '16:9',
+                duration_per_shot INTEGER DEFAULT 10,
+                resolution TEXT DEFAULT '1080p',
+                model_name TEXT DEFAULT 'Omni',
+                status TEXT DEFAULT 'draft',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """)
+
+            conn.execute("""
+            CREATE TABLE IF NOT EXISTS vids_shots (
+                id TEXT PRIMARY KEY,
+                workflow_id TEXT NOT NULL,
+                sequence INTEGER DEFAULT 1,
+                name TEXT NOT NULL,
+                prompt TEXT NOT NULL,
+                narration TEXT,
+                duration INTEGER DEFAULT 10,
+                scene_index INTEGER,
+                mode TEXT DEFAULT 'text2video',
+                image_url TEXT DEFAULT '',
+                end_image_url TEXT DEFAULT '',
+                resolution TEXT DEFAULT '1080p',
+                model_name TEXT DEFAULT 'Omni',
+                status TEXT DEFAULT 'pending',
+                progress INTEGER DEFAULT 0,
+                video_url TEXT,
+                error_message TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY(workflow_id) REFERENCES vids_workflows(id) ON DELETE CASCADE
+            )
+            """)
+
+            conn.execute("""
             CREATE TABLE IF NOT EXISTS task_events (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 task_id TEXT NOT NULL,
@@ -97,6 +138,26 @@ def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
                 conn.execute("ALTER TABLE tasks ADD COLUMN model TEXT DEFAULT ''")
             if "output_image_paths" not in cols:
                 conn.execute("ALTER TABLE tasks ADD COLUMN output_image_paths TEXT")
+
+            # Ensure columns exist in vids_workflows
+            vids_wf_cols = [r["name"] for r in conn.execute("PRAGMA table_info(vids_workflows)").fetchall()]
+            if "resolution" not in vids_wf_cols:
+                conn.execute("ALTER TABLE vids_workflows ADD COLUMN resolution TEXT DEFAULT '1080p'")
+            if "model_name" not in vids_wf_cols:
+                conn.execute("ALTER TABLE vids_workflows ADD COLUMN model_name TEXT DEFAULT 'Omni'")
+
+            # Ensure columns exist in vids_shots
+            vids_shot_cols = [r["name"] for r in conn.execute("PRAGMA table_info(vids_shots)").fetchall()]
+            if "mode" not in vids_shot_cols:
+                conn.execute("ALTER TABLE vids_shots ADD COLUMN mode TEXT DEFAULT 'text2video'")
+            if "image_url" not in vids_shot_cols:
+                conn.execute("ALTER TABLE vids_shots ADD COLUMN image_url TEXT DEFAULT ''")
+            if "end_image_url" not in vids_shot_cols:
+                conn.execute("ALTER TABLE vids_shots ADD COLUMN end_image_url TEXT DEFAULT ''")
+            if "resolution" not in vids_shot_cols:
+                conn.execute("ALTER TABLE vids_shots ADD COLUMN resolution TEXT DEFAULT '1080p'")
+            if "model_name" not in vids_shot_cols:
+                conn.execute("ALTER TABLE vids_shots ADD COLUMN model_name TEXT DEFAULT 'Omni'")
 
             event_cols = [r["name"] for r in conn.execute("PRAGMA table_info(task_events)").fetchall()]
             if "detail" not in event_cols:
@@ -278,8 +339,11 @@ def acquire_idle_profile(
 
             query += """
             ORDER BY
-                CASE WHEN last_success_at IS NULL THEN 0 ELSE 1 END,
-                last_success_at ASC,
+                CASE
+                    WHEN last_failure_at IS NOT NULL AND (last_success_at IS NULL OR last_failure_at > last_success_at) THEN 1
+                    ELSE 0
+                END ASC,
+                MAX(COALESCE(last_success_at, '1970-01-01'), COALESCE(last_failure_at, '1970-01-01')) ASC,
                 created_at ASC
             LIMIT 1
             """
@@ -295,6 +359,46 @@ def acquire_idle_profile(
             return prof
     finally:
         conn.close()
+
+def pick_best_profile(
+    require_clean: bool = False,
+    db_path: Path = DEFAULT_DB_PATH
+) -> Optional[Profile]:
+    """只读查询：挑选当前最健康、就绪的主账号（用于整批任务锁定指定，不改变 busy 状态）"""
+    now = datetime.now().astimezone().isoformat()
+    conn = get_db_connection(db_path)
+    try:
+        with conn:
+            query = """
+            SELECT * FROM profiles
+            WHERE enabled = 1
+              AND status = 'idle'
+              AND (cooldown_until IS NULL OR cooldown_until <= ?)
+            """
+            params = [now]
+            if require_clean:
+                query += " AND watermark_mode = 'clean'"
+
+            query += """
+            ORDER BY
+                CASE WHEN watermark_mode = 'clean' THEN 0 ELSE 1 END ASC,
+                CASE
+                    WHEN last_failure_at IS NOT NULL AND (last_success_at IS NULL OR last_failure_at > last_success_at) THEN 1
+                    ELSE 0
+                END ASC,
+                MAX(COALESCE(last_success_at, '1970-01-01'), COALESCE(last_failure_at, '1970-01-01')) ASC,
+                created_at ASC
+            LIMIT 1
+            """
+            row = conn.execute(query, params).fetchone()
+            if row:
+                return row_to_profile(row)
+            
+            fallback = conn.execute("SELECT * FROM profiles WHERE enabled = 1 ORDER BY CASE WHEN watermark_mode = 'clean' THEN 0 ELSE 1 END ASC, created_at ASC LIMIT 1").fetchone()
+            return row_to_profile(fallback) if fallback else None
+    finally:
+        conn.close()
+
 
 # --- Task operations ---
 
@@ -512,3 +616,154 @@ def get_next_queued_task(db_path: Path = DEFAULT_DB_PATH) -> Optional[Task]:
 # Backward compatibility aliases
 get_task = get_task_by_id
 get_profile = get_profile_by_id
+
+
+# --- Google Vids Workflow DB Operations ---
+
+def create_vids_workflow(
+    title: str,
+    doc_url: str = "",
+    style_prompt: str = "",
+    aspect_ratio: str = "16:9",
+    duration_per_shot: int = 10,
+    resolution: str = "1080p",
+    model_name: str = "Omni",
+    workflow_id: Optional[str] = None,
+    db_path: Path = DEFAULT_DB_PATH
+) -> Dict[str, Any]:
+    import uuid
+    init_db(db_path)
+    wf_id = workflow_id or f"vw_{uuid.uuid4().hex[:10]}"
+    now = datetime.now().astimezone().isoformat()
+    conn = get_db_connection(db_path)
+    try:
+        with conn:
+            conn.execute("""
+                INSERT INTO vids_workflows (id, title, doc_url, style_prompt, aspect_ratio, duration_per_shot, resolution, model_name, status, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?)
+            """, (wf_id, title, doc_url, style_prompt, aspect_ratio, duration_per_shot, resolution, model_name, now, now))
+        return get_vids_workflow(wf_id, db_path=db_path)
+    finally:
+        conn.close()
+
+def get_vids_workflow(workflow_id: str, db_path: Path = DEFAULT_DB_PATH) -> Optional[Dict[str, Any]]:
+    conn = get_db_connection(db_path)
+    try:
+        with conn:
+            row = conn.execute("SELECT * FROM vids_workflows WHERE id = ?", (workflow_id,)).fetchone()
+            if not row:
+                return None
+            wf = dict(row)
+            shots = conn.execute("SELECT * FROM vids_shots WHERE workflow_id = ? ORDER BY sequence ASC", (workflow_id,)).fetchall()
+            wf["shots"] = [dict(s) for s in shots]
+            return wf
+    finally:
+        conn.close()
+
+def list_vids_workflows(db_path: Path = DEFAULT_DB_PATH) -> List[Dict[str, Any]]:
+    init_db(db_path)
+    conn = get_db_connection(db_path)
+    try:
+        with conn:
+            rows = conn.execute("SELECT * FROM vids_workflows ORDER BY updated_at DESC").fetchall()
+            res = []
+            for r in rows:
+                wf = dict(r)
+                shots = conn.execute("SELECT id, status, video_url FROM vids_shots WHERE workflow_id = ?", (wf["id"],)).fetchall()
+                wf["total_shots"] = len(shots)
+                wf["completed_shots"] = sum(1 for s in shots if s["status"] == "completed")
+                res.append(wf)
+            return res
+    finally:
+        conn.close()
+
+def update_vids_workflow(workflow_id: str, updates: Dict[str, Any], db_path: Path = DEFAULT_DB_PATH):
+    now = datetime.now().astimezone().isoformat()
+    updates["updated_at"] = now
+    fields = [f"{k} = ?" for k in updates.keys()]
+    values = list(updates.values()) + [workflow_id]
+    conn = get_db_connection(db_path)
+    try:
+        with conn:
+            conn.execute(f"UPDATE vids_workflows SET {', '.join(fields)} WHERE id = ?", values)
+    finally:
+        conn.close()
+
+def delete_vids_workflow(workflow_id: str, db_path: Path = DEFAULT_DB_PATH):
+    conn = get_db_connection(db_path)
+    try:
+        with conn:
+            conn.execute("DELETE FROM vids_shots WHERE workflow_id = ?", (workflow_id,))
+            conn.execute("DELETE FROM vids_workflows WHERE id = ?", (workflow_id,))
+    finally:
+        conn.close()
+
+def create_vids_shot(
+    workflow_id: str,
+    name: str,
+    prompt: str,
+    narration: str = "",
+    duration: int = 10,
+    sequence: int = 1,
+    scene_index: Optional[int] = None,
+    mode: str = "text2video",
+    image_url: str = "",
+    end_image_url: str = "",
+    resolution: str = "1080p",
+    model_name: str = "Omni",
+    shot_id: Optional[str] = None,
+    db_path: Path = DEFAULT_DB_PATH
+) -> Dict[str, Any]:
+    import uuid
+    sid = shot_id or f"vs_{uuid.uuid4().hex[:10]}"
+    now = datetime.now().astimezone().isoformat()
+    s_idx = scene_index or sequence
+    conn = get_db_connection(db_path)
+    try:
+        with conn:
+            conn.execute("""
+                INSERT INTO vids_shots (id, workflow_id, sequence, name, prompt, narration, duration, scene_index, mode, image_url, end_image_url, resolution, model_name, status, progress, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?)
+            """, (sid, workflow_id, sequence, name, prompt, narration, duration, s_idx, mode, image_url, end_image_url, resolution, model_name, now, now))
+            row = conn.execute("SELECT * FROM vids_shots WHERE id = ?", (sid,)).fetchone()
+            return dict(row)
+    finally:
+        conn.close()
+
+def list_vids_shots(workflow_id: str, db_path: Path = DEFAULT_DB_PATH) -> List[Dict[str, Any]]:
+    conn = get_db_connection(db_path)
+    try:
+        with conn:
+            rows = conn.execute("SELECT * FROM vids_shots WHERE workflow_id = ? ORDER BY sequence ASC", (workflow_id,)).fetchall()
+            return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+def update_vids_shot(shot_id: str, updates: Dict[str, Any], db_path: Path = DEFAULT_DB_PATH):
+    now = datetime.now().astimezone().isoformat()
+    updates["updated_at"] = now
+    fields = [f"{k} = ?" for k in updates.keys()]
+    values = list(updates.values()) + [shot_id]
+    conn = get_db_connection(db_path)
+    try:
+        with conn:
+            conn.execute(f"UPDATE vids_shots SET {', '.join(fields)} WHERE id = ?", values)
+    finally:
+        conn.close()
+
+def get_vids_shot(shot_id: str, db_path: Path = DEFAULT_DB_PATH) -> Optional[Dict[str, Any]]:
+    conn = get_db_connection(db_path)
+    try:
+        with conn:
+            row = conn.execute("SELECT * FROM vids_shots WHERE id = ?", (shot_id,)).fetchone()
+            return dict(row) if row else None
+    finally:
+        conn.close()
+
+def delete_vids_shot(shot_id: str, db_path: Path = DEFAULT_DB_PATH):
+    conn = get_db_connection(db_path)
+    try:
+        with conn:
+            conn.execute("DELETE FROM vids_shots WHERE id = ?", (shot_id,))
+    finally:
+        conn.close()

@@ -3069,3 +3069,55 @@ body {
 .simple-opt-btn.active .opt-btn-sub {
   color: #93c5fd;
 }
+
+/* Fleet Cooldown Banner */
+.fleet-cooldown-banner {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.15), rgba(217, 119, 6, 0.25));
+  border-bottom: 1px solid rgba(245, 158, 11, 0.4);
+  padding: 12px 24px;
+  animation: fadeInDown 0.3s ease-out;
+}
+.fleet-cooldown-banner .banner-content {
+  max-width: 1400px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.fleet-cooldown-banner .banner-icon {
+  font-size: 28px;
+  flex-shrink: 0;
+}
+.fleet-cooldown-banner .banner-text {
+  flex: 1;
+  font-size: 13px;
+  color: #fef3c7;
+  line-height: 1.5;
+}
+.fleet-cooldown-banner .banner-text strong {
+  color: #fbbf24;
+  font-size: 14px;
+}
+.fleet-cooldown-banner .banner-text p {
+  margin: 4px 0 0 0;
+  color: #e2e8f0;
+}
+.fleet-cooldown-banner .banner-actions {
+  flex-shrink: 0;
+}
+#btn-fleet-resume {
+  background: #f59e0b;
+  color: #1e1b4b;
+  font-weight: 700;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(245, 158, 11, 0.4);
+  transition: all 0.2s ease;
+}
+#btn-fleet-resume:hover {
+  background: #d97706;
+  color: #fff;
+  transform: translateY(-1px);
+}

@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Video Farm · 首尾帧视频工坊控制台</title>
-  <link rel="stylesheet" href="/static/style.css?v=20260926_v4">
+  <link rel="stylesheet" href="/static/style.css?v=20260929_batch_lock">
 </head>
 <body>
   <!-- 顶部常驻导航栏 -->
@@ -33,6 +33,9 @@
     </div>
 
     <div class="nav-actions">
+      <a href="/vids" class="btn btn-primary btn-sm" style="text-decoration:none; display:inline-flex; align-items:center; gap:6px; font-weight:600; background:linear-gradient(135deg,#4285f4,#ea4335); color:#fff; box-shadow: 0 2px 8px rgba(66,133,244,0.35);">
+        📽️ Google Vids 工作台
+      </a>
       <button class="btn btn-secondary btn-sm" id="btn-open-outputs">
         📂 成片目录
       </button>
@@ -41,6 +44,21 @@
       </button>
     </div>
   </header>
+
+  <!-- Google WAF / Fleet Cooldown 避让提醒大横幅 -->
+  <div id="fleet-cooldown-banner" class="fleet-cooldown-banner" style="display:none;">
+    <div class="banner-content">
+      <div class="banner-icon">🛡️</div>
+      <div class="banner-text">
+        <strong>Google 出口 IP 临时受限保护中（安全避让剩余 <span id="fleet-cooldown-countdown">0</span> 秒）</strong>
+        <p>Google Flow 拦截了异常活动检测 (Unusual Activity)。系统已自动开启整池避让保护，防止所有账号被连带封禁。<br>
+        💡 <strong>快速解决建议</strong>：请在你的代理/科学上网软件（如 Clash）中<strong>切换一个节点（更换出口 IP）</strong>，然后点击右侧按钮立即恢复生成。</p>
+      </div>
+      <div class="banner-actions">
+        <button id="btn-fleet-resume" class="btn btn-warning btn-sm">⚡ 我已换 IP，立即恢复生成</button>
+      </div>
+    </div>
+  </div>
 
   <!-- 主体工作区 -->
   <main class="main-wrapper">
@@ -879,6 +897,18 @@
           </p>
         </div>
 
+        <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); padding:10px 14px; border-radius:8px; margin-bottom:8px;">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <label style="font-size:13px; font-weight:600; color:var(--text-main); margin-bottom:0;">🎯 指定执行账号：</label>
+            <select class="select-control" id="select-batch-profile" style="min-width:280px; padding:6px 10px; font-size:13px;">
+              <option value="auto">🌟 自动锁定最优空闲账号（推荐，整批不切号）</option>
+            </select>
+          </div>
+          <div style="font-size:12px; color:var(--accent-info, #60a5fa); display:flex; align-items:center; gap:4px;">
+            <span>🔒 整批分镜将固定使用选定账号排队顺次生成，中途绝不频繁换号或重复拉起浏览器。</span>
+          </div>
+        </div>
+
         <textarea class="batch-input-area" id="input-batch-json" placeholder='[
   {
     "prompt": "镜头1：由全景缓慢切近...",
@@ -1313,7 +1343,7 @@
   <!-- Toast 悬浮提示架 -->
   <div class="toast-shelf" id="toast-shelf"></div>
 
-  <script src="/static/app.js?v=20260926_v4"></script>
+  <script src="/static/app.js?v=20260929_batch_lock"></script>
 </body>
 </html>
 
