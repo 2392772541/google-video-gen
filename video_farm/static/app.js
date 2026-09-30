@@ -3,6 +3,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // ==================== 全局状态 ====================
   const state = {
     currentEngine: "flow", // "flow" 或 "gemini"
+    selectedTaskIds: new Set(),
     currentMode: "single", // "single" 或 "batch"
     overview: null,
     profiles: [],
@@ -23,6 +24,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // ==================== DOM 元素映射 ====================
   const el = {
+        batchActionBar: document.getElementById("batch-action-bar"),
+    batchSelectAllChk: document.getElementById("batch-select-all-chk"),
+    btnBatchInvert: document.getElementById("btn-batch-invert"),
+    btnBatchClear: document.getElementById("btn-batch-clear"),
+    batchStatsText: document.getElementById("batch-stats-text"),
+    btnBatchDownload: document.getElementById("btn-batch-download"),
+    btnBatchDelete: document.getElementById("btn-batch-delete"),
     schedulerDot: document.getElementById("scheduler-dot"),
     schedulerText: document.getElementById("scheduler-status-text"),
     btnToggleScheduler: document.getElementById("btn-toggle-scheduler"),
@@ -1023,8 +1031,9 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     filtered.forEach(t => {
+      const isSelected = state.selectedTaskIds.has(t.id);
       const card = document.createElement("div");
-      card.className = "task-card";
+      card.className = "task-card" + (isSelected ? " selected" : "");
 
       let statusBadgeClass = "status-queued";
       if (t.status === "completed") statusBadgeClass = "status-completed";
@@ -1154,6 +1163,9 @@ document.addEventListener("DOMContentLoaded", () => {
       card.innerHTML = `
         <div class="task-card-top">
           <div style="display:flex; align-items:center;">
+            <div class="task-card-check-wrap">
+              <input type="checkbox" class="task-item-checkbox" data-id="${t.id}" ${isSelected ? "checked" : ""} title="勾选进行批量操作">
+            </div>
             ${engineBadge}
             <span class="task-id-text">${t.id}</span>
           </div>
@@ -1229,11 +1241,16 @@ document.addEventListener("DOMContentLoaded", () => {
           <div class="task-btn-group">
             ${isImageTask && t.status === "completed" && t.image_urls && t.image_urls.length > 0 ? `<button class="btn btn-primary btn-sm" onclick="openImageViewer('${escapeJs(t.image_paths[0] || "")}', '${escapeJs(t.image_urls[0])}', '${escapeJs(t.prompt)}')">👁️ 查看大图</button>` : ""}
             ${!isImageTask && t.has_video ? `<button class="btn btn-primary btn-sm btn-play-video" data-id="${t.id}" data-url="${t.video_url}">🎥 播放</button>` : ""}
+            ${(t.has_video || (isImageTask && t.status === "completed" && t.image_urls && t.image_urls.length > 0)) ? `<a href="/api/tasks/${t.id}/download" download class="btn btn-secondary btn-sm" title="保存下载该成品文件">📥 下载</a>` : ""}
+            ${["dispatching", "running", "verifying", "queued", "retry_wait"].includes(t.status) ? `<button class="btn btn-danger btn-sm btn-cancel-task" data-id="${t.id}" title="停止并取消该任务">⏹ 取消</button>` : ""}
             ${!isImageTask && t.status === "completed" && t.engine !== "gemini" ? `<button class="btn btn-secondary btn-sm btn-view-qa" data-id="${t.id}">🔍 质检对比</button>` : ""}
             <button class="btn btn-secondary btn-sm btn-view-log" data-id="${t.id}">📋 日志</button>
             ${(t.status === "failed" || t.status === "retry_wait") ? `<button class="btn btn-warning btn-sm btn-retry-task" data-id="${t.id}" title="重置计数并换用空闲账号立即生成">🔄 立即换号重试</button>` : ""}
           </div>
-          <button class="btn btn-secondary btn-sm btn-open-folder" data-id="${t.id}" title="在资源管理器中打开">📂</button>
+          <div style="display:flex; gap:6px;">
+            <button class="btn btn-secondary btn-sm btn-open-folder" data-id="${t.id}" title="在资源管理器中打开">📂</button>
+            <button class="btn btn-secondary btn-sm btn-delete-task" data-id="${t.id}" title="删除该任务记录及产物文件" style="color:var(--red-err);">🗑️</button>
+          </div>
         </div>
       `;
 
@@ -1287,9 +1304,213 @@ document.addEventListener("DOMContentLoaded", () => {
         showToast("已在 Windows 资源管理器中打开成片目录", "info");
       });
     });
+
+    // 绑定复选框选择事件
+    container.querySelectorAll(".task-item-checkbox").forEach(chk => {
+      chk.addEventListener("change", (e) => {
+        const id = chk.getAttribute("data-id");
+        if (chk.checked) {
+          state.selectedTaskIds.add(id);
+          chk.closest(".task-card")?.classList.add("selected");
+        } else {
+          state.selectedTaskIds.delete(id);
+          chk.closest(".task-card")?.classList.remove("selected");
+        }
+        updateBatchActionBar();
+      });
+      chk.addEventListener("click", (e) => e.stopPropagation());
+    });
+
+    // 单任务删除事件
+    container.querySelectorAll(".btn-delete-task").forEach(b => {
+      b.addEventListener("click", async () => {
+        const id = b.getAttribute("data-id");
+        if (!confirm(`确定要彻底删除任务 [${id}] 吗？\n该操作将同时清理关联的成片视频和切片文件，且无法恢复。`)) {
+          return;
+        }
+        try {
+          const resp = await fetch("/api/tasks/" + id, { method: "DELETE" });
+          if (resp.ok) {
+            state.selectedTaskIds.delete(id);
+            showToast("任务 " + id + " 已彻底删除", "success");
+            fetchTasks(true);
+          } else {
+            const err = await resp.json().catch(() => ({}));
+            showToast("删除失败: " + (err.detail || resp.statusText), "error");
+          }
+        } catch (e) {
+          showToast("网络错误: " + e.message, "error");
+        }
+      });
+    });
+
+    // 单任务取消事件
+    container.querySelectorAll(".btn-cancel-task").forEach(b => {
+      b.addEventListener("click", async () => {
+        const id = b.getAttribute("data-id");
+        if (!confirm(`确定要取消任务 [${id}] 吗？`)) {
+          return;
+        }
+        try {
+          const resp = await fetch("/api/tasks/" + id + "/cancel", { method: "POST" });
+          if (resp.ok) {
+            showToast("任务 " + id + " 已取消", "info");
+            fetchTasks(true);
+          } else {
+            showToast("取消失败", "error");
+          }
+        } catch (e) {
+          showToast("网络错误: " + e.message, "error");
+        }
+      });
+    });
+
+    updateBatchActionBar();
   }
 
-  // ==================== 图像生成工坊事件绑定 ====================
+  function getCurrentFilteredTasks() {
+    let filtered = state.tasks || [];
+    if (state.currentFilter === "video") {
+      filtered = filtered.filter(t => t.task_type !== "image");
+    } else if (state.currentFilter === "image") {
+      filtered = filtered.filter(t => t.task_type === "image");
+    } else if (state.currentFilter === "running") {
+      filtered = filtered.filter(t => ["dispatching", "running", "verifying"].includes(t.status));
+    } else if (state.currentFilter === "queued") {
+      filtered = filtered.filter(t => ["queued", "retry_wait"].includes(t.status));
+    } else if (state.currentFilter === "completed") {
+      filtered = filtered.filter(t => t.status === "completed");
+    } else if (state.currentFilter === "failed") {
+      filtered = filtered.filter(t => t.status === "failed");
+    }
+    return filtered;
+  }
+
+  function updateBatchActionBar() {
+    if (!el.batchActionBar) return;
+    const currentTasks = getCurrentFilteredTasks();
+    const currentIds = currentTasks.map(t => t.id);
+    const selectedInCurrent = currentIds.filter(id => state.selectedTaskIds.has(id));
+    const totalSelected = state.selectedTaskIds.size;
+    
+    let readyVideoCount = 0;
+    (state.tasks || []).forEach(t => {
+      if (state.selectedTaskIds.has(t.id)) {
+        if (t.has_video || (t.task_type === "image" && t.status === "completed" && t.image_urls && t.image_urls.length > 0)) {
+          readyVideoCount++;
+        }
+      }
+    });
+
+    if (el.batchStatsText) {
+      el.batchStatsText.innerHTML = `已选中 <b>${totalSelected}</b> 项 (成片 <b>${readyVideoCount}</b> 个)`;
+    }
+
+    if (el.btnBatchDownload) {
+      el.btnBatchDownload.disabled = (readyVideoCount === 0);
+      el.btnBatchDownload.innerHTML = `📥 批量保存下载视频 (${readyVideoCount}) (ZIP)`;
+    }
+
+    if (el.btnBatchDelete) {
+      el.btnBatchDelete.disabled = (totalSelected === 0);
+      el.btnBatchDelete.innerHTML = `🗑️ 批量删除选中 (${totalSelected})`;
+    }
+
+    if (el.batchSelectAllChk) {
+      if (currentIds.length > 0 && selectedInCurrent.length === currentIds.length) {
+        el.batchSelectAllChk.checked = true;
+        el.batchSelectAllChk.indeterminate = false;
+      } else if (selectedInCurrent.length > 0) {
+        el.batchSelectAllChk.checked = false;
+        el.batchSelectAllChk.indeterminate = true;
+      } else {
+        el.batchSelectAllChk.checked = false;
+        el.batchSelectAllChk.indeterminate = false;
+      }
+    }
+  }
+
+  // 绑定批量操作条控制逻辑
+  if (el.batchSelectAllChk) {
+    el.batchSelectAllChk.addEventListener("change", () => {
+      const currentTasks = getCurrentFilteredTasks();
+      if (el.batchSelectAllChk.checked) {
+        currentTasks.forEach(t => state.selectedTaskIds.add(t.id));
+      } else {
+        currentTasks.forEach(t => state.selectedTaskIds.delete(t.id));
+      }
+      renderTasks();
+    });
+  }
+
+  if (el.btnBatchInvert) {
+    el.btnBatchInvert.addEventListener("click", () => {
+      const currentTasks = getCurrentFilteredTasks();
+      currentTasks.forEach(t => {
+        if (state.selectedTaskIds.has(t.id)) {
+          state.selectedTaskIds.delete(t.id);
+        } else {
+          state.selectedTaskIds.add(t.id);
+        }
+      });
+      renderTasks();
+    });
+  }
+
+  if (el.btnBatchClear) {
+    el.btnBatchClear.addEventListener("click", () => {
+      state.selectedTaskIds.clear();
+      renderTasks();
+    });
+  }
+
+  if (el.btnBatchDownload) {
+    el.btnBatchDownload.addEventListener("click", () => {
+      const readyIds = [];
+      (state.tasks || []).forEach(t => {
+        if (state.selectedTaskIds.has(t.id)) {
+          if (t.has_video || (t.task_type === "image" && t.status === "completed" && t.image_urls && t.image_urls.length > 0)) {
+            readyIds.push(t.id);
+          }
+        }
+      });
+      if (readyIds.length === 0) {
+        showToast("选中的任务中暂无已生成完成的媒体文件", "warning");
+        return;
+      }
+      showToast(`正在打包下载 ${readyIds.length} 个视频/图片产物，请稍候...`, "info");
+      window.location.href = `/api/tasks/batch-download-zip?task_ids=${encodeURIComponent(readyIds.join(","))}`;
+    });
+  }
+
+  if (el.btnBatchDelete) {
+    el.btnBatchDelete.addEventListener("click", async () => {
+      const ids = Array.from(state.selectedTaskIds);
+      if (ids.length === 0) return;
+      if (!confirm(`确定要彻底删除已选中的 ${ids.length} 个任务吗？\n所有关联的本地成片和切片文件将被一并删除，且不可恢复。`)) {
+        return;
+      }
+      try {
+        const resp = await fetch("/api/tasks/batch-delete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ task_ids: ids })
+        });
+        const res = await resp.json().catch(() => ({}));
+        if (resp.ok) {
+          state.selectedTaskIds.clear();
+          showToast(`已成功删除 ${res.deleted_count || ids.length} 个任务及相关物理文件`, "success");
+          fetchTasks(true);
+        } else {
+          showToast("批量删除失败: " + (res.detail || resp.statusText), "error");
+        }
+      } catch (e) {
+        showToast("网络请求失败: " + e.message, "error");
+      }
+    });
+  }
+
+    // ==================== 图像生成工坊事件绑定 ====================
   if (el.btnImageExampleStart) {
     el.btnImageExampleStart.addEventListener("click", () => {
       el.inputImagePrompt.value = "电影级微距特写镜头，一滴清澈透亮的水珠悬挂在翠绿的叶尖，晶莹剔透，晨光透过水滴形成柔和的彩虹色散光晕，背景自然虚化Bokeh效果，8K极致超清细节，摄影大师质感。";

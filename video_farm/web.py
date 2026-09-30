@@ -10,6 +10,9 @@ import threading
 import subprocess
 import psutil
 import urllib.parse
+import zipfile
+import tempfile
+from starlette.background import BackgroundTask
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 
@@ -678,6 +681,143 @@ def get_tasks(status: Optional[str] = None, limit: int = 100):
         })
     return res
 
+class BatchTasksReq(BaseModel):
+    task_ids: List[str]
+
+
+@app.delete("/api/tasks/{task_id}")
+def delete_single_task(task_id: str):
+    res = db.delete_task(task_id, delete_files=True, db_path=DB_PATH)
+    if not res.get("deleted"):
+        raise HTTPException(status_code=404, detail="Task未找到或已删除")
+    return res
+
+
+@app.post("/api/tasks/batch-delete")
+def batch_delete_tasks_endpoint(req: BatchTasksReq):
+    if not req.task_ids:
+        raise HTTPException(status_code=400, detail="task_ids 列表不能为空")
+    return db.batch_delete_tasks(req.task_ids, delete_files=True, db_path=DB_PATH)
+
+
+@app.get("/api/tasks/{task_id}/download")
+def download_single_task(task_id: str):
+    t = db.get_task(task_id, DB_PATH)
+    if not t:
+        raise HTTPException(status_code=404, detail="Task未找到")
+    
+    file_path = None
+    media_type = "application/octet-stream"
+    ext = ".mp4"
+    if t.output_video_path and Path(t.output_video_path).is_file():
+        file_path = Path(t.output_video_path)
+        media_type = "video/mp4"
+        ext = file_path.suffix or ".mp4"
+    elif getattr(t, "output_image_paths", None):
+        try:
+            imgs = json.loads(t.output_image_paths) if isinstance(t.output_image_paths, str) else t.output_image_paths
+            if imgs and Path(imgs[0]).is_file():
+                file_path = Path(imgs[0])
+                media_type = "image/png"
+                ext = file_path.suffix or ".png"
+        except Exception:
+            pass
+            
+    if not file_path or not file_path.is_file():
+        raise HTTPException(status_code=404, detail="该任务尚未生成完成或产物文件不存在")
+        
+    raw_prompt = (t.prompt or "").replace("\r", " ").replace("\n", " ").strip()
+    safe_prompt = "".join(c for c in raw_prompt if c.isalnum() or c in (" ", "_", "-")).strip()[:25] or task_id
+    filename = f"{t.id}_{safe_prompt}{ext}"
+    encoded_filename = urllib.parse.quote(filename)
+    
+    return FileResponse(
+        str(file_path),
+        media_type=media_type,
+        filename=filename,
+        headers={"Content-Disposition": f"attachment; filename*=utf-8''{encoded_filename}"}
+    )
+
+
+@app.post("/api/tasks/batch-download-zip")
+@app.get("/api/tasks/batch-download-zip")
+def batch_download_tasks_zip(req: Optional[BatchTasksReq] = None, task_ids: Optional[str] = Query(None)):
+    ids = []
+    if req and req.task_ids:
+        ids.extend(req.task_ids)
+    if task_ids:
+        ids.extend([x.strip() for x in task_ids.split(",") if x.strip()])
+    
+    seen = set()
+    unique_ids = []
+    for x in ids:
+        if x not in seen:
+            seen.add(x)
+            unique_ids.append(x)
+            
+    if not unique_ids:
+        raise HTTPException(status_code=400, detail="未提供有效的 task_ids")
+        
+    tasks_to_pack = []
+    for tid in unique_ids:
+        t = db.get_task(tid, DB_PATH)
+        if not t:
+            continue
+        p = None
+        if t.output_video_path and Path(t.output_video_path).is_file():
+            p = Path(t.output_video_path)
+        elif getattr(t, "output_image_paths", None):
+            try:
+                imgs = json.loads(t.output_image_paths) if isinstance(t.output_image_paths, str) else t.output_image_paths
+                if imgs and Path(imgs[0]).is_file():
+                    p = Path(imgs[0])
+            except Exception:
+                pass
+        if p and p.is_file():
+            tasks_to_pack.append((t, p))
+            
+    if not tasks_to_pack:
+        raise HTTPException(status_code=400, detail="选中的任务中没有已完成可下载的媒体成片")
+        
+    temp_zip = tempfile.NamedTemporaryFile(delete=False, suffix=".zip", prefix="video_farm_batch_")
+    temp_zip_path = Path(temp_zip.name)
+    temp_zip.close()
+    
+    try:
+        with zipfile.ZipFile(temp_zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            for idx, (t, p) in enumerate(tasks_to_pack, 1):
+                raw_prompt = (t.prompt or "").replace("\r", " ").replace("\n", " ").strip()
+                clean_prompt = "".join(c for c in raw_prompt if c.isalnum() or c in (" ", "_", "-")).strip()[:20]
+                eng = getattr(t, "engine", "flow") or "flow"
+                ratio = (getattr(t, "aspect_ratio", "16-9") or "16-9").replace(":", "-")
+                arc_name = f"{idx:02d}_{t.id}_{clean_prompt}_{eng}_{ratio}{p.suffix}"
+                zf.write(p, arcname=arc_name)
+    except Exception as e:
+        if temp_zip_path.exists():
+            temp_zip_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail=f"打包压缩包失败: {e}")
+        
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    zip_name = f"Google_Video_Batch_{timestamp}_{len(tasks_to_pack)}files.zip"
+    encoded_zip_name = urllib.parse.quote(zip_name)
+    
+    def cleanup_file():
+        try:
+            if temp_zip_path.exists():
+                temp_zip_path.unlink()
+        except Exception:
+            pass
+
+    return FileResponse(
+        str(temp_zip_path),
+        media_type="application/zip",
+        filename=zip_name,
+        headers={"Content-Disposition": f"attachment; filename*=utf-8''{encoded_zip_name}"},
+        background=BackgroundTask(cleanup_file)
+    )
+
+
+
 @app.get("/api/tasks/{task_id}")
 def get_task_detail(task_id: str):
     t = db.get_task(task_id, DB_PATH)
@@ -1010,6 +1150,7 @@ def cancel_task(task_id: str):
         
     db.log_task_event(task_id, "MANUAL_CANCEL", "用户通过Web控制台手动取消任务", db_path=DB_PATH)
     return {"id": task_id, "status": "cancelled"}
+
 
 class OpenFolderReq(BaseModel):
     target: str = "outputs"

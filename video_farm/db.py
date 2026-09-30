@@ -832,3 +832,91 @@ def delete_vids_shot(shot_id: str, db_path: Path = DEFAULT_DB_PATH):
             conn.execute("DELETE FROM vids_shots WHERE id = ?", (shot_id,))
     finally:
         conn.close()
+
+
+def delete_task(task_id: str, delete_files: bool = True, db_path: Path = DEFAULT_DB_PATH) -> Dict[str, Any]:
+    import json
+    import shutil
+    conn = get_db_connection(db_path)
+    removed_files: List[str] = []
+    task = None
+    try:
+        with conn:
+            row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+            if row:
+                task = row_to_task(row)
+                
+            if task and delete_files:
+                # 1. 关联成片视频文件
+                if task.output_video_path:
+                    try:
+                        v_p = Path(task.output_video_path)
+                        if v_p.is_file():
+                            v_p.unlink(missing_ok=True)
+                            removed_files.append(str(v_p))
+                    except Exception:
+                        pass
+                        
+                # 2. 关联生图产物
+                if getattr(task, "output_image_paths", None):
+                    try:
+                        imgs = json.loads(task.output_image_paths) if isinstance(task.output_image_paths, str) else task.output_image_paths
+                        if isinstance(imgs, list):
+                            for img in imgs:
+                                ip = Path(img)
+                                if ip.is_file():
+                                    ip.unlink(missing_ok=True)
+                                    removed_files.append(str(ip))
+                    except Exception:
+                        pass
+                        
+                # 3. 关联质检切片目录 (qa/{task_id})
+                base_dir = db_path.parent.parent
+                qa_dir = base_dir / "video_farm_data" / "qa" / task_id
+                if qa_dir.is_dir():
+                    try:
+                        shutil.rmtree(qa_dir, ignore_errors=True)
+                        removed_files.append(str(qa_dir))
+                    except Exception:
+                        pass
+                        
+                # 4. 关联上传素材目录 (uploads/{task_id})
+                uploads_dir = base_dir / "video_farm_data" / "uploads" / task_id
+                if uploads_dir.is_dir():
+                    try:
+                        shutil.rmtree(uploads_dir, ignore_errors=True)
+                        removed_files.append(str(uploads_dir))
+                    except Exception:
+                        pass
+
+            # 数据库记录清除与解绑
+            conn.execute("DELETE FROM task_events WHERE task_id = ?", (task_id,))
+            conn.execute("UPDATE vids_shots SET task_id = NULL, status = 'planned' WHERE task_id = ?", (task_id,))
+            conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+            
+        return {
+            "id": task_id,
+            "deleted": bool(task),
+            "removed_files": removed_files
+        }
+    finally:
+        conn.close()
+
+
+def batch_delete_tasks(task_ids: List[str], delete_files: bool = True, db_path: Path = DEFAULT_DB_PATH) -> Dict[str, Any]:
+    results = []
+    deleted_count = 0
+    all_removed = []
+    for tid in task_ids:
+        r = delete_task(tid, delete_files=delete_files, db_path=db_path)
+        if r.get("deleted"):
+            deleted_count += 1
+            all_removed.extend(r.get("removed_files", []))
+        results.append(r)
+    return {
+        "success": True,
+        "requested_count": len(task_ids),
+        "deleted_count": deleted_count,
+        "removed_files_count": len(all_removed),
+        "results": results
+    }

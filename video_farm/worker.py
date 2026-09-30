@@ -236,9 +236,11 @@ class VideoWorker:
         # to use a cheaper model or ignore the end frame.
         if getattr(task, "model", None) and task.model:
             cmd.extend(["--model", task.model])
-        # 注意：新版 flow.google.com 上 Veo 3.1 Lite 界面往往无 8s 选项，强加 --duration 会触发 Configuration error
-        # 仅当任务非默认值且非 8 时才尝试传入；若为空或 8，则省略 --duration 遵循 Flow 默认时长 (官方建议)
-        if task.duration_sec and task.duration_sec not in (0, 8):
+        # 注意：新版 flow.google.com 上图生视频与首尾帧插值受模型原生约束，界面上仅支持官方默认时长(8s)
+        # 强传如 --duration 4 或 --duration 6 会直接触发 ConfigurationError (exit 11) 闪退
+        # 因此在 flow 引擎下，自动省略 --duration 参数，由 Flow 原生自适配最稳定的默认时长(8s)，彻底根治闪退
+        # 如果后续有明确支持多时长的模型，再按需开启
+        if getattr(task, "engine", "flow") != "flow" and task.duration_sec and task.duration_sec not in (0, 8):
             cmd.extend(["--duration", str(task.duration_sec)])
         if project_id:
             cmd.extend(["--project", str(project_id)])
@@ -404,9 +406,12 @@ class VideoWorker:
                         "Flow 提交请求未同时包含指定首尾帧/模型；已停止自动重试，"
                         "避免再次消耗额度。请检查任务日志后人工处理。"
                     )
-                elif proc.returncode == 11 or any(k in stderr.lower() for k in ["profilelocked", "already in use", "is locked", "lockfile"]):
+                elif any(k in stderr.lower() for k in ["profilelocked", "already in use", "is locked", "lockfile", "cannot access the file"]):
                     err_code = "PROFILE_LOCKED"
                     err_msg = f"Profile [{profile.name}] 被当前打开的 Chrome 窗口独占锁定。请在桌面关闭 Chrome 窗口或在控制台点击【⏹ 关闭占用 Chrome】后系统将自动恢复任务。"
+                elif "renders no duration control" in stderr.lower() or "configuration error" in stderr.lower() or proc.returncode == 11:
+                    err_code = "CONFIG_ERROR"
+                    err_msg = f"Google Flow 参数配置异常 (如所选时长/模型在页面选项未呈现)。已自动规范化参数，请重试。"
                 elif proc.returncode == 25 or any(k in stderr.lower() for k in ["flowagentuierror", "agentic ui", "settings-trigger-button"]):
                     err_code = "AGENTIC_UI_BLOCKED"
                     err_msg = f"Google Flow 处于智能体或遮罩状态。系统已执行自动去遮罩自愈，请重试。"
@@ -414,9 +419,6 @@ class VideoWorker:
                         heal_profile_flow_ui(profile.name, project_id)
                     except Exception:
                         pass
-                elif "renders no duration control" in stderr.lower() or "configuration error" in stderr.lower():
-                    err_code = "CONFIG_ERROR"
-                    err_msg = f"Google Flow 界面未开放该时长选项，建议使用 Flow 默认时长生成。"
                 return {
                     "success": False,
                     "pid": pid,
@@ -658,9 +660,12 @@ class VideoWorker:
                         heal_profile_flow_ui(profile.name, project_id)
                     except Exception:
                         pass
-                elif proc.returncode == 11 or any(k in stderr.lower() for k in ["profilelocked", "already in use", "is locked", "lockfile"]):
+                elif any(k in stderr.lower() for k in ["profilelocked", "already in use", "is locked", "lockfile", "cannot access the file"]):
                     err_code = "PROFILE_LOCKED"
                     err_msg = f"Profile [{profile.name}] 被当前打开的 Chrome 窗口独占锁定。请在桌面关闭 Chrome 窗口或在控制台点击【⏹ 关闭占用 Chrome】后系统将自动恢复任务。"
+                elif proc.returncode == 11 or "configuration error" in stderr.lower():
+                    err_code = "CONFIG_ERROR"
+                    err_msg = f"Google Flow 生图参数异常，请核对提示词或模型选项。"
                 return {
                     "success": False,
                     "pid": pid,
@@ -687,4 +692,5 @@ class VideoWorker:
                 "output_image_paths": [],
                 "logs": str(exc)
             }
+
 
