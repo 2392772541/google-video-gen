@@ -35,7 +35,22 @@ async function api(path, options = {}) {
   return await res.json();
 }
 
-const BROKEN_IMG_SVG = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='70' viewBox='0 0 120 70'%3E%3Crect width='100%25' height='100%25' fill='%231e293b'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' fill='%23ef4444' font-size='11' font-family='sans-serif'%3E未找到本地图片%3C/text%3E%3C/svg%3E";
+// 工具函数：HTML 安全转义
+function escapeHtml(str) {
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function escapeAttr(str) {
+  return escapeHtml(str);
+}
+
+const BROKEN_IMG_SVG = "data:image/svg+xml," + encodeURIComponent("<svg xmlns='http://www.w3.org/2000/svg' width='120' height='70' viewBox='0 0 120 70'><rect width='100%' height='100%' fill='#1e293b'/><text x='50%' y='50%' dominant-baseline='middle' text-anchor='middle' fill='#94a3b8' font-size='11' font-family='sans-serif'>未找到本地图片</text></svg>");
 
 // 转换首尾帧资产为可正常在浏览器展示的 URL
 function getAssetDisplayUrl(raw) {
@@ -394,12 +409,20 @@ function renderShots(shots) {
     if (shot.video_url) {
       mediaPreview = `
         <div class="shot-preview-container">
-          <video controls autoplay muted loop src="${shot.video_url}" style="width: 100%; border-radius: 8px; max-height: 240px; background: #000;"></video>
-          <div style="margin-top: 6px; display: flex; justify-content: space-between; align-items: center;">
-            <a href="${shot.video_url}" target="_blank" class="btn btn-sm btn-secondary" style="font-size: 11px; padding: 2px 8px; text-decoration: none;">
-              ⬇️ 下载原片 (MP4 · ${shotRes})
-            </a>
-            <span style="font-size: 11px; color: var(--text-sub);">已置入 Google Vids 场景 ${shot.scene_index || index + 1}</span>
+          <video controls autoplay muted loop src="${shot.video_url}" style="width: 100%; border-radius: 8px; max-height: 240px; background: #000; box-shadow: 0 4px 12px rgba(0,0,0,0.4);"></video>
+          <div style="margin-top: 8px; display: flex; flex-direction: column; gap: 6px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px;">
+              <a href="${shot.video_url}" target="_blank" download class="btn btn-sm btn-primary" style="font-size: 11px; padding: 4px 10px; text-decoration: none; font-weight: 600;">
+                ⬇️ 下载 1080p MP4 原片
+              </a>
+              <button class="btn btn-sm btn-secondary" style="font-size: 11px; padding: 4px 8px;" onclick="copyLocalVideoPath('${shot.video_url}', this)" title="复制本地路径，在 Google Vids 插入视频时可直接粘贴选择">
+                📋 复制本地路径
+              </button>
+            </div>
+            <div style="font-size: 11px; color: #10b981; background: rgba(16,185,129,0.1); border: 1px solid rgba(16,185,129,0.25); border-radius: 6px; padding: 5px 8px; display: flex; align-items: center; justify-content: space-between;">
+              <span>💡 已完成生成并下载 · 自动化窗口已安全退出以释放 ~800MB 内存</span>
+              <span style="font-size: 10px; color: var(--text-muted);">可直接拖入 Google Vids 场景 ${shot.scene_index || index + 1}</span>
+            </div>
           </div>
         </div>
       `;
@@ -446,7 +469,7 @@ function renderShots(shots) {
           <span class="badge-mode">${getModeLabel(mode)}</span>
         </div>
         <div style="display: flex; align-items: center; gap: 8px;">
-          ${statusBadge}
+          <div class="shot-status-badge-wrap">${statusBadge}</div>
           <button class="btn btn-secondary btn-sm" onclick="moveShot('${shot.id}', 'up')" title="上移">⬆️</button>
           <button class="btn btn-secondary btn-sm" onclick="moveShot('${shot.id}', 'down')" title="下移">⬇️</button>
           <button class="btn btn-secondary btn-sm" onclick="deleteShot('${shot.id}')" title="删除" style="color: #ef4444;">🗑️</button>
@@ -482,10 +505,9 @@ function renderShots(shots) {
           <!-- 首尾帧资产展示区 -->
           ${frameAssetHtml}
 
-          ${shot.error_message && !isDone ? `
-          <div style="font-size: 11px; color: #fbbf24; background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.25); border-radius: 4px; padding: 4px 8px; margin-bottom: 6px;">
-            ⚠️ 状态提示: ${shot.error_message} (可点击下方单独生成或上方连续生成)
-          </div>` : ''}
+          <div class="shot-error-box" style="${shot.error_message && !isDone ? '' : 'display: none; '}font-size: 11px; color: #fbbf24; background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.25); border-radius: 4px; padding: 4px 8px; margin-bottom: 6px;">
+            ⚠️ 状态提示: ${escapeHtml(shot.error_message || '')} (可点击下方单独生成或上方连续生成)
+          </div>
 
           <div>
             <label style="font-size: 12px; color: var(--text-sub); font-weight: 500; display: block; margin-bottom: 4px;">镜头提示词 (Prompt):</label>
@@ -493,8 +515,11 @@ function renderShots(shots) {
           </div>
           ${shot.narration ? `
           <div>
-            <label style="font-size: 11px; color: var(--text-sub); display: block; margin-bottom: 2px;">旁白/台词:</label>
-            <input type="text" class="form-input" style="font-size: 12px; padding: 4px 8px;" value="${shot.narration}" onchange="updateShotField('${shot.id}', 'narration', this.value)" />
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;">
+              <label style="font-size: 11px; color: var(--text-sub);">旁白/台词 (Google Vids 场景旁白):</label>
+              <button class="btn btn-secondary btn-sm" style="padding: 1px 6px; font-size: 10px;" onclick="copyNarrationText('${shot.id}', this)" title="一键复制台词，粘贴至 Google Vids 场景旁白">📋 复制旁白</button>
+            </div>
+            <input type="text" class="form-input" style="font-size: 12px; padding: 4px 8px;" value="${escapeAttr(shot.narration)}" onchange="updateShotField('${shot.id}', 'narration', this.value)" />
           </div>` : ''}
 
           <!-- 进度条 -->
@@ -502,7 +527,7 @@ function renderShots(shots) {
             <div class="progress-bar-container" style="flex: 1; height: 6px; margin: 0;">
               <div class="progress-bar-fill" style="width: ${shot.progress || 0}%;"></div>
             </div>
-            <span style="font-size: 11px; font-weight: 600; width: 36px; text-align: right;">${shot.progress || 0}%</span>
+            <span class="progress-text-label" style="font-size: 11px; font-weight: 600; width: 36px; text-align: right;">${shot.progress || 0}%</span>
           </div>
 
           <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px;">
@@ -511,7 +536,7 @@ function renderShots(shots) {
           </div>
         </div>
 
-        <div>
+        <div class="shot-media-preview-box" id="shot-media-preview-${shot.id}">
           ${mediaPreview}
         </div>
       </div>
@@ -845,26 +870,161 @@ function updateOverallProgress(shots) {
   if (fillEl) fillEl.style.width = `${pct}%`;
 }
 
-// 定时自动同步最新状态
+// 一键复制场景旁白台词至剪贴板（供直接置入 Google Vids 场景）
+function copyNarrationText(shotId, btnEl) {
+  const shot = (state.workflow?.shots || []).find(s => s.id === shotId);
+  if (!shot || !shot.narration) {
+    alert('该分镜暂无旁白文案');
+    return;
+  }
+  navigator.clipboard.writeText(shot.narration).then(() => {
+    const orig = btnEl ? btnEl.innerHTML : '';
+    if (btnEl) btnEl.innerHTML = '✅ 已复制';
+    appendLog(`分镜 [${shot.name || shotId}] 旁白台词已复制，可直接粘贴到 Google Vids 场景旁白栏。`, 'success');
+    setTimeout(() => {
+      if (btnEl) btnEl.innerHTML = orig;
+    }, 2000);
+  }).catch(() => {
+    appendLog('复制旁白失败，请手动选取复制', 'warn');
+  });
+}
+
+// 一键复制本地视频原片绝对路径（供在 Google Vids 插入视频时快速粘贴选择）
+function copyLocalVideoPath(videoUrl, btnEl) {
+  if (!videoUrl) return;
+  const filename = videoUrl.split('/').pop().split('?')[0];
+  const localPath = 'C:\\Users\\win10\\Documents\\ChatGPT\\视频制作\\video_farm_data\\outputs\\' + filename;
+  navigator.clipboard.writeText(localPath).then(() => {
+    const orig = btnEl ? btnEl.innerHTML : '';
+    if (btnEl) btnEl.innerHTML = '✅ 已复制路径';
+    appendLog(`分镜视频本地路径已复制: ${localPath}`, 'success');
+    setTimeout(() => {
+      if (btnEl) btnEl.innerHTML = orig;
+    }, 2000);
+  }).catch(() => {
+    appendLog('复制路径失败，请手动下载', 'warn');
+  });
+}
+
+// 增量细粒度 DOM 状态同步（不全量刷新 DOM，保护正在输入的焦点并原地挂载视频回显）
+function syncShotsDOM(shots) {
+  const container = document.getElementById('shots-cards-container');
+  if (!container) return;
+
+  const existingCards = container.querySelectorAll('.shot-card');
+  if (existingCards.length !== shots.length) {
+    renderShots(shots);
+    return;
+  }
+
+  const defaultRes = state.workflow?.resolution || '1080p';
+
+  shots.forEach((shot, index) => {
+    const card = document.getElementById(`shot-card-${shot.id}`);
+    if (!card) {
+      renderShots(shots);
+      return;
+    }
+
+    const currentStatus = shot.status || 'pending';
+    const isDone = currentStatus === 'completed';
+    const isRunning = currentStatus === 'running';
+    const isFailed = currentStatus === 'failed';
+    const shotRes = shot.resolution || defaultRes;
+
+    // 1. 同步卡片 class
+    const expectedClass = `shot-card status-${currentStatus}`;
+    if (card.className !== expectedClass) {
+      card.className = expectedClass;
+    }
+
+    // 2. 同步状态 Badge
+    let statusBadge = '<span class="shot-status-badge status-pending">待生成</span>';
+    if (isRunning) statusBadge = `<span class="shot-status-badge status-running">⏳ 生成中 ${shot.progress || 0}%</span>`;
+    if (isDone) statusBadge = '<span class="shot-status-badge status-completed">✅ 已生成置入</span>';
+    if (isFailed) statusBadge = '<span class="shot-status-badge status-failed">❌ 失败</span>';
+
+    const badgeContainer = card.querySelector('.shot-status-badge-wrap');
+    if (badgeContainer && badgeContainer.innerHTML !== statusBadge) {
+      badgeContainer.innerHTML = statusBadge;
+    }
+
+    // 3. 同步进度条与文本
+    const progressFill = card.querySelector('.progress-bar-fill');
+    if (progressFill) {
+      progressFill.style.width = `${shot.progress || 0}%`;
+    }
+    const progressText = card.querySelector('.progress-text-label');
+    if (progressText) {
+      progressText.textContent = `${shot.progress || 0}%`;
+    }
+
+    // 4. 同步媒体回显（核心：视频就绪时立即原地挂载播放器与释放内存提示）
+    const previewBox = card.querySelector(`#shot-media-preview-${shot.id}`);
+    if (previewBox) {
+      const existingVideo = previewBox.querySelector('video');
+      const currentVideoSrc = existingVideo ? (existingVideo.getAttribute('src') || '') : '';
+      const targetVideoUrl = shot.video_url || '';
+
+      if (targetVideoUrl) {
+        if (!existingVideo || currentVideoSrc !== targetVideoUrl) {
+          previewBox.innerHTML = `
+            <div class="shot-preview-container">
+              <video controls autoplay muted loop src="${targetVideoUrl}" style="width: 100%; border-radius: 8px; max-height: 240px; background: #000; box-shadow: 0 4px 12px rgba(0,0,0,0.4);"></video>
+              <div style="margin-top: 8px; display: flex; flex-direction: column; gap: 6px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px;">
+                  <a href="${targetVideoUrl}" target="_blank" download class="btn btn-sm btn-primary" style="font-size: 11px; padding: 4px 10px; text-decoration: none; font-weight: 600;">
+                    ⬇️ 下载 1080p MP4 原片
+                  </a>
+                  <button class="btn btn-sm btn-secondary" style="font-size: 11px; padding: 4px 8px;" onclick="copyLocalVideoPath('${targetVideoUrl}', this)" title="复制本地路径，在 Google Vids 插入视频时可直接粘贴选择">
+                    📋 复制本地路径
+                  </button>
+                </div>
+                <div style="font-size: 11px; color: #10b981; background: rgba(16,185,129,0.1); border: 1px solid rgba(16,185,129,0.25); border-radius: 6px; padding: 5px 8px; display: flex; align-items: center; justify-content: space-between;">
+                  <span>💡 已完成生成并下载 · 自动化窗口已安全退出以释放 ~800MB 内存</span>
+                  <span style="font-size: 10px; color: var(--text-muted);">可直接拖入 Google Vids 场景 ${shot.scene_index || index + 1}</span>
+                </div>
+              </div>
+            </div>
+          `;
+          appendLog(`分镜 [${shot.name || shot.id}] 1080p 视频成片已回显就绪！`, 'success');
+        }
+      } else {
+        if (existingVideo) {
+          renderShots(shots);
+          return;
+        }
+      }
+    }
+
+    // 5. 错误提示框同步
+    const errBox = card.querySelector('.shot-error-box');
+    if (errBox) {
+      if (shot.error_message && !isDone) {
+        errBox.style.display = 'block';
+        errBox.textContent = `⚠️ 状态提示: ${shot.error_message} (可点击下方单独生成或上方连续生成)`;
+      } else {
+        errBox.style.display = 'none';
+      }
+    }
+  });
+}
+
+// 定时自动同步最新状态（移除 isEditing 阻断，采用细粒度 DOM 增量同步）
 function startAutoRefresh() {
   if (state.autoRefreshTimer) clearInterval(state.autoRefreshTimer);
   state.autoRefreshTimer = setInterval(async () => {
     if (state.currentWorkflowId) {
       try {
-        const activeTag = document.activeElement ? document.activeElement.tagName.toLowerCase() : '';
-        const isEditing = (activeTag === 'input' || activeTag === 'textarea' || activeTag === 'select');
-        
         const wf = await api(`/workflows/${state.currentWorkflowId}`);
         state.workflow = wf;
-        if (!isEditing) {
-          renderShots(wf.shots || []);
-        }
+        syncShotsDOM(wf.shots || []);
         updateOverallProgress(wf.shots || []);
       } catch (e) {
-        // 静默刷新失败不打扰
+        // 静默刷新
       }
     }
-  }, 4000);
+  }, 3000);
 }
 
 // 切换工作流弹窗
@@ -1042,11 +1202,15 @@ async function executeBatchImport() {
   }
 
   try {
+    const autoStartBox = document.getElementById('import-auto-start-checkbox');
+    const autoStart = autoStartBox ? Boolean(autoStartBox.checked) : true;
+
     const res = await api('/batch_import', {
       method: 'POST',
       body: {
         workflow_id: state.currentWorkflowId,
         import_mode: importMode,
+        auto_start: autoStart,
         data: parsed
       }
     });
