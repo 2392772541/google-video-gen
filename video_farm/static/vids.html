@@ -513,6 +513,31 @@
       </div>
     </div>
 
+    <!-- Google Vids × Google Flow 双引擎深度协同与内存保护横幅 -->
+    <div class="vids-architecture-banner" style="background: linear-gradient(135deg, rgba(30, 41, 59, 0.95), rgba(15, 23, 42, 0.95)); border: 1px solid rgba(59, 130, 246, 0.35); border-radius: var(--radius-lg); padding: 14px 20px; box-shadow: var(--shadow-sm); display: flex; flex-direction: column; gap: 8px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span style="font-size: 18px;">🔗</span>
+          <span style="font-size: 14px; font-weight: 700; color: #60a5fa;">Google Vids (场景大纲中枢) × Google Flow (1080p 超清渲染底座) 双引擎深度协同</span>
+          <span class="badge" style="background: rgba(16, 185, 129, 0.2); color: #34d399; font-size: 11px; padding: 2px 8px; border-radius: 4px;">双向协同就绪</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 12px; font-size: 12px; color: var(--text-sub);">
+          <span style="display: flex; align-items: center; gap: 6px;">
+            <span style="width: 8px; height: 8px; border-radius: 50%; background: #10b981; display: inline-block;"></span>
+            <span>单任务串行调度 (严格控流保系统)</span>
+          </span>
+          <span style="display: flex; align-items: center; gap: 6px;">
+            <span style="width: 8px; height: 8px; border-radius: 50%; background: #38bdf8; display: inline-block;"></span>
+            <span>完成即关浏览器释放 ~800MB 内存</span>
+          </span>
+        </div>
+      </div>
+      <div style="font-size: 12px; color: var(--text-sub); line-height: 1.6; display: flex; flex-wrap: wrap; gap: 16px;">
+        <span><strong>1. 上层协同 (Google Vids)：</strong>对应每个镜头卡片的 <code>Scene 1, Scene 2...</code> 场景大纲、旁白台词与音画多轨时间轴，提供一键跳转与旁白极速复制。</span>
+        <span><strong>2. 底层渲染 (Google Flow / Veo 3.1)：</strong>全自动执行 1080p 超清、首尾帧平滑过渡的重型 GPU 生成，渲染完成自动下载并在下方卡片中无缝回显播放。</span>
+      </div>
+    </div>
+
     <div class="vids-grid">
       <div style="display: flex; flex-direction: column; gap: 20px;">
         <div class="card-panel">
@@ -688,9 +713,15 @@
 
           <div id="import-msg-box" style="display: none; padding: 10px 14px; border-radius: 6px; font-size: 13px;"></div>
 
-          <div style="display: flex; justify-content: flex-end; gap: 12px; margin-top: 6px;">
-            <button class="btn btn-secondary" onclick="closeJsonModal()">取消</button>
-            <button class="btn btn-primary" id="btn-submit-import" onclick="executeBatchImport()" style="font-weight: 700; padding: 8px 24px; background: linear-gradient(135deg, #2563eb, #06b6d4);">🚀 立即解析并批量导入</button>
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 6px;">
+            <label style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: #38bdf8; cursor: pointer; font-weight: 600; user-select: none;">
+              <input type="checkbox" id="import-auto-start-checkbox" checked style="width: 16px; height: 16px; accent-color: #2563eb; cursor: pointer;" />
+              <span>⚡ 导入完成后立即启动连续生成 (推荐一键跑通闭环)</span>
+            </label>
+            <div style="display: flex; gap: 12px;">
+              <button class="btn btn-secondary" onclick="closeJsonModal()">取消</button>
+              <button class="btn btn-primary" id="btn-submit-import" onclick="executeBatchImport()" style="font-weight: 700; padding: 8px 24px; background: linear-gradient(135deg, #2563eb, #06b6d4);">🚀 立即解析并批量导入</button>
+            </div>
           </div>
         </div>
       </div>
@@ -713,6 +744,6 @@
     </div>
   </div>
 
-  <script src="/static/vids.js?v=20260929_v6"></script>
+  <script src="/static/vids.js?v=20260930_v7"></script>
 </body>
 </html>

@@ -354,7 +354,7 @@ class VideoScheduler:
                     return
 
                 if category == "PROJECT_INIT_REQUIRED":
-                    # 工程未初始化或新条款阻断：触发自愈，账号保持 idle，任务重新放回队列自动换号或等待自愈
+                    # 工程未初始化或新条款阻断：触发自愈，锁定当前账号，任务等待自愈完成
                     db.update_profile_status(
                         profile_id=profile_id,
                         status="idle",
@@ -365,7 +365,7 @@ class VideoScheduler:
                     db.update_task_status(
                         task_id=task_id,
                         status="queued",
-                        clear_assigned_profile=True,
+                        clear_assigned_profile=False,
                         error_code=category,
                         error_message=friendly_msg,
                         logs=logs,
@@ -435,9 +435,7 @@ class VideoScheduler:
                     print(f"[{thread_name}] 🛡️ 账号 [{profile.name}] 触发异常活动限制，已启动全池避让至 {self.fleet_cooldown_until.strftime('%H:%M:%S')}，任务 [{task_id}] 已转入安全等待")
                     return
 
-                if category in ("AUTH_EXPIRED", "QUOTA_EXHAUSTED", "RATE_LIMITED", "NETWORK_TIMEOUT", "TRANSIENT_SERVER_ERROR", "BROWSER_SESSION_CLOSED"):
-                    # 关键逻辑：如果是账号凭据失效、额度耗尽或频控，绝不消耗任务的 max_retries 额度！
-                    # 而是将当前账号冷却/标记，并将任务直接重新投回 queued，自动寻找下一个可用账号
+                if category in ("AUTH_EXPIRED", "QUOTA_EXHAUSTED"):
                     prof_new_status = "auth_expired" if category == "AUTH_EXPIRED" else "cooldown"
                     db.update_profile_status(
                         profile_id=profile_id,
@@ -447,11 +445,11 @@ class VideoScheduler:
                         db_path=self.db_path
                     )
 
-                    failover_msg = f"⚡ 账号 [{profile.name}] {friendly_msg}。系统已将任务自动重置排队，正在无缝切换至下一个可用账号..."
+                    failover_msg = f"⚡ 账号 [{profile.name}] {friendly_msg}。系统已将任务自动重置排队，正在切换至备用可用账号..."
                     db.update_task_status(
                         task_id=task_id,
                         status="queued",
-                        clear_assigned_profile=True,  # 物理级解绑账号，允许其他账号接单
+                        clear_assigned_profile=True,  # 仅在账号彻底失效或耗尽时解绑换号
                         error_code=category,
                         error_message=friendly_msg,
                         logs=logs,
@@ -459,6 +457,32 @@ class VideoScheduler:
                     )
                     db.log_task_event(task_id, "ACCOUNT_FAILOVER", failover_msg, db_path=self.db_path)
                     print(f"[{thread_name}] {failover_msg}")
+                    return
+
+                if category in ("RATE_LIMITED", "NETWORK_TIMEOUT", "TRANSIENT_SERVER_ERROR", "BROWSER_SESSION_CLOSED"):
+                    # 临时波动/短时超时/浏览器意外关闭：原地冷却等待，严格锁定原账号，绝不漂移切号引发同IP多账号连带风控
+                    cooldown_sec = 45 if category == "NETWORK_TIMEOUT" else 30
+                    cooldown_until = datetime.now() + timedelta(seconds=cooldown_sec)
+                    db.update_profile_status(
+                        profile_id=profile_id,
+                        status="cooldown",
+                        cooldown_until=cooldown_until,
+                        success=False,
+                        db_path=self.db_path
+                    )
+
+                    sticky_msg = f"⏳ 账号 [{profile.name}] 出现临时波动（{friendly_msg}）。系统保持锁定当前账号原地冷却 {cooldown_sec} 秒后重试，禁止跳号避让风控。"
+                    db.update_task_status(
+                        task_id=task_id,
+                        status="queued",
+                        clear_assigned_profile=False,  # 严格锁定当前账号，绝不切号！
+                        error_code=category,
+                        error_message=friendly_msg,
+                        logs=logs,
+                        db_path=self.db_path
+                    )
+                    db.log_task_event(task_id, "STICKY_RETRY", sticky_msg, db_path=self.db_path)
+                    print(f"[{thread_name}] {sticky_msg}")
                     return
 
                 # 普通错误处理

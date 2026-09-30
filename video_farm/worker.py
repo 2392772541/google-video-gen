@@ -315,6 +315,57 @@ class VideoWorker:
                     except Exception as re_err:
                         print(f"[{worker_name}] 紧急自愈重试异常: {re_err}")
 
+            # 关键：优先检测成片！无论退出码如何，只要视频已成功生成并落盘（>=50KB），即视作生成成功！
+            output_video_path = None
+            try:
+                s_clean = stdout.strip()
+                if s_clean.startswith("{") and s_clean.endswith("}"):
+                    data = json.loads(s_clean)
+                    for k in ["local_path", "path", "saved_path", "output"]:
+                        if data.get(k):
+                            output_video_path = data[k]
+                            break
+                if not output_video_path:
+                    lines = stdout.strip().splitlines()
+                    for line in reversed(lines):
+                        line_str = line.strip()
+                        if line_str.startswith("{") and line_str.endswith("}"):
+                            data = json.loads(line_str)
+                            for k in ["local_path", "path", "saved_path", "output"]:
+                                if data.get(k):
+                                    output_video_path = data[k]
+                                    break
+                            if output_video_path:
+                                break
+                if not output_video_path:
+                    import re
+                    m = re.search(r'"(?:local_path|path)":\s*"([^"]+\.mp4)"', stdout + "\n" + stderr)
+                    if m:
+                        cand = m.group(1).replace("\\\\", "\\")
+                        if Path(cand).exists():
+                            output_video_path = cand
+            except Exception:
+                pass
+
+            if not output_video_path or not Path(output_video_path).exists():
+                # Detect newest .mp4 in output_dir (>= 50KB)
+                new_files = [p for p in (set(self.output_dir.glob("*.mp4")) - existing_files) if p.stat().st_size >= 50 * 1024]
+                if new_files:
+                    latest = max(new_files, key=lambda p: p.stat().st_mtime)
+                    output_video_path = str(latest)
+
+            # 只要成片存在且大于等于 50KB，一律判定为绝对成功（免疫会话关闭或退出码杂音）
+            if output_video_path and Path(output_video_path).exists() and Path(output_video_path).stat().st_size >= 50 * 1024:
+                return {
+                    "success": True,
+                    "pid": pid,
+                    "error_code": None,
+                    "error_message": None,
+                    "output_video_path": str(Path(output_video_path).resolve()),
+                    "logs": logs
+                }
+
+            # 未检测到有效成片时，再按退出码分类报告真实错误
             if proc.returncode != 0:
                 err_code = f"EXIT_{proc.returncode}"
                 err_msg = f"Process exited with code {proc.returncode}\n{stderr[:400]}"
@@ -375,64 +426,14 @@ class VideoWorker:
                     "logs": logs
                 }
 
-            # Try parsing JSON output from stdout (support multi-line and single-line JSON)
-            output_video_path = None
-            try:
-                s_clean = stdout.strip()
-                if s_clean.startswith("{") and s_clean.endswith("}"):
-                    data = json.loads(s_clean)
-                    for k in ["local_path", "path", "saved_path", "output"]:
-                        if data.get(k):
-                            output_video_path = data[k]
-                            break
-                if not output_video_path:
-                    lines = stdout.strip().splitlines()
-                    for line in reversed(lines):
-                        line_str = line.strip()
-                        if line_str.startswith("{") and line_str.endswith("}"):
-                            data = json.loads(line_str)
-                            for k in ["local_path", "path", "saved_path", "output"]:
-                                if data.get(k):
-                                    output_video_path = data[k]
-                                    break
-                            if output_video_path:
-                                break
-                if not output_video_path:
-                    import re
-                    m = re.search(r'"(?:local_path|path)":\s*"([^"]+\.mp4)"', stdout + "\n" + stderr)
-                    if m:
-                        cand = m.group(1).replace("\\\\", "\\")
-                        if Path(cand).exists():
-                            output_video_path = cand
-            except Exception:
-                pass
-
-            if not output_video_path or not Path(output_video_path).exists():
-                # Detect newest .mp4 in output_dir
-                new_files = set(self.output_dir.glob("*.mp4")) - existing_files
-                if new_files:
-                    latest = max(new_files, key=lambda p: p.stat().st_mtime)
-                    output_video_path = str(latest)
-
-            if output_video_path and Path(output_video_path).exists():
-                return {
-                    "success": True,
-                    "pid": pid,
-                    "error_code": None,
-                    "error_message": None,
-                    "output_video_path": str(Path(output_video_path).resolve()),
-                    "logs": logs
-                }
-            else:
-                return {
-                    "success": False,
-                    "pid": pid,
-                    "error_code": "OUTPUT_NOT_FOUND",
-                    "error_message": "Command succeeded but no output mp4 found",
-                    "output_video_path": None,
-                    "logs": logs
-                }
-
+            return {
+                "success": False,
+                "pid": pid,
+                "error_code": "OUTPUT_NOT_FOUND",
+                "error_message": "Command succeeded but no output mp4 found",
+                "output_video_path": None,
+                "logs": logs
+            }
         except Exception as exc:
             return {
                 "success": False,
@@ -567,6 +568,63 @@ class VideoWorker:
                     except Exception as re_err:
                         print(f"[{worker_name}] 生图紧急自愈重试异常: {re_err}")
 
+            # 关键：优先检测成图！无论退出码如何，只要图像已成功生成并落盘（>=5KB），即视作生成成功！
+            found_paths = []
+            try:
+                s_clean = stdout.strip()
+                parsed_data = None
+                if s_clean.startswith("{") and s_clean.endswith("}"):
+                    try:
+                        parsed_data = json.loads(s_clean)
+                    except Exception:
+                        pass
+                if not parsed_data:
+                    for line in reversed(s_clean.splitlines()):
+                        line_str = line.strip()
+                        if line_str.startswith("{") and line_str.endswith("}"):
+                            try:
+                                parsed_data = json.loads(line_str)
+                                break
+                            except Exception:
+                                pass
+                if parsed_data:
+                    data = parsed_data
+                    if "images" in data and isinstance(data["images"], list):
+                        for img in data["images"]:
+                            if isinstance(img, dict) and "local_path" in img and img["local_path"]:
+                                lp = Path(img["local_path"]).resolve()
+                                if lp.exists() and lp.stat().st_size >= 5 * 1024:
+                                    found_paths.append(str(lp))
+                    elif "saved_paths" in data and isinstance(data["saved_paths"], list):
+                        found_paths = [str(Path(p).resolve()) for p in data["saved_paths"] if Path(p).exists() and Path(p).stat().st_size >= 5 * 1024]
+                    elif "paths" in data and isinstance(data["paths"], list):
+                        found_paths = [str(Path(p).resolve()) for p in data["paths"] if Path(p).exists() and Path(p).stat().st_size >= 5 * 1024]
+                    elif "local_path" in data and data["local_path"] and Path(data["local_path"]).exists():
+                        lp = Path(data["local_path"]).resolve()
+                        if lp.stat().st_size >= 5 * 1024:
+                            found_paths = [str(lp)]
+            except Exception:
+                pass
+
+            if not found_paths:
+                # 对比现有图像识别出新落盘的文件 (>= 5KB)
+                current_imgs = set(self.output_dir.glob("*.png")) | set(self.output_dir.glob("*.jpg")) | set(self.output_dir.glob("*.jpeg")) | set(self.output_dir.glob("*.webp"))
+                new_files = sorted([p for p in (current_imgs - existing_imgs) if p.stat().st_size >= 5 * 1024], key=lambda p: p.stat().st_mtime, reverse=True)
+                if new_files:
+                    found_paths = [str(p.resolve()) for p in new_files]
+
+            # 只要成图存在，一律判定为绝对成功
+            if found_paths:
+                return {
+                    "success": True,
+                    "pid": pid,
+                    "error_code": None,
+                    "error_message": None,
+                    "output_image_paths": found_paths,
+                    "logs": logs
+                }
+
+            # 未检测到有效图片时，再按退出码分类报告真实错误
             if proc.returncode != 0:
                 err_code = f"EXIT_{proc.returncode}"
                 err_msg = f"进程退出码 {proc.returncode}\n{stderr[:400]}"
@@ -612,68 +670,14 @@ class VideoWorker:
                     "logs": logs
                 }
 
-            # 尝试从 stdout 解析输出图片路径列表 (支持多行/单行 JSON)
-            found_paths = []
-            try:
-                s_clean = stdout.strip()
-                parsed_data = None
-                if s_clean.startswith("{") and s_clean.endswith("}"):
-                    try:
-                        parsed_data = json.loads(s_clean)
-                    except Exception:
-                        pass
-                if not parsed_data:
-                    for line in reversed(s_clean.splitlines()):
-                        line_str = line.strip()
-                        if line_str.startswith("{") and line_str.endswith("}"):
-                            try:
-                                parsed_data = json.loads(line_str)
-                                break
-                            except Exception:
-                                pass
-                if parsed_data:
-                    data = parsed_data
-                    if "images" in data and isinstance(data["images"], list):
-                        for img in data["images"]:
-                            if isinstance(img, dict) and "local_path" in img and img["local_path"]:
-                                lp = Path(img["local_path"]).resolve()
-                                if lp.exists():
-                                    found_paths.append(str(lp))
-                    elif "saved_paths" in data and isinstance(data["saved_paths"], list):
-                        found_paths = [str(Path(p).resolve()) for p in data["saved_paths"] if Path(p).exists()]
-                    elif "paths" in data and isinstance(data["paths"], list):
-                        found_paths = [str(Path(p).resolve()) for p in data["paths"] if Path(p).exists()]
-                    elif "local_path" in data and data["local_path"] and Path(data["local_path"]).exists():
-                        found_paths = [str(Path(data["local_path"]).resolve())]
-            except Exception:
-                pass
-
-            if not found_paths:
-                # 对比现有图像识别出新落盘的文件
-                current_imgs = set(self.output_dir.glob("*.png")) | set(self.output_dir.glob("*.jpg")) | set(self.output_dir.glob("*.jpeg")) | set(self.output_dir.glob("*.webp"))
-                new_files = sorted(list(current_imgs - existing_imgs), key=lambda p: p.stat().st_mtime, reverse=True)
-                if new_files:
-                    found_paths = [str(p.resolve()) for p in new_files]
-
-            if found_paths:
-                return {
-                    "success": True,
-                    "pid": pid,
-                    "error_code": None,
-                    "error_message": None,
-                    "output_image_paths": found_paths,
-                    "logs": logs
-                }
-            else:
-                return {
-                    "success": False,
-                    "pid": pid,
-                    "error_code": "OUTPUT_NOT_FOUND",
-                    "error_message": "生图命令执行成功，但未在输出目录找到生成的图像文件",
-                    "output_image_paths": [],
-                    "logs": logs
-                }
-
+            return {
+                "success": False,
+                "pid": pid,
+                "error_code": "OUTPUT_NOT_FOUND",
+                "error_message": "生图命令执行成功，但未在输出目录找到生成的图像文件",
+                "output_image_paths": [],
+                "logs": logs
+            }
         except Exception as exc:
             return {
                 "success": False,

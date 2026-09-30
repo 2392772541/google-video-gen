@@ -214,11 +214,29 @@ def batch_import_json(payload: Dict[str, Any] = Body(...)):
         created_shots.append(s)
 
     full_wf = db.get_vids_workflow(wf_id)
+
+    auto_start = payload.get("auto_start")
+    if auto_start is None and isinstance(raw_data, dict):
+        auto_start = raw_data.get("auto_start")
+    if auto_start is None:
+        auto_start = True
+
+    task_ids = []
+    if auto_start and created_shots:
+        for s in created_shots:
+            tid = _enqueue_shot_task(s, full_wf)
+            task_ids.append(tid)
+        db.update_vids_workflow(wf_id, {"status": "generating"})
+        full_wf = db.get_vids_workflow(wf_id)
+
     return {
         "success": True,
         "workflow": full_wf,
         "imported_count": len(created_shots),
-        "import_mode": import_mode
+        "import_mode": import_mode,
+        "auto_started": bool(task_ids),
+        "task_ids": task_ids,
+        "message": f"成功导入 {len(created_shots)} 个镜头" + (f"，已自动启动并排队下发 {len(task_ids)} 个生成任务！" if task_ids else "。")
     }
 
 
@@ -469,20 +487,29 @@ def _resolve_local_image_path(p_str: str) -> str:
         p_str = p_str[8:]
     elif p_str.startswith("file://"):
         p_str = p_str[7:]
-    if "/media/file" in p_str and "path=" in p_str:
-        parsed = urllib.parse.urlparse(p_str)
-        qs = urllib.parse.parse_qs(parsed.query)
-        if "path" in qs and qs["path"]:
-            p_str = qs["path"][0].strip().strip('"\'')
-    if "/api/vids/assets/" in p_str:
-        fname = p_str.split("/api/vids/assets/")[-1].split("?")[0]
-        local_p = (UPLOADS_VIDS_DIR / fname).resolve()
-        if local_p.exists():
-            return str(local_p)
-    p = Path(p_str)
-    if p.exists() and p.is_file():
-        return str(p.resolve())
-    return p_str
+
+    unquoted = urllib.parse.unquote(p_str).strip().strip('"\'')
+    if unquoted.startswith("file:///"):
+        unquoted = unquoted[8:]
+    elif unquoted.startswith("file://"):
+        unquoted = unquoted[7:]
+
+    for candidate in [p_str, unquoted]:
+        if "/media/file" in candidate and "path=" in candidate:
+            parsed = urllib.parse.urlparse(candidate)
+            qs = urllib.parse.parse_qs(parsed.query)
+            if "path" in qs and qs["path"]:
+                candidate = qs["path"][0].strip().strip('"\'')
+                candidate = urllib.parse.unquote(candidate).strip().strip('"\'')
+        if "/api/vids/assets/" in candidate:
+            fname = candidate.split("/api/vids/assets/")[-1].split("?")[0]
+            local_p = (UPLOADS_VIDS_DIR / fname).resolve()
+            if local_p.exists():
+                return str(local_p)
+        p = Path(candidate)
+        if p.exists() and p.is_file():
+            return str(p.resolve())
+    return unquoted or p_str
 
 
 def _enqueue_shot_task(shot: Dict[str, Any], wf: Dict[str, Any]) -> str:

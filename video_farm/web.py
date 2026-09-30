@@ -783,6 +783,12 @@ async def create_task(
         # Google Flow 支持 首尾帧插值(i2v with end frame)、单首帧(i2v)或纯文生视频(t2v)
         pass
 
+    target_prof_id = assigned_profile_id.strip() if assigned_profile_id and assigned_profile_id.strip() else None
+    if not target_prof_id or target_prof_id.lower() in ("auto", "none", "null"):
+        best_p = db.pick_best_profile(require_clean=require_clean_watermark, db_path=DB_PATH) or db.pick_best_profile(require_clean=False, db_path=DB_PATH)
+        if best_p:
+            target_prof_id = best_p.id
+
     task = Task(
         id=task_id,
         prompt=prompt.strip(),
@@ -796,7 +802,7 @@ async def create_task(
         status="queued",
         priority=priority,
         require_clean_watermark=require_clean_watermark,
-        assigned_profile_id=assigned_profile_id or None
+        assigned_profile_id=target_prof_id
     )
     
     db.add_task(task, DB_PATH)
@@ -831,6 +837,12 @@ async def create_image_task_endpoint(
     elif ref_image_path and Path(ref_image_path).exists():
         ref_dest_str = str(Path(ref_image_path).resolve())
 
+    target_prof_id = assigned_profile_id.strip() if assigned_profile_id and assigned_profile_id.strip() else None
+    if not target_prof_id or target_prof_id.lower() in ("auto", "none", "null"):
+        best_p = db.pick_best_profile(require_clean=False, db_path=DB_PATH)
+        if best_p:
+            target_prof_id = best_p.id
+
     task = Task(
         id=task_id,
         prompt=prompt.strip(),
@@ -843,7 +855,7 @@ async def create_image_task_endpoint(
         duration_sec=0,
         status="queued",
         priority=priority,
-        assigned_profile_id=assigned_profile_id or None
+        assigned_profile_id=target_prof_id
     )
     
     db.add_task(task, DB_PATH)
@@ -973,7 +985,7 @@ def retry_task(task_id: str):
         with conn:
             conn.execute("""
             UPDATE tasks
-            SET status = 'queued', assigned_profile_id = NULL, retry_count = 0, error_code = NULL, error_message = NULL, updated_at = ?
+            SET status = 'queued', retry_count = 0, error_code = NULL, error_message = NULL, updated_at = ?
             WHERE id = ?
             """, (time.strftime("%Y-%m-%dT%H:%M:%S%z"), task_id))
     finally:
@@ -1598,9 +1610,22 @@ def api_pipeline_file_preview(path: str = Query(...)):
 
 @app.get("/media/file")
 def serve_arbitrary_local_file(path: str = Query(...)):
-    p = Path(path).resolve()
+    import urllib.parse
+    cleaned = urllib.parse.unquote(path).strip().strip('"\'')
+    if cleaned.startswith("file:///"):
+        cleaned = cleaned[8:]
+    elif cleaned.startswith("file://"):
+        cleaned = cleaned[7:]
+    
+    p = Path(cleaned).resolve()
     if not p.exists() or not p.is_file():
-        raise HTTPException(status_code=404, detail="文件不存在")
+        # 尝试原样解析
+        p_raw = Path(path).resolve()
+        if p_raw.exists() and p_raw.is_file():
+            p = p_raw
+        else:
+            raise HTTPException(status_code=404, detail=f"文件不存在: {cleaned}")
+            
     ext = p.suffix.lower()
     allowed = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".mp4", ".mp3", ".wav"}
     if ext not in allowed:
@@ -1613,6 +1638,8 @@ def serve_arbitrary_local_file(path: str = Query(...)):
         media_type = "image/jpeg"
     elif ext == ".mp4":
         media_type = "video/mp4"
+    elif ext == ".gif":
+        media_type = "image/gif"
     return FileResponse(str(p), media_type=media_type)
 
 from .vids_router import router as vids_router
