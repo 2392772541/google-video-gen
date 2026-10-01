@@ -26,8 +26,9 @@ class Task:
     prompt: str
     start_image_path: str = ""
     end_image_path: str = ""
+    input_video_path: str = ""  # 多模态参考视频路径 (.mp4, .mov 等)
     engine: str = "flow"  # "flow" (Google Flow 首尾帧/文生图) 或 "gemini" (Gemini 官方网页版)
-    task_type: str = "video"  # "video" (视频生成) 或 "image" (图像生成)
+    task_type: str = "video"  # "video" (视频生成), "image" (图像生成) 或 "audio" (音频生成/配音)
     model: str = ""  # 视频模型: veo-lite, veo-fast, veo-quality, omni-flash 等; 图像模型: imagen4, nano-pro, nano2 等
     project_id: str = ""
     aspect_ratio: str = "9:16"
@@ -43,6 +44,7 @@ class Task:
     finish_time: Optional[str] = None
     output_video_path: Optional[str] = None
     output_image_paths: Optional[str] = None  # JSON string of generated image paths, e.g. [".../img1.png"]
+    output_audio_path: Optional[str] = None  # 生成的音频文件路径 (.mp3 等)
     first_frame_ncc: Optional[float] = None
     last_frame_ncc: Optional[float] = None
     last_vs_start_ncc: Optional[float] = None

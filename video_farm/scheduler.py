@@ -315,6 +315,8 @@ class VideoScheduler:
             task_type = getattr(task, "task_type", "video") or "video"
             if task_type == "image":
                 exec_res = self.flow_worker.execute_image_task(task, profile)
+            elif task_type == "audio":
+                exec_res = self.gemini_worker.execute_audio_task(task, profile)
             elif engine_name == "gemini":
                 exec_res = self.gemini_worker.execute_task(task, profile)
             else:
@@ -515,7 +517,7 @@ class VideoScheduler:
                 )
                 return
 
-            # ---------------- 成功生成 -> 图像任务直接结单 / 视频进入质检验收 ----------------
+            # ---------------- 成功生成 -> 图像/音频任务直接结单 / 视频进入质检验收 ----------------
             task_type = getattr(task, "task_type", "video") or "video"
             if task_type == "image":
                 img_paths = exec_res.get("output_image_paths") or []
@@ -530,6 +532,20 @@ class VideoScheduler:
                 db.update_profile_status(profile_id=profile_id, status="idle", success=True, db_path=self.db_path)
                 count = len(img_paths)
                 db.log_task_event(task_id, "TASK_COMPLETED", f"图像生成完成，共获得 {count} 张高质图片", db_path=self.db_path)
+                return
+
+            if task_type == "audio":
+                audio_path = exec_res.get("output_audio_path")
+                db.update_task_status(
+                    task_id=task_id,
+                    status="completed",
+                    output_audio_path=audio_path,
+                    logs=exec_res.get("logs") or "",
+                    db_path=self.db_path
+                )
+                db.update_profile_status(profile_id=profile_id, status="idle", success=True, db_path=self.db_path)
+                audio_name = Path(audio_path).name if audio_path else "音频文件"
+                db.log_task_event(task_id, "TASK_COMPLETED", f"音频生成完成: {audio_name}", db_path=self.db_path)
                 return
 
             video_path = exec_res["output_video_path"]

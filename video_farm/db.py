@@ -69,9 +69,11 @@ def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 engine TEXT DEFAULT 'flow', -- 'flow', 'gemini'
-                task_type TEXT DEFAULT 'video', -- 'video', 'image'
+                task_type TEXT DEFAULT 'video', -- 'video', 'image', 'audio'
                 model TEXT DEFAULT '',
+                input_video_path TEXT DEFAULT '',
                 output_image_paths TEXT,
+                output_audio_path TEXT,
                 FOREIGN KEY(assigned_profile_id) REFERENCES profiles(id)
             )
             """)
@@ -138,6 +140,10 @@ def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
                 conn.execute("ALTER TABLE tasks ADD COLUMN model TEXT DEFAULT ''")
             if "output_image_paths" not in cols:
                 conn.execute("ALTER TABLE tasks ADD COLUMN output_image_paths TEXT")
+            if "input_video_path" not in cols:
+                conn.execute("ALTER TABLE tasks ADD COLUMN input_video_path TEXT DEFAULT ''")
+            if "output_audio_path" not in cols:
+                conn.execute("ALTER TABLE tasks ADD COLUMN output_audio_path TEXT")
 
             # Ensure columns exist in vids_workflows
             vids_wf_cols = [r["name"] for r in conn.execute("PRAGMA table_info(vids_workflows)").fetchall()]
@@ -202,13 +208,16 @@ def row_to_task(row: sqlite3.Row) -> Task:
     engine = row_dict.get("engine", "flow") or "flow"
     task_type = row_dict.get("task_type", "video") or "video"
     model = row_dict.get("model", "") or ""
+    input_video_path = row_dict.get("input_video_path", "") or ""
     output_image_paths = row_dict.get("output_image_paths")
+    output_audio_path = row_dict.get("output_audio_path")
     t = Task(
         id=row["id"],
         project_id=row["project_id"] or "",
         prompt=row["prompt"],
         start_image_path=row["start_image_path"],
         end_image_path=row["end_image_path"],
+        input_video_path=input_video_path,
         aspect_ratio=row["aspect_ratio"],
         duration_sec=row["duration_sec"],
         status=row["status"],
@@ -235,7 +244,8 @@ def row_to_task(row: sqlite3.Row) -> Task:
         updated_at=row["updated_at"],
         engine=engine,
         task_type=task_type,
-        model=model
+        model=model,
+        output_audio_path=output_audio_path
     )
     return t
 
@@ -412,7 +422,9 @@ def add_task(task: Task, db_path: Path = DEFAULT_DB_PATH) -> None:
     engine = getattr(task, "engine", "flow") or "flow"
     task_type = getattr(task, "task_type", "video") or "video"
     model = getattr(task, "model", "") or ""
+    input_video_path = getattr(task, "input_video_path", "") or ""
     output_image_paths = getattr(task, "output_image_paths", None)
+    output_audio_path = getattr(task, "output_audio_path", None)
     try:
         with conn:
             conn.execute("""
@@ -420,14 +432,14 @@ def add_task(task: Task, db_path: Path = DEFAULT_DB_PATH) -> None:
                 id, project_id, prompt, start_image_path, end_image_path, aspect_ratio,
                 duration_sec, status, assigned_profile_id, priority, retry_count,
                 max_retries, require_clean_watermark, submit_time, created_at, updated_at, engine,
-                task_type, model, output_image_paths
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                task_type, model, input_video_path, output_image_paths, output_audio_path
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 task.id, task.project_id, task.prompt, task.start_image_path, task.end_image_path,
                 task.aspect_ratio, task.duration_sec, task.status, task.assigned_profile_id,
                 task.priority, task.retry_count, task.max_retries, 1 if task.require_clean_watermark else 0,
                 task.submit_time, task.created_at, task.updated_at, engine,
-                task_type, model, output_image_paths
+                task_type, model, input_video_path, output_image_paths, output_audio_path
             ))
     finally:
         conn.close()
@@ -466,6 +478,7 @@ def update_task_status(
     clear_assigned_profile: bool = False,
     output_video_path: Optional[str] = None,
     output_image_paths: Optional[str] = None,
+    output_audio_path: Optional[str] = None,
     error_code: Optional[str] = None,
     error_message: Optional[str] = None,
     logs: Optional[str] = None,
@@ -498,6 +511,10 @@ def update_task_status(
             if output_image_paths is not None:
                 updates.append("output_image_paths = ?")
                 params.append(output_image_paths)
+
+            if output_audio_path is not None:
+                updates.append("output_audio_path = ?")
+                params.append(output_audio_path)
 
             if error_code is not None:
                 updates.append("error_code = ?")

@@ -265,15 +265,24 @@ class GeminiWebWorker:
                         except Exception as me:
                             logs.append(f"切换模型提示 (不阻断主流程): {me}")
 
-                    # 6. 如果有参考图输入，附加参考图
+                    # 6. 如果有多模态素材输入 (参考视频或参考图)，附加素材到 Gemini 输入框
+                    media_files = []
+                    if getattr(task, "input_video_path", None) and Path(task.input_video_path).exists():
+                        ref_video = Path(task.input_video_path).resolve()
+                        media_files.append(str(ref_video))
+                        logs.append(f"正在准备附加多模态参考视频素材: {ref_video.name}")
+
                     if task.start_image_path and Path(task.start_image_path).exists():
                         ref_img = Path(task.start_image_path).resolve()
+                        media_files.append(str(ref_img))
                         logs.append(f"正在准备附加参考图素材: {ref_img.name}")
+
+                    if media_files:
                         file_input = page.query_selector('input[type="file"]')
                         if file_input:
-                            file_input.set_input_files(str(ref_img))
-                            logs.append("已通过文件输入口上传参考图")
-                            page.wait_for_timeout(2000)
+                            file_input.set_input_files(media_files)
+                            logs.append(f"已通过文件输入口上传多模态素材: {[Path(m).name for m in media_files]}")
+                            page.wait_for_timeout(3500)
                         else:
                             logs.append("未发现独立 file input，尝试通过提示词上下文协同")
 
@@ -472,5 +481,247 @@ class GeminiWebWorker:
                 "error_code": err_code,
                 "error_message": err_str,
                 "output_video_path": None,
+                "logs": "\n".join(logs)
+            }
+
+    def execute_audio_task(self, task: Task, profile: Profile) -> Dict[str, Any]:
+        """
+        Gemini 网页端多模态音频生成 / 配音工作台：
+        - 访问 gemini.google.com/app
+        - 支持上传本地视频附件 (.mp4/.mov) 或参考图作为多模态上下文
+        - 支持提交音频提示词生成配音/音效/解说台词
+        - 优先抓取页面生成的音频流或朗读音频，同时提供 edge_tts 高质合成兜底，输出标准的 .mp3
+        """
+        worker_name = threading.current_thread().name
+        profile_dir = self._resolve_profile_dir(profile)
+        
+        logs = []
+        logs.append(f"[{worker_name}] 启动 Gemini 网页端多模态音频生成引擎 (Profile: {profile.name})")
+        logs.append(f"Profile 目录: {profile_dir}")
+        logs.append(f"Prompt: {task.prompt}")
+
+        if not profile_dir.exists():
+            profile_dir.mkdir(parents=True, exist_ok=True)
+
+        from playwright.sync_api import sync_playwright
+        output_audio_path = self.output_dir / f"{task.id}.mp3"
+
+        try:
+            with sync_playwright() as p:
+                launch_args = [
+                    "--disable-blink-features=AutomationControlled",
+                    "--no-sandbox"
+                ]
+                logs.append("正在拉起 Chrome 浏览器会话...")
+                try:
+                    browser = p.chromium.launch_persistent_context(
+                        user_data_dir=str(profile_dir.resolve()),
+                        channel="chrome",
+                        headless=self.headless,
+                        args=launch_args
+                    )
+                except Exception as launch_exc:
+                    lexc_str = str(launch_exc).lower()
+                    logs.append(f"拉起浏览器异常: {launch_exc}")
+                    if any(k in lexc_str for k in ["target closed", "browser has been closed", "singleton", "lock", "in use", "already running"]):
+                        return {
+                            "success": False,
+                            "pid": os.getpid(),
+                            "error_code": "PROFILE_LOCKED",
+                            "error_message": f"Profile [{profile.name}] 正在被运行中的 Chrome 窗口占用。请关闭外部 Chrome 窗口后重试。",
+                            "output_audio_path": None,
+                            "logs": "\n".join(logs)
+                        }
+                    raise launch_exc
+
+                try:
+                    page = browser.new_page()
+                    logs.append("正在打开 Gemini 主工作区 https://gemini.google.com/app ...")
+                    page.goto("https://gemini.google.com/app", timeout=35000)
+                    page.wait_for_timeout(3000)
+                    self._dismiss_overlays(page, logs)
+
+                    # 检查输入框
+                    input_selector = 'rich-textarea div[contenteditable="true"], div.ql-editor[contenteditable="true"], [contenteditable="true"], textarea'
+                    has_input = False
+                    try:
+                        page.wait_for_selector(input_selector, timeout=8000)
+                        has_input = True
+                    except Exception:
+                        has_input = False
+
+                    if not has_input:
+                        logs.append("未检测到有效输入框，可能未登录或被弹窗拦截")
+                        return {
+                            "success": False,
+                            "pid": os.getpid(),
+                            "error_code": "AUTH_EXPIRED",
+                            "error_message": f"Gemini 网页版未登录或会话已过期 (Profile: {profile.name})",
+                            "output_audio_path": None,
+                            "logs": "\n".join(logs)
+                        }
+
+                    input_el = page.query_selector(input_selector)
+
+                    # 多模态素材上传 (参考视频或参考图)
+                    media_files = []
+                    if getattr(task, "input_video_path", None) and Path(task.input_video_path).exists():
+                        ref_v = Path(task.input_video_path).resolve()
+                        media_files.append(str(ref_v))
+                        logs.append(f"准备附加参考视频附件: {ref_v.name}")
+
+                    if task.start_image_path and Path(task.start_image_path).exists():
+                        ref_img = Path(task.start_image_path).resolve()
+                        media_files.append(str(ref_img))
+                        logs.append(f"准备附加参考图附件: {ref_img.name}")
+
+                    if media_files:
+                        file_input = page.query_selector('input[type="file"]')
+                        if file_input:
+                            file_input.set_input_files(media_files)
+                            logs.append(f"已上传多模态参考附件: {[Path(m).name for m in media_files]}")
+                            page.wait_for_timeout(3500)
+
+                    # 填写提示词并发送
+                    final_prompt = task.prompt.strip()
+                    input_el.scroll_into_view_if_needed()
+                    input_el.click(force=True)
+                    page.wait_for_timeout(300)
+                    input_el.fill(final_prompt)
+                    logs.append(f"已输入音频提示词: {final_prompt}")
+                    page.wait_for_timeout(1000)
+
+                    send_selectors = [
+                        'button[aria-label="Send message"]',
+                        'button[aria-label*="Send"]',
+                        'button[aria-label*="发送"]',
+                        '.send-button-container button',
+                        '[data-test-id="send-button"]'
+                    ]
+                    submitted = False
+                    for s_sel in send_selectors:
+                        s_btn = page.query_selector(s_sel)
+                        if s_btn and s_btn.is_visible():
+                            s_btn.click(force=True)
+                            submitted = True
+                            logs.append("已通过发送按钮提交音频生成请求")
+                            break
+                    if not submitted:
+                        page.keyboard.press("Enter")
+                        logs.append("已通过回车键提交音频请求")
+
+                    page.wait_for_timeout(4000)
+
+                    # 轮询等待回答或音频
+                    logs.append("等待 Gemini 响应...")
+                    start_t = time.time()
+                    audio_found = False
+                    captured_text = ""
+
+                    while (time.time() - start_t) < min(self.timeout_sec, 120):
+                        time.sleep(3.0)
+                        
+                        # 检查音频标签
+                        audios = page.query_selector_all("audio")
+                        for a in audios:
+                            src = a.get_attribute("src")
+                            if src and (src.startswith("http") or src.startswith("blob:")):
+                                logs.append(f"捕获到页面音频元素: {src[:60]}")
+                                try:
+                                    b64_data = page.evaluate("""
+                                        async (audio) => {
+                                            try {
+                                                const res = await fetch(audio.src, { credentials: 'include' });
+                                                if (!res.ok) return null;
+                                                const blob = await res.blob();
+                                                return new Promise((resolve) => {
+                                                    const reader = new FileReader();
+                                                    reader.onloadend = () => resolve(reader.result);
+                                                    reader.readAsDataURL(blob);
+                                                });
+                                            } catch (err) {
+                                                return null;
+                                            }
+                                        }
+                                    """, a)
+                                    if b64_data and "," in b64_data:
+                                        raw_bytes = base64.b64decode(b64_data.split(",", 1)[1])
+                                        if len(raw_bytes) > 1000:
+                                            with open(output_audio_path, "wb") as af:
+                                                af.write(raw_bytes)
+                                            logs.append(f"已成功提取原生音频并转存: {output_audio_path} ({len(raw_bytes)} 字节)")
+                                            audio_found = True
+                                            break
+                                except Exception as a_exc:
+                                    logs.append(f"提取音频流异常: {a_exc}")
+
+                        if audio_found:
+                            break
+
+                        # 检查是否有回答完成
+                        model_responses = page.query_selector_all("model-response")
+                        if model_responses:
+                            last_txt = model_responses[-1].inner_text().strip()
+                            if len(last_txt) > 5:
+                                captured_text = last_txt
+                                # 检查是否不再在流式输出
+                                page.wait_for_timeout(2000)
+                                latest_txt = model_responses[-1].inner_text().strip()
+                                if latest_txt == captured_text and (time.time() - start_t) > 8:
+                                    logs.append("Gemini 回答已完全生成")
+                                    break
+
+                    # 如果没有直接抓到原生 audio 元素，但有生成的文本/配音稿，使用 edge_tts 兜底渲染为高质量音频
+                    if not audio_found:
+                        target_speech = captured_text.strip() or final_prompt
+                        # 去除可能的 Markdown 代码块或系统提示
+                        if "```" in target_speech:
+                            parts = target_speech.split("```")
+                            target_speech = parts[1] if len(parts) > 1 else target_speech
+                        logs.append(f"采用语音合成引擎将文本生成高保真音频: {target_speech[:50]}...")
+                        try:
+                            import asyncio
+                            import edge_tts
+                            async def _gen_tts():
+                                comm = edge_tts.Communicate(target_speech, "zh-CN-YunxiNeural")
+                                await comm.save(str(output_audio_path))
+                            asyncio.run(_gen_tts())
+                            if output_audio_path.exists() and output_audio_path.stat().st_size > 1000:
+                                logs.append(f"高品质音频生成完成: {output_audio_path} ({output_audio_path.stat().st_size} 字节)")
+                                audio_found = True
+                        except Exception as tts_err:
+                            logs.append(f"音频合成异常: {tts_err}")
+
+                    if audio_found and output_audio_path.exists():
+                        return {
+                            "success": True,
+                            "pid": os.getpid(),
+                            "error_code": None,
+                            "error_message": None,
+                            "output_audio_path": str(output_audio_path.resolve()),
+                            "logs": "\n".join(logs)
+                        }
+                    else:
+                        return {
+                            "success": False,
+                            "pid": os.getpid(),
+                            "error_code": "AUDIO_GEN_FAILED",
+                            "error_message": "未能生成或提取到有效音频产物",
+                            "output_audio_path": None,
+                            "logs": "\n".join(logs)
+                        }
+
+                finally:
+                    browser.close()
+                    logs.append("浏览器会话已安全退出。")
+
+        except Exception as exc:
+            logs.append(f"执行音频任务异常: {exc}")
+            return {
+                "success": False,
+                "pid": os.getpid(),
+                "error_code": "EXCEPTION",
+                "error_message": str(exc),
+                "output_audio_path": None,
                 "logs": "\n".join(logs)
             }

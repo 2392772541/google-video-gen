@@ -102,3 +102,11 @@ update_vids_js.py
 
 video_farm/_backups_*/
 
+
+# 临时测试截图及排查脚本
+current_*.png
+page_verify.png
+tasks_*.png
+temp_check_ui.py
+test_clean.py
+video_farm/tests/*.png

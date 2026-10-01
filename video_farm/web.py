@@ -638,6 +638,8 @@ def get_tasks(status: Optional[str] = None, limit: int = 100):
 
         has_video = bool(t.output_video_path and Path(t.output_video_path).exists())
         video_filename = Path(t.output_video_path).name if has_video else None
+        has_audio = bool(getattr(t, "output_audio_path", None) and Path(t.output_audio_path).exists())
+        audio_filename = Path(t.output_audio_path).name if has_audio else None
         img_paths, img_urls = _resolve_output_images(t)
         
         qa_task_dir = QA_DIR / t.id
@@ -645,6 +647,7 @@ def get_tasks(status: Optional[str] = None, limit: int = 100):
         last_frame_url = f"/media/qa/{t.id}/last_frame.png" if (qa_task_dir / "last_frame.png").exists() else None
         start_img_url = _resolve_image_url(t.start_image_path, t.id, "start")
         end_img_url = _resolve_image_url(t.end_image_path, t.id, "end")
+        input_vid_url = _resolve_image_url(getattr(t, "input_video_path", None), t.id, "input_video")
 
         res.append({
             "id": t.id,
@@ -656,6 +659,11 @@ def get_tasks(status: Optional[str] = None, limit: int = 100):
             "model": getattr(t, "model", "") or "",
             "image_paths": img_paths,
             "image_urls": img_urls,
+            "input_video_path": getattr(t, "input_video_path", "") or "",
+            "input_video_url": input_vid_url,
+            "output_audio_path": getattr(t, "output_audio_path", None),
+            "has_audio": has_audio,
+            "audio_url": f"/media/outputs/{audio_filename}" if audio_filename else None,
             "aspect_ratio": t.aspect_ratio,
             "duration_sec": t.duration_sec,
             "assigned_profile_id": t.assigned_profile_id,
@@ -725,7 +733,7 @@ def parse_shot_info(prompt: Optional[str]):
                 n = CN_NUM.get(num_str, 0)
         return n, sub
 
-    m2 = re.match(r'^([0-9]{1,3})[_\-\.、\s]+(?![0-9]|秒|s|min|分|p|k)', p, re.I)
+    m2 = re.match(r'^([0-9]{1,3})[_\-\.、\s]+(?![0-9]|秒|s|min|分|p|k|:)', p, re.I)
     if m2:
         return int(m2.group(1)), ''
     return None, ''
@@ -734,23 +742,35 @@ def clean_title_desc(prompt: Optional[str]) -> str:
     if not prompt:
         return '生成视频'
     p = prompt.strip()
-    # 1. 剥离镜头前缀，例如 "镜头03A：" 或 "第2镜 | " 或 "01_"
-    p = re.sub(r'^(?:镜头|shot|scene|第)\s*[0-9一二两三四五六七八九十]+[a-zA-Z]?(?:镜)?(?:[\s\|：:_\-\.、]+)?', '', p, flags=re.I).strip()
-    p = re.sub(r'^[0-9]{1,3}[_\-\.、\s]+(?![0-9]|秒|s|min|分|p|k)', '', p, flags=re.I).strip()
-    # 2. 如果开头是纯规格说明（如 "8秒16:9横屏"，"10s 9:16竖屏"），清理掉规格前缀
-    p = re.sub(r'^[0-9]{1,3}\s*(?:秒|s|min|分)?\s*(?:[0-9]{1,2}\s*[:：]\s*[0-9]{1,2})?\s*(?:横屏|竖屏)?(?:[，,、\s]+)?', '', p, flags=re.I).strip()
-    # 3. 按主要标点切出主标题，注意避免把比例 16:9 的冒号切断
+    # 循环清洗剥离前缀（镜头编号、数字序号、时长规格、宽高比）
+    for _ in range(5):
+        old_p = p
+        # 1. 镜头前缀 如 镜头01、第2镜、shot 3A、01_
+        p = re.sub(r'^(?:镜头|shot|scene|第)\s*[0-9一二两三四五六七八九十]+[a-zA-Z]?(?:镜)?(?:[\s\|：:_\-\.、]+)?', '', p, flags=re.I).strip()
+        p = re.sub(r'^[0-9]{1,3}[_\-\.、\s]+(?![0-9]|秒|s|min|分|p|k|:)', '', p, flags=re.I).strip()
+        # 2. 规格说明 如 8秒、8s、16:9、9:16、横屏、竖屏、4k
+        p = re.sub(r'^[0-9]{1,3}\s*(?:秒|s|min|分)\s*(?:[，,、\s\|：:]+)?', '', p, flags=re.I).strip()
+        p = re.sub(r'^[0-9]{1,2}\s*[:：]\s*[0-9]{1,2}\s*(?:横屏|竖屏)?(?:[，,、\s\|：:]+)?', '', p, flags=re.I).strip()
+        p = re.sub(r'^(?:横屏|竖屏|4k|1080p)\s*(?:[，,、\s\|：:]+)?', '', p, flags=re.I).strip()
+        p = re.sub(r'^[：:\|，,、\s_\-]+', '', p).strip()
+        if p == old_p:
+            break
+
+    # 3. 按主标点切取第一个核心表达句
     parts = re.split(r'(?<!\d)[:：](?!\d)|[\|，,。；;\r\n]', p)
     first_part = ''
     for part in parts:
         clean_part = part.strip()
         if len(clean_part) >= 2:
+            if clean_part in ('特写镜头', '全景镜头', '中景镜头', '近景镜头', '远景镜头', '空镜头', '镜头'):
+                continue
             first_part = clean_part
             break
-    desc = first_part if first_part else p
+    desc = first_part if first_part else (parts[0].strip() if parts else p)
     cleaned = re.sub(r'[^\w\-一-龥]', '_', desc)
     cleaned = re.sub(r'_+', '_', cleaned).strip('_')
     return cleaned[:25] or '视频'
+
 
 def format_ordered_filename(task, index: Optional[int] = None, ext: Optional[str] = None) -> str:
     raw_prompt = getattr(task, 'prompt', None) or (task.get('prompt') if isinstance(task, dict) else '') or ''
@@ -760,7 +780,13 @@ def format_ordered_filename(task, index: Optional[int] = None, ext: Optional[str
     ratio = getattr(task, 'aspect_ratio', None) or (task.get('aspect_ratio') if isinstance(task, dict) else None) or '16-9'
     ratio = str(ratio).replace(':', '-')
     if not ext:
-        ext = '.mp4'
+        task_type = getattr(task, 'task_type', None) or (task.get('task_type') if isinstance(task, dict) else 'video')
+        if task_type == 'audio':
+            ext = '.mp3'
+        elif task_type == 'image':
+            ext = '.png'
+        else:
+            ext = '.mp4'
 
     if shot_num is not None:
         shot_label = f"镜头{shot_num:02d}{sub}"
@@ -800,6 +826,10 @@ def download_single_task(task_id: str):
         file_path = Path(t.output_video_path)
         media_type = "video/mp4"
         ext = file_path.suffix or ".mp4"
+    elif getattr(t, "output_audio_path", None) and Path(t.output_audio_path).is_file():
+        file_path = Path(t.output_audio_path)
+        media_type = "audio/mpeg"
+        ext = file_path.suffix or ".mp3"
     elif getattr(t, "output_image_paths", None):
         try:
             imgs = json.loads(t.output_image_paths) if isinstance(t.output_image_paths, str) else t.output_image_paths
@@ -851,6 +881,8 @@ def batch_download_tasks_zip(req: Optional[BatchTasksReq] = None, task_ids: Opti
         p = None
         if t.output_video_path and Path(t.output_video_path).is_file():
             p = Path(t.output_video_path)
+        elif getattr(t, "output_audio_path", None) and Path(t.output_audio_path).is_file():
+            p = Path(t.output_audio_path)
         elif getattr(t, "output_image_paths", None):
             try:
                 imgs = json.loads(t.output_image_paths) if isinstance(t.output_image_paths, str) else t.output_image_paths
@@ -931,6 +963,11 @@ def get_task_detail(task_id: str):
         "model": getattr(t, "model", "") or "",
         "image_paths": img_paths,
         "image_urls": img_urls,
+        "input_video_path": getattr(t, "input_video_path", "") or "",
+        "input_video_url": _resolve_image_url(getattr(t, "input_video_path", None), task_id, "input_video"),
+        "output_audio_path": getattr(t, "output_audio_path", None),
+        "has_audio": bool(getattr(t, "output_audio_path", None) and Path(t.output_audio_path).exists()),
+        "audio_url": f"/media/outputs/{Path(t.output_audio_path).name}" if (getattr(t, "output_audio_path", None) and Path(t.output_audio_path).exists()) else None,
         "start_image_url": _resolve_image_url(t.start_image_path, task_id, "start"),
         "end_image_url": _resolve_image_url(t.end_image_path, task_id, "end"),
         "status": t.status,
@@ -963,11 +1000,14 @@ def get_task_detail(task_id: str):
 async def create_task(
     prompt: str = Form(...),
     engine: str = Form("flow"),
+    task_type: str = Form("video"),
     model: str = Form("veo-lite"),
     start_image: Optional[UploadFile] = File(None),
     end_image: Optional[UploadFile] = File(None),
     start_image_path: Optional[str] = Form(None),
     end_image_path: Optional[str] = Form(None),
+    input_video: Optional[UploadFile] = File(None),
+    input_video_path: Optional[str] = Form(None),
     priority: int = Form(10),
     aspect_ratio: str = Form("9:16"),
     duration_sec: int = Form(8),
@@ -983,6 +1023,7 @@ async def create_task(
     
     start_dest_str = ""
     end_dest_str = ""
+    input_video_dest_str = ""
     
     # 优先解析上传的文件；若无上传文件，则使用传入的本地文件路径
     if start_image and start_image.filename:
@@ -1002,10 +1043,21 @@ async def create_task(
         end_dest_str = str(end_dest.resolve())
     elif end_image_path and Path(end_image_path).exists():
         end_dest_str = str(Path(end_image_path).resolve())
+
+    if input_video and input_video.filename:
+        vid_ext = Path(input_video.filename or "input_video.mp4").suffix or ".mp4"
+        vid_dest = task_upload_dir / f"input_video{vid_ext}"
+        with open(vid_dest, "wb") as f:
+            shutil.copyfileobj(input_video.file, f)
+        input_video_dest_str = str(vid_dest.resolve())
+    elif input_video_path and Path(input_video_path).exists():
+        input_video_dest_str = str(Path(input_video_path).resolve())
     
-    if engine == "flow":
-        # Google Flow 支持 首尾帧插值(i2v with end frame)、单首帧(i2v)或纯文生视频(t2v)
-        pass
+    # 若是音频任务，强制使用 Gemini 多模态引擎
+    if task_type == "audio":
+        engine = "gemini"
+        if not model or model == "veo-lite":
+            model = "gemini-audio"
 
     target_prof_id = assigned_profile_id.strip() if assigned_profile_id and assigned_profile_id.strip() else None
     if not target_prof_id or target_prof_id.lower() in ("auto", "none", "null"):
@@ -1018,9 +1070,10 @@ async def create_task(
         prompt=prompt.strip(),
         start_image_path=start_dest_str,
         end_image_path=end_dest_str,
+        input_video_path=input_video_dest_str,
         engine=engine,
-        task_type="video",
-        model=model.strip() if model else "veo-lite",
+        task_type=task_type,
+        model=model.strip() if model else ("gemini-audio" if task_type == "audio" else "veo-lite"),
         aspect_ratio=aspect_ratio,
         duration_sec=duration_sec,
         status="queued",
@@ -1030,9 +1083,71 @@ async def create_task(
     )
     
     db.add_task(task, DB_PATH)
-    engine_desc = "Google Flow (首尾帧模式)" if engine == "flow" else "Gemini 网页版"
-    db.log_task_event(task_id, "TASK_CREATED_WEB", f"通过Web控制台提交视频任务，引擎: {engine_desc}，模型: {task.model}", db_path=DB_PATH)
-    return {"id": task_id, "status": "queued", "engine": engine, "message": f"{engine_desc}任务创建成功并已加入队列"}
+    if task_type == "audio":
+        engine_desc = "Gemini 多模态音频/配音工作台"
+    else:
+        engine_desc = "Google Flow (首尾帧模式)" if engine == "flow" else "Gemini 网页版"
+    db.log_task_event(task_id, "TASK_CREATED_WEB", f"通过Web控制台提交任务[{task_type}]，引擎: {engine_desc}，模型: {task.model}", db_path=DB_PATH)
+    return {"id": task_id, "status": "queued", "engine": engine, "task_type": task_type, "message": f"{engine_desc}任务创建成功并已加入队列"}
+
+@app.post("/api/tasks/create-audio")
+async def create_audio_task_endpoint(
+    prompt: str = Form(...),
+    model: str = Form("gemini-audio"),
+    input_video: Optional[UploadFile] = File(None),
+    input_video_path: Optional[str] = Form(None),
+    ref_image: Optional[UploadFile] = File(None),
+    ref_image_path: Optional[str] = Form(None),
+    priority: int = Form(10),
+    assigned_profile_id: Optional[str] = Form(None)
+):
+    if not prompt.strip():
+        raise HTTPException(status_code=400, detail="音频/配音提示词不能为空")
+    
+    task_id = f"task_{uuid.uuid4().hex[:12]}"
+    task_upload_dir = UPLOADS_DIR / task_id
+    task_upload_dir.mkdir(parents=True, exist_ok=True)
+    
+    video_dest_str = ""
+    if input_video and input_video.filename:
+        vid_ext = Path(input_video.filename or "input.mp4").suffix or ".mp4"
+        vid_dest = task_upload_dir / f"input_video{vid_ext}"
+        with open(vid_dest, "wb") as f:
+            shutil.copyfileobj(input_video.file, f)
+        video_dest_str = str(vid_dest.resolve())
+    elif input_video_path and Path(input_video_path).exists():
+        video_dest_str = str(Path(input_video_path).resolve())
+
+    ref_dest_str = ""
+    if ref_image and ref_image.filename:
+        ref_ext = Path(ref_image.filename or "ref.png").suffix or ".png"
+        ref_dest = task_upload_dir / f"ref{ref_ext}"
+        with open(ref_dest, "wb") as f:
+            shutil.copyfileobj(ref_image.file, f)
+        ref_dest_str = str(ref_dest.resolve())
+    elif ref_image_path and Path(ref_image_path).exists():
+        ref_dest_str = str(Path(ref_image_path).resolve())
+
+    target_prof_id = assigned_profile_id.strip() if assigned_profile_id and assigned_profile_id.strip() else None
+    if not target_prof_id or target_prof_id.lower() in ("auto", "none", "null"):
+        target_prof_id = None
+
+    task = Task(
+        id=task_id,
+        prompt=prompt.strip(),
+        start_image_path=ref_dest_str,
+        input_video_path=video_dest_str,
+        engine="gemini",
+        task_type="audio",
+        model=model.strip() if model else "gemini-audio",
+        status="queued",
+        priority=priority,
+        assigned_profile_id=target_prof_id
+    )
+    
+    db.add_task(task, DB_PATH)
+    db.log_task_event(task_id, "TASK_CREATED_WEB", f"通过Web控制台提交Gemini多模态音频/配音任务，模型: {task.model}", db_path=DB_PATH)
+    return {"id": task_id, "status": "queued", "engine": "gemini", "task_type": "audio", "message": "Gemini音频/配音任务创建成功并已加入队列"}
 
 @app.post("/api/tasks/create-image")
 async def create_image_task_endpoint(
@@ -1168,14 +1283,32 @@ async def create_batch_tasks(request: Request):
         item_pid = str(item.get("assigned_profile_id") or item.get("profile_id") or "").strip()
         final_assigned_profile = item_pid or locked_profile_id
 
+        task_type = str(item.get("task_type") or "video").strip().lower()
+        if task_type not in ["video", "image", "audio"]:
+            task_type = "video"
+
+        raw_input_vid = (item.get("input_video_path") or item.get("input_video") or item.get("reference_video") or "").strip()
+        input_vid_str = ""
+        if raw_input_vid:
+            v_path = Path(raw_input_vid)
+            if not v_path.is_absolute():
+                v_path = (BASE_DIR / v_path).resolve()
+            input_vid_str = str(v_path)
+
+        if task_type == "audio":
+            engine = "gemini"
+            if not model or model == "veo-lite":
+                model = "gemini-audio"
+
         t_id = f"task_{uuid.uuid4().hex[:12]}"
         task = Task(
             id=t_id,
             prompt=prompt,
             start_image_path=s_path_str,
             end_image_path=e_path_str,
+            input_video_path=input_vid_str,
             engine=engine,
-            task_type="video",
+            task_type=task_type,
             model=model,
             aspect_ratio=aspect_ratio,
             duration_sec=duration_sec,
