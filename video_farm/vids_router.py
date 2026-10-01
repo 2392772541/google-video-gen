@@ -647,11 +647,15 @@ def reset_workflow_shots_status(workflow_id: str):
     
     shots = db.list_vids_shots(workflow_id)
     for s in shots:
+        # 保留已有成片记录，防止用户点击重置后历史成片丢失
+        existing_video_url = s.get("video_url") or ""
+        existing_local_path = s.get("local_video_path") or ""
         db.update_vids_shot(s["id"], {
             "status": "pending",
             "progress": 0,
             "error_message": "",
-            "video_url": "",
+            "video_url": existing_video_url,
+            "local_video_path": existing_local_path,
             "task_id": ""
         })
         

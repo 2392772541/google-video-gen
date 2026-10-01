@@ -92,3 +92,13 @@ scripts/monitor_tasks.py
 scripts/poll_loop.py
 scripts/run_shot1.py
 scripts/submit_6_shots.py
+
+vids_*.png
+patch_db_router.py
+test_verbatim.py
+update_vids_all.py
+update_vids_js.py
+
+
+video_farm/_backups_*/
+

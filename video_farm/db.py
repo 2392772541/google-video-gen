@@ -160,6 +160,8 @@ def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
                 conn.execute("ALTER TABLE vids_shots ADD COLUMN model_name TEXT DEFAULT 'Omni'")
             if "task_id" not in vids_shot_cols:
                 conn.execute("ALTER TABLE vids_shots ADD COLUMN task_id TEXT DEFAULT ''")
+            if "local_video_path" not in vids_shot_cols:
+                conn.execute("ALTER TABLE vids_shots ADD COLUMN local_video_path TEXT DEFAULT ''")
 
             event_cols = [r["name"] for r in conn.execute("PRAGMA table_info(task_events)").fetchall()]
             if "detail" not in event_cols:
@@ -671,6 +673,20 @@ def sync_shot_with_task(shot_dict: Dict[str, Any], conn: sqlite3.Connection) -> 
             v_url = f"/media/outputs/{p_out.name}"
             if shot_dict.get("video_url") != v_url:
                 updates["video_url"] = v_url
+            try:
+                local_path_str = str(p_out.resolve())
+            except Exception:
+                local_path_str = str(p_out)
+            if shot_dict.get("local_video_path") != local_path_str:
+                updates["local_video_path"] = local_path_str
+            shot_dict["local_video_path"] = local_path_str
+        elif shot_dict.get("video_url") and not shot_dict.get("local_video_path"):
+            v_val = shot_dict.get("video_url")
+            if v_val.startswith("/media/outputs/"):
+                fname = v_val.split("/media/outputs/")[-1]
+                local_p = Path("video_farm_data/outputs") / fname
+                if local_p.exists():
+                    shot_dict["local_video_path"] = str(local_p.resolve())
         if shot_dict.get("error_message"):
             updates["error_message"] = ""
     elif t_status in ("running", "dispatching", "verifying"):
