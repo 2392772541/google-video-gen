@@ -1,6 +1,7 @@
 from __future__ import annotations
 from .onboard import auto_onboard_profile
 import os
+import re
 import sys
 import time
 import json
@@ -700,6 +701,72 @@ def batch_delete_tasks_endpoint(req: BatchTasksReq):
     return db.batch_delete_tasks(req.task_ids, delete_files=True, db_path=DB_PATH)
 
 
+CN_NUM = {'一': 1, '二': 2, '两': 2, '三': 3, '四': 4, '五': 5, '六': 6, '七': 7, '八': 8, '九': 9, '十': 10}
+
+def parse_shot_info(prompt: Optional[str]):
+    if not prompt:
+        return None, ''
+    m = re.search(r'(?:镜头|shot|scene|第)\s*([0-9一二两三四五六七八九十]+)\s*([a-zA-Z]?)(?:镜)?', prompt, re.I)
+    if m:
+        num_str = m.group(1)
+        sub = m.group(2).upper()
+        if num_str.isdigit():
+            n = int(num_str)
+        else:
+            n = 0
+            if num_str == '十':
+                n = 10
+            elif num_str.startswith('十'):
+                n = 10 + CN_NUM.get(num_str[1], 0)
+            elif num_str.endswith('十'):
+                n = CN_NUM.get(num_str[0], 1) * 10
+            else:
+                n = CN_NUM.get(num_str, 0)
+        return n, sub
+
+    m2 = re.match(r'^\s*([0-9]+)\s*([a-zA-Z]?)(?:[\._\s\|：:])', prompt)
+    if m2:
+        return int(m2.group(1)), m2.group(2).upper()
+    return None, ''
+
+def clean_title_desc(prompt: Optional[str]) -> str:
+    if not prompt:
+        return '生成视频'
+    p = prompt.strip()
+    p = re.sub(r'^(?:镜头|shot|scene|第)?\s*[0-9一二两三四五六七八九十]+[a-zA-Z]?(?:镜)?(?:[\s\|：:_\-\.、]+)?', '', p, flags=re.I).strip()
+    first_part = re.split(r'[:：\|，,。；;]', p)[0].strip()
+    desc = first_part if len(first_part) >= 2 else p
+    cleaned = re.sub(r'[^\w\-一-龥]', '_', desc)
+    cleaned = re.sub(r'_+', '_', cleaned).strip('_')
+    return cleaned[:25] or '视频'
+
+def format_ordered_filename(task, index: Optional[int] = None, ext: Optional[str] = None) -> str:
+    raw_prompt = getattr(task, 'prompt', '') or ''
+    shot_num, sub = parse_shot_info(raw_prompt)
+    desc = clean_title_desc(raw_prompt)
+    eng = getattr(task, 'engine', 'flow') or 'flow'
+    ratio = (getattr(task, 'aspect_ratio', '16-9') or '16-9').replace(':', '-')
+    if not ext:
+        ext = '.mp4'
+
+    if shot_num is not None:
+        prefix = f'镜头{shot_num:02d}{sub}'
+    elif index is not None:
+        prefix = f'{index:02d}'
+    else:
+        prefix = '视频'
+
+    return f'{prefix}_{desc}_{eng}_{ratio}{ext}'
+
+def get_task_sort_key(task_tuple):
+    t = task_tuple[0] if isinstance(task_tuple, (tuple, list)) else task_tuple
+    shot_num, sub = parse_shot_info(getattr(t, 'prompt', '') or '')
+    if shot_num is not None:
+        return (0, shot_num, sub, str(getattr(t, 'created_at', '') or ''))
+    else:
+        return (1, 999999, '', str(getattr(t, 'created_at', '') or ''))
+
+
 @app.get("/api/tasks/{task_id}/download")
 def download_single_task(task_id: str):
     t = db.get_task(task_id, DB_PATH)
@@ -726,9 +793,7 @@ def download_single_task(task_id: str):
     if not file_path or not file_path.is_file():
         raise HTTPException(status_code=404, detail="该任务尚未生成完成或产物文件不存在")
         
-    raw_prompt = (t.prompt or "").replace("\r", " ").replace("\n", " ").strip()
-    safe_prompt = "".join(c for c in raw_prompt if c.isalnum() or c in (" ", "_", "-")).strip()[:25] or task_id
-    filename = f"{t.id}_{safe_prompt}{ext}"
+    filename = format_ordered_filename(t, ext=ext)
     encoded_filename = urllib.parse.quote(filename)
     
     return FileResponse(
@@ -779,6 +844,9 @@ def batch_download_tasks_zip(req: Optional[BatchTasksReq] = None, task_ids: Opti
     if not tasks_to_pack:
         raise HTTPException(status_code=400, detail="选中的任务中没有已完成可下载的媒体成片")
         
+    # 严格按照镜头序号升序排序（镜头01、02、03A、03B... 无镜头的按创建时间升序排列）
+    tasks_to_pack.sort(key=get_task_sort_key)
+
     temp_zip = tempfile.NamedTemporaryFile(delete=False, suffix=".zip", prefix="video_farm_batch_")
     temp_zip_path = Path(temp_zip.name)
     temp_zip.close()
@@ -786,11 +854,7 @@ def batch_download_tasks_zip(req: Optional[BatchTasksReq] = None, task_ids: Opti
     try:
         with zipfile.ZipFile(temp_zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
             for idx, (t, p) in enumerate(tasks_to_pack, 1):
-                raw_prompt = (t.prompt or "").replace("\r", " ").replace("\n", " ").strip()
-                clean_prompt = "".join(c for c in raw_prompt if c.isalnum() or c in (" ", "_", "-")).strip()[:20]
-                eng = getattr(t, "engine", "flow") or "flow"
-                ratio = (getattr(t, "aspect_ratio", "16-9") or "16-9").replace(":", "-")
-                arc_name = f"{idx:02d}_{t.id}_{clean_prompt}_{eng}_{ratio}{p.suffix}"
+                arc_name = format_ordered_filename(t, index=idx, ext=p.suffix)
                 zf.write(p, arcname=arc_name)
     except Exception as e:
         if temp_zip_path.exists():
@@ -1800,7 +1864,7 @@ def serve_index():
     index_file = STATIC_DIR / "index.html"
     if not index_file.exists():
         return JSONResponse({"message": "Video Farm Studio Web API is running, but static/index.html is not created yet."})
-    return FileResponse(str(index_file))
+    return FileResponse(str(index_file), headers={"Cache-Control": "no-cache, no-store, must-revalidate, max-age=0", "Pragma": "no-cache"})
 
 def main():
     import argparse
