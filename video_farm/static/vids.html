@@ -7,7 +7,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Google Vids · 连续长视频工作流工作台</title>
-  <link rel="stylesheet" href="/static/style.css?v=20261001_v9">
+  <link rel="stylesheet" href="/static/style.css?v=20261001_v11">
   <style>
     .vids-container {
       max-width: 1280px;
@@ -171,39 +171,74 @@
       gap: 8px;
     }
 
-    /* 架构与用法清晰指引横幅 */
-    .vids-guide-banner {
-      background: linear-gradient(135deg, rgba(30, 41, 59, 0.85), rgba(15, 23, 42, 0.95));
-      border: 1px solid rgba(59, 130, 246, 0.3);
+    /* 极简 4 步流水线指示器 */
+    .vids-pipeline-steps {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr auto 1fr auto 1fr;
+      align-items: center;
+      gap: 8px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-color);
       border-radius: var(--radius-lg);
-      padding: 12px 18px;
+      padding: 10px 16px;
+      box-shadow: var(--shadow-sm);
+    }
+    @media (max-width: 900px) {
+      .vids-pipeline-steps {
+        display: flex;
+        flex-direction: column;
+        align-items: stretch;
+      }
+      .pipeline-arrow {
+        display: none;
+      }
+    }
+    .pipeline-step {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 6px 12px;
+      border-radius: var(--radius-md);
+      background: var(--bg-card);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      transition: all 0.2s;
+    }
+    .pipeline-step:hover {
+      border-color: rgba(59, 130, 246, 0.35);
+      background: rgba(59, 130, 246, 0.05);
+    }
+    .pipeline-step .step-num {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--blue-primary), var(--cyan-accent));
+      color: #fff;
       font-size: 12px;
-      color: var(--text-sub);
-      line-height: 1.6;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      box-shadow: 0 2px 6px rgba(37, 99, 235, 0.3);
+    }
+    .pipeline-step .step-text {
       display: flex;
       flex-direction: column;
-      gap: 6px;
+      gap: 1px;
     }
-    .vids-guide-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      flex-wrap: wrap;
-      gap: 10px;
-    }
-    .vids-guide-items {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 16px;
+    .pipeline-step .step-text strong {
       font-size: 12px;
-    }
-    .vids-guide-item {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-    .vids-guide-item strong {
       color: var(--text-main);
+    }
+    .pipeline-step .step-text span {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+    .pipeline-arrow {
+      color: var(--text-muted);
+      font-size: 13px;
+      font-weight: bold;
+      text-align: center;
     }
 
     /* 预设风格 Chip */
@@ -611,7 +646,10 @@
         </div>
       </div>
       <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
-        <button class="btn btn-secondary btn-sm" onclick="loadWorkflowList()">📂 切换工作流</button>
+        <div style="display: flex; align-items: center; gap: 6px; background: var(--bg-card); padding: 4px 8px 4px 12px; border-radius: var(--radius-md); border: 1px solid var(--border-color);">
+          <label for="workflow-select" style="font-size: 12px; color: var(--text-sub); white-space: nowrap; font-weight: 600;">📁 当前工程:</label>
+          <select id="workflow-select" class="form-select" onchange="onWorkflowSelectChange(this.value)" style="min-width: 260px; max-width: 360px; height: 30px; font-size: 12px; font-weight: 600; padding: 2px 8px; border: 1px solid rgba(59,130,246,0.3); background: var(--bg-surface); color: var(--text-main); cursor: pointer;"></select>
+        </div>
         <button class="btn btn-secondary btn-sm" onclick="openJsonModal('import')" style="display:flex; align-items:center; gap:6px; background: rgba(59,130,246,0.12); border-color: var(--blue-primary); color: #fff;">
           📥 JSON 批量导入/导出
         </button>
@@ -721,27 +759,37 @@
       </div>
     </div>
 
-    <!-- 协作流程与架构指引横幅 -->
-    <div class="vids-guide-banner">
-      <div class="vids-guide-row">
-        <div style="display: flex; align-items: center; gap: 8px;">
-          <span style="font-size: 16px;">💡</span>
-          <strong style="color: var(--text-main);">Google Vids 连续生成工作流运作机制与使用指引：</strong>
+    <!-- 极简 4 步流线胶囊指示器 (直观展示 Vids 与 Flow 协同以及关窗释放内存设计) -->
+    <div class="vids-pipeline-steps" style="margin-bottom: 4px;">
+      <div class="pipeline-step">
+        <div class="step-num">1</div>
+        <div class="step-text">
+          <strong>① 导入分镜资产</strong>
+          <span>批量导入 JSON / 本地首尾帧</span>
         </div>
-        <span class="badge" style="background: rgba(16,185,129,0.15); color: #10b981; border: 1px solid rgba(16,185,129,0.3);">高画质 1080p 就绪</span>
       </div>
-      <div class="vids-guide-items">
-        <div class="vids-guide-item">
-          <span>⚙️ <strong>生成引擎</strong>：后台由 Google Veo (1080p) / Flow 顶尖视频模型执行首尾帧过渡与镜头生成</span>
+      <div class="pipeline-arrow">➔</div>
+      <div class="pipeline-step">
+        <div class="step-num">2</div>
+        <div class="step-text">
+          <strong>② Veo 1080p 极速渲染</strong>
+          <span>电影级镜头插值 (Flow/Veo)</span>
         </div>
-        <div class="vids-guide-item">
-          <span>🎬 <strong>原地回显播放</strong>：生成完毕后直接在下方镜头卡片<strong>原地挂载播放器</strong>，随时试听试看</span>
+      </div>
+      <div class="pipeline-arrow">➔</div>
+      <div class="pipeline-step">
+        <div class="step-num">3</div>
+        <div class="step-text">
+          <strong>③ 原地秒播 · 释放内存</strong>
+          <span>卡片即显试看，关窗释放800MB</span>
         </div>
-        <div class="vids-guide-item">
-          <span>📋 <strong>直接导入 Vids</strong>：点击卡片上的【复制本地路径】，在 Google Vids「上传视频」弹窗中粘贴即可秒速置入时间线</span>
-        </div>
-        <div class="vids-guide-item">
-          <span>🛡️ <strong>系统内存守护</strong>：单次成片抓取后，自动化后台自动安全释放浏览器进程（释放 ~800MB 内存），保护系统流畅</span>
+      </div>
+      <div class="pipeline-arrow">➔</div>
+      <div class="pipeline-step">
+        <div class="step-num">4</div>
+        <div class="step-text">
+          <strong>④ 一键置入 Google Vids</strong>
+          <span>复制本地路径，粘贴进剪辑画布</span>
         </div>
       </div>
     </div>
@@ -860,6 +908,6 @@
     </div>
   </div>
 
-  <script src="/static/vids.js?v=20261001_v9"></script>
+  <script src="/static/vids.js?v=20261001_v11"></script>
 </body>
 </html>

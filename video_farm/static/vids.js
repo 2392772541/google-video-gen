@@ -243,71 +243,148 @@ function selectPreset(preset) {
   appendLog(`已应用风格预设资产包：「${title}」`, 'highlight');
 }
 
-// 加载初始工作流
+// 刷新并渲染顶部工作流下拉选择菜单
+async function refreshWorkflowSelect(targetId) {
+  const selectEl = document.getElementById("workflow-select");
+  if (!selectEl) return;
+  try {
+    const data = await api("/workflows");
+    const workflows = data.workflows || [];
+    selectEl.innerHTML = "";
+
+    workflows.forEach((w) => {
+      const total = w.total_shots !== undefined ? w.total_shots : ((w.shots || []).length);
+      const completed = w.completed_shots !== undefined ? w.completed_shots : ((w.shots || []).filter(s => s.status === "completed" || s.video_url).length);
+      const opt = document.createElement("option");
+      opt.value = w.id;
+
+      let badge = "";
+      if (completed > 0) {
+        badge = `🎬 [已成片 ${completed}/${total}] `;
+      } else if (total > 0) {
+        badge = `⏳ [待生成 0/${total}] `;
+      } else {
+        badge = `📁 [空工程] `;
+      }
+      opt.textContent = `${badge}${w.title} (${w.resolution || "1080p"})`;
+      if (w.id === targetId) {
+        opt.selected = true;
+      }
+      selectEl.appendChild(opt);
+    });
+
+    if (targetId) {
+      selectEl.value = targetId;
+    }
+  } catch (err) {
+    console.error("刷新工作流下拉菜单失败:", err);
+  }
+}
+
+// 用户在下拉菜单切换工作流事件
+async function onWorkflowSelectChange(workflowId) {
+  if (!workflowId || workflowId === state.currentWorkflowId) return;
+  appendLog(`正在切换工作流至: ${workflowId}...`, "info");
+  await selectWorkflow(workflowId);
+}
+
+// 加载初始工作流（智能选取：记忆 > 有成片 > 镜头最多 > 首个）
 async function loadInitialWorkflow() {
-  const data = await api('/workflows');
+  const data = await api("/workflows");
   const workflows = data.workflows || [];
-  if (workflows.length > 0) {
-    await selectWorkflow(workflows[0].id);
-  } else {
+  if (workflows.length === 0) {
     // 自动创建一个默认示范工作流（1080p，Omni多模态）
-    const newWf = await api('/workflows', {
-      method: 'POST',
+    const newWf = await api("/workflows", {
+      method: "POST",
       body: {
-        title: '示例工程 · 电影感多镜头连续连拍工作流 (1080p)',
-        doc_url: 'https://docs.google.com/videos/d/1EXFiC89I2CzVObDNGCXejn-FYySYoaKPjRIG8Fa6nS4/edit',
-        style_prompt: 'Cinematic 8k, Unreal Engine 5 render, anamorphic lens, high contrast, atmospheric lighting, ultra-detailed.',
-        aspect_ratio: '16:9',
+        title: "示例工程 · 电影感多镜头连续连拍工作流 (1080p)",
+        doc_url: "https://docs.google.com/videos/d/1EXFiC89I2CzVObDNGCXejn-FYySYoaKPjRIG8Fa6nS4/edit",
+        style_prompt: "Cinematic 8k, Unreal Engine 5 render, anamorphic lens, high contrast, atmospheric lighting, ultra-detailed.",
+        aspect_ratio: "16:9",
         duration_per_shot: 10,
-        resolution: '1080p',
-        model_name: 'Omni'
+        resolution: "1080p",
+        model_name: "Omni"
       }
     });
     await selectWorkflow(newWf.id);
+    return;
   }
+
+  // 1. 尝试从 localStorage 恢复用户上次查看或生成的工程
+  const savedId = localStorage.getItem("vids_last_workflow_id");
+  let targetWf = workflows.find(w => w.id === savedId);
+
+  // 2. 如果没有记忆或该工作流已被删除，优先寻找拥有已生成成片的工作流（如刚生成的抗逆防卫 vw_ac70a427c2）
+  if (!targetWf) {
+    targetWf = workflows.find(w => (w.completed_shots || 0) > 0 || ((w.shots || []).some(s => s.status === "completed" || s.video_url)));
+  }
+
+  // 3. 如果都没有成片，优先寻找包含分镜镜头数最多的工作流
+  if (!targetWf) {
+    let maxShots = -1;
+    workflows.forEach(w => {
+      const count = w.total_shots !== undefined ? w.total_shots : ((w.shots || []).length);
+      if (count > maxShots) {
+        maxShots = count;
+        targetWf = w;
+      }
+    });
+  }
+
+  // 4. 兜底取第一个
+  if (!targetWf) {
+    targetWf = workflows[0];
+  }
+
+  await selectWorkflow(targetWf.id);
 }
 
 // 选择/加载工作流详情
 async function selectWorkflow(workflowId) {
   state.currentWorkflowId = workflowId;
+  localStorage.setItem("vids_last_workflow_id", workflowId);
+
   const wf = await api(`/workflows/${workflowId}`);
   state.workflow = wf;
 
+  // 刷新并同步下拉框选中状态
+  await refreshWorkflowSelect(workflowId);
+
   // 更新顶部标题与描述
-  const titleEl = getEl('workflow-title-display', 'current-workflow-title');
+  const titleEl = getEl("workflow-title-display", "current-workflow-title");
   if (titleEl) titleEl.textContent = wf.title;
 
-  const docTitleEl = document.getElementById('vids-doc-title');
+  const docTitleEl = document.getElementById("vids-doc-title");
   if (docTitleEl) docTitleEl.textContent = `当前工程: ${wf.title}`;
 
-  const descEl = getEl('workflow-meta-desc', 'current-workflow-desc');
+  const descEl = getEl("workflow-meta-desc", "current-workflow-desc");
   if (descEl) {
-    const res = wf.resolution || '1080p';
-    const model = wf.model_name || 'Omni';
-    descEl.textContent = `画幅 ${wf.aspect_ratio || '16:9'} · 清晰度 ${res} · 模型 ${model} · 单镜头 ${wf.duration_per_shot || 10}秒 · 包含 ${(wf.shots || []).length} 个分镜 · 原地即显即播并支持绝对路径直接导入 Google Vids`;
+    const res = wf.resolution || "1080p";
+    const model = wf.model_name || "Omni";
+    descEl.textContent = `画幅 ${wf.aspect_ratio || "16:9"} · 清晰度 ${res} · 模型 ${model} · 单镜头 ${wf.duration_per_shot || 10}秒 · 包含 ${(wf.shots || []).length} 个分镜 · 原地即显即播并支持绝对路径直接导入 Google Vids`;
   }
 
-  const promptInput = getEl('wf-style-prompt', 'global-style-prompt');
-  if (promptInput) promptInput.value = wf.style_prompt || '';
+  const promptInput = getEl("wf-style-prompt", "global-style-prompt");
+  if (promptInput) promptInput.value = wf.style_prompt || "";
 
-  const aspectSelect = getEl('wf-aspect-ratio', 'workflow-aspect-ratio');
-  if (aspectSelect) aspectSelect.value = wf.aspect_ratio || '16:9';
+  const aspectSelect = getEl("wf-aspect-ratio", "workflow-aspect-ratio");
+  if (aspectSelect) aspectSelect.value = wf.aspect_ratio || "16:9";
 
-  const durationSelect = getEl('wf-duration', 'workflow-shot-duration');
+  const durationSelect = getEl("wf-duration", "workflow-shot-duration");
   if (durationSelect) durationSelect.value = String(wf.duration_per_shot || 10);
 
-  const resSelect = getEl('wf-resolution', 'workflow-resolution');
-  if (resSelect) resSelect.value = wf.resolution || '1080p';
+  const resSelect = getEl("wf-resolution", "workflow-resolution");
+  if (resSelect) resSelect.value = wf.resolution || "1080p";
 
-  const modelSelect = getEl('wf-model-name', 'workflow-model-name');
-  if (modelSelect) modelSelect.value = wf.model_name || 'Omni';
+  const modelSelect = getEl("wf-model-name", "workflow-model-name");
+  if (modelSelect) modelSelect.value = wf.model_name || "Omni";
 
-  const docUrlInput = getEl('wf-doc-url', 'workflow-doc-url');
+  const docUrlInput = getEl("wf-doc-url", "workflow-doc-url");
   if (docUrlInput && wf.doc_url) docUrlInput.value = wf.doc_url;
 
   renderShots(wf.shots || []);
   updateOverallProgress(wf.shots || []);
-  appendLog(`已载入工作流 [${wf.title}] (画质: ${wf.resolution || '1080p'}, 模型: ${wf.model_name || 'Omni'})，共 ${(wf.shots || []).length} 个分镜卡片。`, 'info');
+  appendLog(`已载入工作流 [${wf.title}] (画质: ${wf.resolution || "1080p"}, 模型: ${wf.model_name || "Omni"})，共 ${(wf.shots || []).length} 个分镜卡片。`, "info");
 }
 
 // 渲染分镜卡片
