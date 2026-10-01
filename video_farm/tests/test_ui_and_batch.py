@@ -67,7 +67,7 @@ def run_tests():
         page.wait_for_timeout(1000)
         
         # 统计选中的卡片
-        checked_boxes = page.query_selector_all(".task-select-chk:checked")
+        checked_boxes = page.query_selector_all(".task-item-checkbox:checked")
         print(f"已勾选卡片复选框数量: {len(checked_boxes)}")
         
         stats_text = page.query_selector("#batch-stats-text").inner_text()
@@ -94,7 +94,7 @@ def run_tests():
         print("点击【全选本页】复选框...")
         chk_all.check()
         page.wait_for_timeout(800)
-        checked_after_all = page.query_selector_all(".task-select-chk:checked")
+        checked_after_all = page.query_selector_all(".task-item-checkbox:checked")
         print(f"全选后勾选数量: {len(checked_after_all)}")
         
         # 7. 测试反选
@@ -102,7 +102,7 @@ def run_tests():
         print("点击【反选】按钮...")
         btn_invert.click()
         page.wait_for_timeout(800)
-        checked_after_invert = page.query_selector_all(".task-select-chk:checked")
+        checked_after_invert = page.query_selector_all(".task-item-checkbox:checked")
         print(f"反选后勾选数量: {len(checked_after_invert)}")
         
         browser.close()
