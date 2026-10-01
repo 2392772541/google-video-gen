@@ -706,7 +706,8 @@ CN_NUM = {'一': 1, '二': 2, '两': 2, '三': 3, '四': 4, '五': 5, '六': 6, 
 def parse_shot_info(prompt: Optional[str]):
     if not prompt:
         return None, ''
-    m = re.search(r'(?:镜头|shot|scene|第)\s*([0-9一二两三四五六七八九十]+)\s*([a-zA-Z]?)(?:镜)?', prompt, re.I)
+    p = prompt.strip()
+    m = re.search(r'(?:镜头|shot|scene|第)\s*([0-9一二两三四五六七八九十]+)\s*([a-zA-Z]?)(?:镜)?', p, re.I)
     if m:
         num_str = m.group(1)
         sub = m.group(2).upper()
@@ -724,18 +725,29 @@ def parse_shot_info(prompt: Optional[str]):
                 n = CN_NUM.get(num_str, 0)
         return n, sub
 
-    m2 = re.match(r'^\s*([0-9]+)\s*([a-zA-Z]?)(?:[\._\s\|：:])', prompt)
+    m2 = re.match(r'^([0-9]{1,3})[_\-\.、\s]+(?![0-9]|秒|s|min|分|p|k)', p, re.I)
     if m2:
-        return int(m2.group(1)), m2.group(2).upper()
+        return int(m2.group(1)), ''
     return None, ''
 
 def clean_title_desc(prompt: Optional[str]) -> str:
     if not prompt:
         return '生成视频'
     p = prompt.strip()
-    p = re.sub(r'^(?:镜头|shot|scene|第)?\s*[0-9一二两三四五六七八九十]+[a-zA-Z]?(?:镜)?(?:[\s\|：:_\-\.、]+)?', '', p, flags=re.I).strip()
-    first_part = re.split(r'[:：\|，,。；;]', p)[0].strip()
-    desc = first_part if len(first_part) >= 2 else p
+    # 1. 剥离镜头前缀，例如 "镜头03A：" 或 "第2镜 | " 或 "01_"
+    p = re.sub(r'^(?:镜头|shot|scene|第)\s*[0-9一二两三四五六七八九十]+[a-zA-Z]?(?:镜)?(?:[\s\|：:_\-\.、]+)?', '', p, flags=re.I).strip()
+    p = re.sub(r'^[0-9]{1,3}[_\-\.、\s]+(?![0-9]|秒|s|min|分|p|k)', '', p, flags=re.I).strip()
+    # 2. 如果开头是纯规格说明（如 "8秒16:9横屏"，"10s 9:16竖屏"），清理掉规格前缀
+    p = re.sub(r'^[0-9]{1,3}\s*(?:秒|s|min|分)?\s*(?:[0-9]{1,2}\s*[:：]\s*[0-9]{1,2})?\s*(?:横屏|竖屏)?(?:[，,、\s]+)?', '', p, flags=re.I).strip()
+    # 3. 按主要标点切出主标题，注意避免把比例 16:9 的冒号切断
+    parts = re.split(r'(?<!\d)[:：](?!\d)|[\|，,。；;\r\n]', p)
+    first_part = ''
+    for part in parts:
+        clean_part = part.strip()
+        if len(clean_part) >= 2:
+            first_part = clean_part
+            break
+    desc = first_part if first_part else p
     cleaned = re.sub(r'[^\w\-一-龥]', '_', desc)
     cleaned = re.sub(r'_+', '_', cleaned).strip('_')
     return cleaned[:25] or '视频'
