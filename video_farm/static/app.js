@@ -31,6 +31,8 @@ document.addEventListener("DOMContentLoaded", () => {
     batchStatsText: document.getElementById("batch-stats-text"),
     btnBatchDownload: document.getElementById("btn-batch-download"),
     btnBatchDelete: document.getElementById("btn-batch-delete"),
+    btnBatchSelectCompleted: document.getElementById("btn-batch-select-completed"),
+    btnQuickSelectCompleted: document.getElementById("btn-quick-select-completed"),
     schedulerDot: document.getElementById("scheduler-dot"),
     schedulerText: document.getElementById("scheduler-status-text"),
     btnToggleScheduler: document.getElementById("btn-toggle-scheduler"),
@@ -1462,6 +1464,33 @@ document.addEventListener("DOMContentLoaded", () => {
       state.selectedTaskIds.clear();
       renderTasks();
     });
+  }
+
+  const selectAllCompletedTasks = () => {
+    let addedCount = 0;
+    (state.tasks || []).forEach(t => {
+      if (t.status === "completed") {
+        if (t.has_video || (t.task_type === "image" && t.image_urls && t.image_urls.length > 0)) {
+          state.selectedTaskIds.add(t.id);
+          addedCount++;
+        }
+      }
+    });
+    renderTasks();
+    if (addedCount > 0) {
+      showToast(`已一键全选 ${addedCount} 个已完成成片，可直接点击右侧下载 ZIP！`, "success");
+      el.batchActionBar?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    } else {
+      showToast("当前暂无已生成完成的媒体成片", "warning");
+    }
+  };
+
+  if (el.btnBatchSelectCompleted) {
+    el.btnBatchSelectCompleted.addEventListener("click", selectAllCompletedTasks);
+  }
+
+  if (el.btnQuickSelectCompleted) {
+    el.btnQuickSelectCompleted.addEventListener("click", selectAllCompletedTasks);
   }
 
   if (el.btnBatchDownload) {

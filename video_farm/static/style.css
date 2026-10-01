@@ -3128,15 +3128,29 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-color);
+  background: linear-gradient(180deg, #131b2e 0%, #0d1322 100%);
+  border: 1px solid rgba(59, 130, 246, 0.45);
   border-radius: var(--radius-md);
-  padding: 10px 16px;
-  margin-bottom: 16px;
-  box-shadow: var(--shadow-sm);
+  padding: 12px 18px;
+  margin-bottom: 18px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.45), 0 0 15px rgba(59, 130, 246, 0.12);
   transition: all 0.2s ease;
   flex-wrap: wrap;
   gap: 12px;
+}
+
+#btn-batch-download:not(:disabled) {
+  background: linear-gradient(135deg, #2563eb 0%, #06b6d4 100%) !important;
+  border-color: #38bdf8 !important;
+  color: #ffffff !important;
+  font-weight: 600 !important;
+  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.45) !important;
+}
+
+#btn-batch-download:not(:disabled):hover {
+  background: linear-gradient(135deg, #1d4ed8 0%, #0891b2 100%) !important;
+  box-shadow: 0 6px 20px rgba(37, 99, 235, 0.6) !important;
+  transform: translateY(-1px);
 }
 
 .batch-left {

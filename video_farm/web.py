@@ -741,30 +741,38 @@ def clean_title_desc(prompt: Optional[str]) -> str:
     return cleaned[:25] or '视频'
 
 def format_ordered_filename(task, index: Optional[int] = None, ext: Optional[str] = None) -> str:
-    raw_prompt = getattr(task, 'prompt', '') or ''
+    raw_prompt = getattr(task, 'prompt', None) or (task.get('prompt') if isinstance(task, dict) else '') or ''
     shot_num, sub = parse_shot_info(raw_prompt)
     desc = clean_title_desc(raw_prompt)
-    eng = getattr(task, 'engine', 'flow') or 'flow'
-    ratio = (getattr(task, 'aspect_ratio', '16-9') or '16-9').replace(':', '-')
+    eng = getattr(task, 'engine', None) or (task.get('engine') if isinstance(task, dict) else None) or 'flow'
+    ratio = getattr(task, 'aspect_ratio', None) or (task.get('aspect_ratio') if isinstance(task, dict) else None) or '16-9'
+    ratio = str(ratio).replace(':', '-')
     if not ext:
         ext = '.mp4'
 
     if shot_num is not None:
-        prefix = f'镜头{shot_num:02d}{sub}'
-    elif index is not None:
-        prefix = f'{index:02d}'
+        shot_label = f"镜头{shot_num:02d}{sub}"
     else:
-        prefix = '视频'
+        shot_label = "分镜"
 
-    return f'{prefix}_{desc}_{eng}_{ratio}{ext}'
+    # 关键：当处于批量打包模式（传入全局自然序号 index）时，强制以绝对序号两位数开头，如 01_镜头01_两份原料...
+    # 彻底保证在 Windows 资源管理器或其他播放器中按默认名称排序时的先后顺序100%严格正确递增
+    if index is not None:
+        prefix = f"{index:02d}_{shot_label}"
+    else:
+        prefix = shot_label
+
+    return f"{prefix}_{desc}_{eng}_{ratio}{ext}"
 
 def get_task_sort_key(task_tuple):
     t = task_tuple[0] if isinstance(task_tuple, (tuple, list)) else task_tuple
-    shot_num, sub = parse_shot_info(getattr(t, 'prompt', '') or '')
+    raw_prompt = getattr(t, 'prompt', None) or (t.get('prompt') if isinstance(t, dict) else '') or ''
+    created_at = getattr(t, 'created_at', None) or (t.get('created_at') if isinstance(t, dict) else '') or ''
+    shot_num, sub = parse_shot_info(raw_prompt)
     if shot_num is not None:
-        return (0, shot_num, sub, str(getattr(t, 'created_at', '') or ''))
+        return (0, shot_num, sub, str(created_at))
     else:
-        return (1, 999999, '', str(getattr(t, 'created_at', '') or ''))
+        return (1, 999999, '', str(created_at))
 
 
 @app.get("/api/tasks/{task_id}/download")

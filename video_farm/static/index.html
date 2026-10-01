@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Video Farm · 首尾帧视频工坊控制台</title>
-  <link rel="stylesheet" href="/static/style.css?v=20261001_v3">
+  <link rel="stylesheet" href="/static/style.css?v=20261001_v5">
 </head>
 <body>
   <!-- 顶部常驻导航栏 -->
@@ -1044,7 +1044,8 @@
           <button class="filter-btn" data-filter="failed">❌ 失败 <span id="count-failed">0</span></button>
         </div>
 
-        <div style="display:flex; gap:10px;">
+        <div style="display:flex; gap:10px; align-items:center;">
+          <button class="btn btn-secondary btn-sm" id="btn-quick-select-completed" style="background: rgba(16, 185, 129, 0.15); border-color: rgba(16, 185, 129, 0.4); color: #34d399; font-weight: 600;" title="快速一键勾选所有已完成的视频成片">✨ 勾选所有成片</button>
           <button class="btn btn-secondary btn-sm" id="btn-refresh-tasks">🔄 刷新列表</button>
         </div>
       </div>
@@ -1059,6 +1060,7 @@
           </label>
           <button class="btn btn-secondary btn-xs" id="btn-batch-invert" title="反转当前勾选状态">反选</button>
           <button class="btn btn-secondary btn-xs" id="btn-batch-clear" title="清空所有勾选项">清空勾选</button>
+          <button class="btn btn-secondary btn-xs" id="btn-batch-select-completed" style="background: rgba(16, 185, 129, 0.18); border-color: rgba(16, 185, 129, 0.45); color: #34d399; font-weight: 600;" title="智能一键勾选所有已完成且可下载的成片">✨ 一键勾选所有已完成成片</button>
           <span class="batch-stats-text" id="batch-stats-text">已选中 <b>0</b> 项 (成片 <b>0</b> 个)</span>
         </div>
         <div class="batch-right">
@@ -1364,7 +1366,7 @@
   <!-- Toast 悬浮提示架 -->
   <div class="toast-shelf" id="toast-shelf"></div>
 
-  <script src="/static/app.js?v=20261001_v3"></script>
+  <script src="/static/app.js?v=20261001_v5"></script>
 </body>
 </html>
 
