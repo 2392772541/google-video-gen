@@ -1,7 +1,7 @@
 /**
  * Google Vids 连续生成工作台前端核心逻辑
- * Version: 20260929_v4
- * 支持：1080p画质、Omni/Veo模型、首尾帧/图生视频多模态、JSON批量导入/导出
+ * Version: 20261001_v10 (极简流式单栏 + 抽屉预设 + 全屏灯箱 + 原地成片回显)
+ * 支持：1080p画质、Omni/Veo模型、首尾帧/图生视频多模态、JSON批量导入/导出、本地绝对路径一键复制
  */
 
 // 全局状态
@@ -13,6 +13,11 @@ let state = {
   isContinuousRunning: false,
   autoRefreshTimer: null
 };
+
+// 元素兼容获取辅助函数
+function getEl(id1, id2) {
+  return document.getElementById(id1) || (id2 ? document.getElementById(id2) : null);
+}
 
 // 工具函数：网络请求
 async function api(path, options = {}) {
@@ -50,6 +55,7 @@ function escapeAttr(str) {
   return escapeHtml(str);
 }
 
+// 占位破损图 SVG
 const BROKEN_IMG_SVG = "data:image/svg+xml," + encodeURIComponent("<svg xmlns='http://www.w3.org/2000/svg' width='120' height='70' viewBox='0 0 120 70'><rect width='100%' height='100%' fill='#1e293b'/><text x='50%' y='50%' dominant-baseline='middle' text-anchor='middle' fill='#94a3b8' font-size='11' font-family='sans-serif'>未找到本地图片</text></svg>");
 
 // 转换首尾帧资产为可正常在浏览器展示的 URL
@@ -106,6 +112,42 @@ function getModeLabel(mode) {
   }
 }
 
+// --- 抽屉折叠控制 ---
+function toggleAssetsDrawer() {
+  const drawer = document.getElementById('assets-drawer');
+  const arrow = document.getElementById('drawer-arrow');
+  if (!drawer) return;
+  drawer.classList.toggle('open');
+  if (arrow) {
+    arrow.textContent = drawer.classList.contains('open') ? '▴' : '▾';
+  }
+}
+
+// --- 全屏高清灯箱控制 ---
+function openLightbox(imgSrc, title = '图片高清预览') {
+  if (!imgSrc) return;
+  const modal = document.getElementById('lightbox-modal');
+  const img = document.getElementById('lightbox-img');
+  const caption = document.getElementById('lightbox-caption');
+  if (!modal || !img) return;
+  img.src = imgSrc;
+  if (caption) caption.textContent = title;
+  modal.classList.add('active');
+}
+
+function closeLightbox() {
+  const modal = document.getElementById('lightbox-modal');
+  if (modal) modal.classList.remove('active');
+}
+
+// 监听键盘 ESC 键关闭灯箱与弹窗
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    closeLightbox();
+    closeJsonModal();
+  }
+});
+
 // 初始化
 document.addEventListener('DOMContentLoaded', async () => {
   appendLog('正在连接 Google Vids 工作流服务...', 'info');
@@ -114,7 +156,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     await loadPresets();
     await loadInitialWorkflow();
     startAutoRefresh();
-    appendLog('系统初始化完毕，1080p画质、首尾帧多模态与批量导入引擎已就绪。', 'success');
+    appendLog('系统初始化完毕，1080p画质、首尾帧多模态与极简流水线工作台已就绪。', 'success');
   } catch (err) {
     console.error('初始化失败:', err);
     appendLog('初始化失败: ' + err.message, 'error');
@@ -125,7 +167,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 async function loadOverview() {
   try {
     const overview = await api('/overview');
-    const badge = document.getElementById('doc-timeline-badge');
+    const badge = getEl('doc-timeline-badge', 'vids-doc-title');
     if (badge) {
       badge.textContent = `共 ${overview.workflows_count} 工作流 · ${overview.completed_shots}/${overview.total_shots} 镜头已成片`;
     }
@@ -178,17 +220,17 @@ function selectPreset(preset) {
   state.selectedPresetKey = key;
   renderPresetChips();
 
-  const promptInput = document.getElementById('global-style-prompt');
+  const promptInput = getEl('wf-style-prompt', 'global-style-prompt');
   if (promptInput) {
     promptInput.value = preset.style_prompt || '';
   }
 
-  const aspectSelect = document.getElementById('workflow-aspect-ratio');
+  const aspectSelect = getEl('wf-aspect-ratio', 'workflow-aspect-ratio');
   if (aspectSelect && preset.aspect_ratio) {
     aspectSelect.value = preset.aspect_ratio;
   }
 
-  const durationSelect = document.getElementById('workflow-shot-duration');
+  const durationSelect = getEl('wf-duration', 'workflow-shot-duration');
   if (durationSelect && preset.duration_per_shot) {
     durationSelect.value = String(preset.duration_per_shot);
   }
@@ -232,37 +274,40 @@ async function selectWorkflow(workflowId) {
   state.workflow = wf;
 
   // 更新顶部标题与描述
-  const titleEl = document.getElementById('current-workflow-title');
+  const titleEl = getEl('workflow-title-display', 'current-workflow-title');
   if (titleEl) titleEl.textContent = wf.title;
 
-  const descEl = document.getElementById('current-workflow-desc');
+  const docTitleEl = document.getElementById('vids-doc-title');
+  if (docTitleEl) docTitleEl.textContent = `当前工程: ${wf.title}`;
+
+  const descEl = getEl('workflow-meta-desc', 'current-workflow-desc');
   if (descEl) {
     const res = wf.resolution || '1080p';
     const model = wf.model_name || 'Omni';
-    descEl.textContent = `画幅 ${wf.aspect_ratio || '16:9'} · 清晰度 ${res} · 模型 ${model} · 单镜头 ${wf.duration_per_shot || 10}秒 · 包含 ${(wf.shots || []).length} 个镜头 · 连续自动建场景并置入画布`;
+    descEl.textContent = `画幅 ${wf.aspect_ratio || '16:9'} · 清晰度 ${res} · 模型 ${model} · 单镜头 ${wf.duration_per_shot || 10}秒 · 包含 ${(wf.shots || []).length} 个分镜 · 原地即显即播并支持绝对路径直接导入 Google Vids`;
   }
 
-  const promptInput = document.getElementById('global-style-prompt');
+  const promptInput = getEl('wf-style-prompt', 'global-style-prompt');
   if (promptInput) promptInput.value = wf.style_prompt || '';
 
-  const aspectSelect = document.getElementById('workflow-aspect-ratio');
+  const aspectSelect = getEl('wf-aspect-ratio', 'workflow-aspect-ratio');
   if (aspectSelect) aspectSelect.value = wf.aspect_ratio || '16:9';
 
-  const durationSelect = document.getElementById('workflow-shot-duration');
+  const durationSelect = getEl('wf-duration', 'workflow-shot-duration');
   if (durationSelect) durationSelect.value = String(wf.duration_per_shot || 10);
 
-  const resSelect = document.getElementById('workflow-resolution');
+  const resSelect = getEl('wf-resolution', 'workflow-resolution');
   if (resSelect) resSelect.value = wf.resolution || '1080p';
 
-  const modelSelect = document.getElementById('workflow-model-name');
+  const modelSelect = getEl('wf-model-name', 'workflow-model-name');
   if (modelSelect) modelSelect.value = wf.model_name || 'Omni';
 
-  const docUrlInput = document.getElementById('workflow-doc-url');
+  const docUrlInput = getEl('wf-doc-url', 'workflow-doc-url');
   if (docUrlInput && wf.doc_url) docUrlInput.value = wf.doc_url;
 
   renderShots(wf.shots || []);
   updateOverallProgress(wf.shots || []);
-  appendLog(`已载入工作流 [${wf.title}] (画质: ${wf.resolution || '1080p'}, 模型: ${wf.model_name || 'Omni'})，共 ${(wf.shots || []).length} 个分镜镜头。`, 'info');
+  appendLog(`已载入工作流 [${wf.title}] (画质: ${wf.resolution || '1080p'}, 模型: ${wf.model_name || 'Omni'})，共 ${(wf.shots || []).length} 个分镜卡片。`, 'info');
 }
 
 // 渲染分镜卡片
@@ -277,7 +322,7 @@ function renderShots(shots) {
         <div style="font-size: 36px; margin-bottom: 12px;">🎬</div>
         <div style="font-size: 16px; font-weight: 600; color: var(--text-main);">当前工作流暂无分镜卡片</div>
         <div style="font-size: 13px; color: var(--text-sub); margin-top: 6px;">
-          可在上方剧本框粘贴文案智能拆解，或点击右上角「📋 JSON 批量导入/导出」一键导入全套镜头资产
+          可点击上方快捷栏「📥 批量导入 JSON」直接导入现成资产，或在「⚙️ 资产预设与剧本拆解」中粘贴文案智能拆解
         </div>
       </div>
     `;
@@ -321,7 +366,7 @@ function renderShots(shots) {
               </div>
               <div class="frame-asset-input-row">
                 <input type="text" class="form-input" style="font-size: 12px; padding: 4px 8px; flex: 1;"
-                  value="${shot.image_url || ''}"
+                  value="${escapeAttr(shot.image_url || '')}"
                   placeholder="输入本地图片路径、URL或点击上传"
                   onchange="updateShotField('${shot.id}', 'image_url', this.value)" />
                 <label class="btn btn-secondary btn-sm" style="cursor: pointer; margin: 0; padding: 4px 10px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;">
@@ -329,13 +374,13 @@ function renderShots(shots) {
                   <input type="file" accept="image/*" style="display: none;" onchange="handleAssetUpload(this, '${shot.id}', 'image_url')" />
                 </label>
                 ${hasStartImg ? `
-                  <button class="btn btn-secondary btn-sm" style="padding: 4px 8px; font-size: 11px;" onclick="window.open('${getAssetDisplayUrl(shot.image_url)}', '_blank')" title="大图预览">👁️</button>
+                  <button class="btn btn-secondary btn-sm" style="padding: 4px 8px; font-size: 11px;" onclick="openLightbox('${getAssetDisplayUrl(shot.image_url)}', '分镜 #${index + 1} 首帧/参考图')" title="全屏大图预览">🔍</button>
                   <button class="btn btn-secondary btn-sm" style="padding: 4px 8px; font-size: 11px; color: #ef4444;" onclick="clearShotAsset('${shot.id}', 'image_url')" title="清除图片">❌</button>
                 ` : ''}
               </div>
               ${hasStartImg ? `
-                <div style="margin-top: 4px;">
-                  <img src="${getAssetDisplayUrl(shot.image_url)}" class="frame-asset-thumb" title="点击新窗口预览" onerror="this.onerror=null; this.src=BROKEN_IMG_SVG;" onclick="window.open('${getAssetDisplayUrl(shot.image_url)}', '_blank')" />
+                <div style="margin-top: 6px; position: relative;">
+                  <img src="${getAssetDisplayUrl(shot.image_url)}" class="frame-asset-thumb" title="点击全屏高清查看" onerror="this.onerror=null; this.src=BROKEN_IMG_SVG;" onclick="openLightbox('${getAssetDisplayUrl(shot.image_url)}', '分镜 #${index + 1} 首帧/参考图')" style="cursor: pointer;" />
                 </div>
               ` : `
                 <div class="frame-asset-thumb-placeholder">暂未绑定首帧（可贴入路径或点击上传）</div>
@@ -348,7 +393,7 @@ function renderShots(shots) {
       frameAssetHtml = `
         <div class="frame-asset-container">
           <div class="frame-asset-grid">
-            <!-- 起始帧 -->
+            <!-- 起始首帧 -->
             <div class="frame-asset-box ${hasStartImg ? 'has-image' : ''}">
               <div class="frame-asset-header">
                 <span>🖼️ 起始首帧 (Start Frame)</span>
@@ -356,7 +401,7 @@ function renderShots(shots) {
               </div>
               <div class="frame-asset-input-row">
                 <input type="text" class="form-input" style="font-size: 11px; padding: 3px 6px; flex: 1;"
-                  value="${shot.image_url || ''}"
+                  value="${escapeAttr(shot.image_url || '')}"
                   placeholder="起始帧路径或URL"
                   onchange="updateShotField('${shot.id}', 'image_url', this.value)" />
                 <label class="btn btn-secondary btn-sm" style="cursor: pointer; margin: 0; padding: 3px 8px; font-size: 11px;">
@@ -364,25 +409,28 @@ function renderShots(shots) {
                   <input type="file" accept="image/*" style="display: none;" onchange="handleAssetUpload(this, '${shot.id}', 'image_url')" />
                 </label>
                 ${hasStartImg ? `
+                  <button class="btn btn-secondary btn-sm" style="padding: 3px 6px; font-size: 11px;" onclick="openLightbox('${getAssetDisplayUrl(shot.image_url)}', '分镜 #${index + 1} 起始首帧')" title="全屏查看">🔍</button>
                   <button class="btn btn-secondary btn-sm" style="padding: 3px 6px; font-size: 11px; color: #ef4444;" onclick="clearShotAsset('${shot.id}', 'image_url')" title="清除">❌</button>
                 ` : ''}
               </div>
               ${hasStartImg ? `
-                <img src="${getAssetDisplayUrl(shot.image_url)}" class="frame-asset-thumb" title="点击查看大图" onerror="this.onerror=null; this.src=BROKEN_IMG_SVG;" onclick="window.open('${getAssetDisplayUrl(shot.image_url)}', '_blank')" />
+                <div style="margin-top: 6px;">
+                  <img src="${getAssetDisplayUrl(shot.image_url)}" class="frame-asset-thumb" title="点击全屏高清查看" onerror="this.onerror=null; this.src=BROKEN_IMG_SVG;" onclick="openLightbox('${getAssetDisplayUrl(shot.image_url)}', '分镜 #${index + 1} 起始首帧')" style="cursor: pointer;" />
+                </div>
               ` : `
                 <div class="frame-asset-thumb-placeholder">未设置起始帧</div>
               `}
             </div>
 
-            <!-- 结束尾帧 -->
+            <!-- 目标尾帧 -->
             <div class="frame-asset-box ${hasEndImg ? 'has-image' : ''}">
               <div class="frame-asset-header">
                 <span>🎞️ 目标尾帧 (End Frame)</span>
-                <span style="font-size: 10px; color: var(--text-muted);">视频平滑过渡终点</span>
+                <span style="font-size: 10px; color: var(--text-muted);">平滑过渡终点</span>
               </div>
               <div class="frame-asset-input-row">
                 <input type="text" class="form-input" style="font-size: 11px; padding: 3px 6px; flex: 1;"
-                  value="${shot.end_image_url || ''}"
+                  value="${escapeAttr(shot.end_image_url || '')}"
                   placeholder="尾帧路径或URL"
                   onchange="updateShotField('${shot.id}', 'end_image_url', this.value)" />
                 <label class="btn btn-secondary btn-sm" style="cursor: pointer; margin: 0; padding: 3px 8px; font-size: 11px;">
@@ -390,11 +438,14 @@ function renderShots(shots) {
                   <input type="file" accept="image/*" style="display: none;" onchange="handleAssetUpload(this, '${shot.id}', 'end_image_url')" />
                 </label>
                 ${hasEndImg ? `
+                  <button class="btn btn-secondary btn-sm" style="padding: 3px 6px; font-size: 11px;" onclick="openLightbox('${getAssetDisplayUrl(shot.end_image_url)}', '分镜 #${index + 1} 目标尾帧')" title="全屏查看">🔍</button>
                   <button class="btn btn-secondary btn-sm" style="padding: 3px 6px; font-size: 11px; color: #ef4444;" onclick="clearShotAsset('${shot.id}', 'end_image_url')" title="清除">❌</button>
                 ` : ''}
               </div>
               ${hasEndImg ? `
-                <img src="${getAssetDisplayUrl(shot.end_image_url)}" class="frame-asset-thumb" title="点击查看大图" onerror="this.onerror=null; this.src=BROKEN_IMG_SVG;" onclick="window.open('${getAssetDisplayUrl(shot.end_image_url)}', '_blank')" />
+                <div style="margin-top: 6px;">
+                  <img src="${getAssetDisplayUrl(shot.end_image_url)}" class="frame-asset-thumb" title="点击全屏高清查看" onerror="this.onerror=null; this.src=BROKEN_IMG_SVG;" onclick="openLightbox('${getAssetDisplayUrl(shot.end_image_url)}', '分镜 #${index + 1} 目标尾帧')" style="cursor: pointer;" />
+                </div>
               ` : `
                 <div class="frame-asset-thumb-placeholder">未设置目标尾帧</div>
               `}
@@ -407,6 +458,7 @@ function renderShots(shots) {
     // 视频预览区域
     let mediaPreview = '';
     if (shot.video_url) {
+      const localPathAttr = escapeAttr(shot.local_video_path || '');
       mediaPreview = `
         <div class="shot-preview-container">
           <video controls autoplay muted loop src="${shot.video_url}" style="width: 100%; border-radius: 8px; max-height: 240px; background: #000; box-shadow: 0 4px 12px rgba(0,0,0,0.4);"></video>
@@ -415,13 +467,13 @@ function renderShots(shots) {
               <a href="${shot.video_url}" target="_blank" download class="btn btn-sm btn-primary" style="font-size: 11px; padding: 4px 10px; text-decoration: none; font-weight: 600;">
                 ⬇️ 下载 1080p MP4 原片
               </a>
-              <button class="btn btn-sm btn-secondary" style="font-size: 11px; padding: 4px 8px;" onclick="copyLocalVideoPath('${shot.video_url}', this)" title="复制本地路径，在 Google Vids 插入视频时可直接粘贴选择">
-                📋 复制本地路径
+              <button class="btn btn-sm btn-secondary" style="font-size: 11px; padding: 4px 10px; font-weight: 600;" onclick="copyLocalVideoPath('${shot.video_url}', this, '${localPathAttr}')" title="复制本地绝对路径，在 Google Vids 插入/选择视频窗口中直接粘贴">
+                📋 复制本地绝对路径 (Google Vids直接粘贴)
               </button>
             </div>
             <div style="font-size: 11px; color: #10b981; background: rgba(16,185,129,0.1); border: 1px solid rgba(16,185,129,0.25); border-radius: 6px; padding: 5px 8px; display: flex; align-items: center; justify-content: space-between;">
               <span>💡 已完成生成并下载 · 自动化窗口已安全退出以释放 ~800MB 内存</span>
-              <span style="font-size: 10px; color: var(--text-muted);">可直接拖入 Google Vids 场景 ${shot.scene_index || index + 1}</span>
+              <span style="font-size: 10px; color: var(--text-muted);">可直接拖入或粘贴至 Google Vids 场景 ${shot.scene_index || index + 1}</span>
             </div>
           </div>
         </div>
@@ -431,28 +483,35 @@ function renderShots(shots) {
       if (hasStartImg && hasEndImg && mode === 'first_last_frame') {
         mediaPreview = `
           <div style="padding: 12px; border-radius: 8px; background: rgba(0,0,0,0.25); border: 1px dashed var(--border-color); display: flex; flex-direction: column; gap: 8px; align-items: center; justify-content: center;">
-            <div style="font-size: 11px; color: var(--cyan-accent); font-weight: 600;">🎞️ 首尾帧过渡设计预览</div>
+            <div style="font-size: 11px; color: var(--cyan-accent); font-weight: 600;">🎞️ 首尾帧过渡设计预览 (点击可全屏查看)</div>
             <div style="display: flex; align-items: center; gap: 8px; width: 100%; justify-content: center;">
-              <img src="${getAssetDisplayUrl(shot.image_url)}" style="width: 44%; height: 60px; object-fit: cover; border-radius: 4px; border: 1px solid var(--border-color);" onerror="this.onerror=null; this.src=BROKEN_IMG_SVG;" />
+              <img src="${getAssetDisplayUrl(shot.image_url)}" style="width: 44%; height: 64px; object-fit: cover; border-radius: 4px; border: 1px solid var(--border-color); cursor: pointer;" onerror="this.onerror=null; this.src=BROKEN_IMG_SVG;" onclick="openLightbox('${getAssetDisplayUrl(shot.image_url)}', '分镜 #${index + 1} 起始首帧')" title="点击全屏高清查看" />
               <span style="font-size: 14px; color: var(--blue-primary); font-weight: 700;">➔</span>
-              <img src="${getAssetDisplayUrl(shot.end_image_url)}" style="width: 44%; height: 60px; object-fit: cover; border-radius: 4px; border: 1px solid var(--border-color);" onerror="this.onerror=null; this.src=BROKEN_IMG_SVG;" />
+              <img src="${getAssetDisplayUrl(shot.end_image_url)}" style="width: 44%; height: 64px; object-fit: cover; border-radius: 4px; border: 1px solid var(--border-color); cursor: pointer;" onerror="this.onerror=null; this.src=BROKEN_IMG_SVG;" onclick="openLightbox('${getAssetDisplayUrl(shot.end_image_url)}', '分镜 #${index + 1} 目标尾帧')" title="点击全屏高清查看" />
             </div>
-            <span style="font-size: 11px; color: var(--text-sub);">待触发 1080p 连续流水线生成</span>
+            <div style="font-size: 11px; color: var(--text-muted); text-align: center;">
+              已就绪首尾双锚点，点击下方「⚡ 单独生成」或上方「🚀 开始连续连拍生成」
+            </div>
           </div>
         `;
-      } else if (hasStartImg && mode === 'image2video') {
+      } else if (hasStartImg && (mode === 'image2video' || mode === 'extend')) {
         mediaPreview = `
-          <div style="padding: 12px; border-radius: 8px; background: rgba(0,0,0,0.25); border: 1px dashed var(--border-color); display: flex; flex-direction: column; gap: 6px; align-items: center; justify-content: center;">
-            <div style="font-size: 11px; color: var(--cyan-accent); font-weight: 600;">🖼️ 首帧参考设计</div>
-            <img src="${getAssetDisplayUrl(shot.image_url)}" style="width: 80%; height: 64px; object-fit: cover; border-radius: 4px; border: 1px solid var(--border-color);" onerror="this.onerror=null; this.src=BROKEN_IMG_SVG;" />
-            <span style="font-size: 11px; color: var(--text-sub);">待触发 1080p 图生视频渲染</span>
+          <div style="padding: 12px; border-radius: 8px; background: rgba(0,0,0,0.25); border: 1px dashed var(--border-color); display: flex; flex-direction: column; gap: 8px; align-items: center; justify-content: center;">
+            <div style="font-size: 11px; color: var(--cyan-accent); font-weight: 600;">🖼️ 参考首帧已绑定 (点击可全屏查看)</div>
+            <img src="${getAssetDisplayUrl(shot.image_url)}" style="width: 80%; height: 70px; object-fit: cover; border-radius: 4px; border: 1px solid var(--border-color); cursor: pointer;" onerror="this.onerror=null; this.src=BROKEN_IMG_SVG;" onclick="openLightbox('${getAssetDisplayUrl(shot.image_url)}', '分镜 #${index + 1} 参考首帧')" title="点击全屏高清查看" />
+            <div style="font-size: 11px; color: var(--text-muted); text-align: center;">
+              将以此图为画面基底驱动运动生成
+            </div>
           </div>
         `;
       } else {
         mediaPreview = `
-          <div style="height: 120px; border-radius: 8px; background: rgba(0,0,0,0.15); border: 1px dashed var(--border-color); display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 6px; color: var(--text-sub); font-size: 12px;">
-            <span style="font-size: 24px; opacity: 0.6;">📽️</span>
-            <span>等待自动化流水线触发渲染 (${shotRes})</span>
+          <div class="shot-preview-empty">
+            <div style="font-size: 28px; margin-bottom: 6px; opacity: 0.6;">🎞️</div>
+            <div style="font-size: 12px; font-weight: 600; color: var(--text-sub);">等待生成 1080p 视频成片</div>
+            <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px; line-height: 1.4;">
+              生成完成后将在此原地回显播放器，并提供绝对物理路径一键复制，无缝接入 Google Vids 时间线。
+            </div>
           </div>
         `;
       }
@@ -462,7 +521,7 @@ function renderShots(shots) {
       <div class="shot-card-header">
         <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
           <span class="shot-seq-badge">#${index + 1} 场景 ${shot.scene_index || index + 1}</span>
-          <input type="text" class="form-input" style="padding: 2px 8px; height: 26px; font-weight: 600; width: 170px;" value="${shot.name || ''}" onchange="updateShotField('${shot.id}', 'name', this.value)" />
+          <input type="text" class="form-input" style="padding: 2px 8px; height: 26px; font-weight: 600; width: 170px;" value="${escapeAttr(shot.name || '')}" onchange="updateShotField('${shot.id}', 'name', this.value)" />
           <span class="badge" style="font-size: 11px; padding: 2px 6px;">⏱️ ${shot.duration || 10}s</span>
           <span class="${shotRes === '1080p' ? 'badge-1080p' : 'badge-720p'}">${shotRes}</span>
           <span class="badge" style="background: rgba(59,130,246,0.15); color: var(--blue-primary); font-size: 11px;">${shotModel}</span>
@@ -489,7 +548,7 @@ function renderShots(shots) {
             </select>
 
             <span style="font-size: 12px; color: var(--text-sub); font-weight: 600; margin-left: 8px;">画质:</span>
-            <select class="form-select" style="width: 90px; padding: 3px 8px; font-size: 11px; height: 28px;" onchange="updateShotField('${shot.id}', 'resolution', this.value)">
+            <select class="form-select" style="width: 90px; padding: 3px 8px; font-size: 11px; height: 28px; font-weight: 700; color: #10b981;" onchange="updateShotField('${shot.id}', 'resolution', this.value)">
               <option value="1080p" ${shotRes === '1080p' ? 'selected' : ''}>1080p</option>
               <option value="720p" ${shotRes === '720p' ? 'selected' : ''}>720p</option>
             </select>
@@ -511,7 +570,7 @@ function renderShots(shots) {
 
           <div>
             <label style="font-size: 12px; color: var(--text-sub); font-weight: 500; display: block; margin-bottom: 4px;">镜头提示词 (Prompt):</label>
-            <textarea class="form-textarea" rows="2" style="font-size: 13px;" onchange="updateShotField('${shot.id}', 'prompt', this.value)">${shot.prompt || ''}</textarea>
+            <textarea class="form-textarea" rows="2" style="font-size: 13px;" onchange="updateShotField('${shot.id}', 'prompt', this.value)">${escapeHtml(shot.prompt || '')}</textarea>
           </div>
           ${shot.narration ? `
           <div>
@@ -622,12 +681,12 @@ async function updateShotField(shotId, field, value) {
 // 保存工作流资产全局配置 (包含1080p画质、模型等)
 async function saveWorkflowSettings() {
   if (!state.currentWorkflowId) return;
-  const prompt = document.getElementById('global-style-prompt')?.value || '';
-  const aspect = document.getElementById('workflow-aspect-ratio')?.value || '16:9';
-  const duration = parseInt(document.getElementById('workflow-shot-duration')?.value || '10');
-  const res = document.getElementById('workflow-resolution')?.value || '1080p';
-  const model = document.getElementById('workflow-model-name')?.value || 'Omni';
-  const docUrl = document.getElementById('workflow-doc-url')?.value || '';
+  const prompt = getEl('wf-style-prompt', 'global-style-prompt')?.value || '';
+  const aspect = getEl('wf-aspect-ratio', 'workflow-aspect-ratio')?.value || '16:9';
+  const duration = parseInt(getEl('wf-duration', 'workflow-shot-duration')?.value || '10');
+  const res = getEl('wf-resolution', 'workflow-resolution')?.value || '1080p';
+  const model = getEl('wf-model-name', 'workflow-model-name')?.value || 'Omni';
+  const docUrl = getEl('wf-doc-url', 'workflow-doc-url')?.value || '';
 
   try {
     await api(`/workflows/${state.currentWorkflowId}`, {
@@ -687,7 +746,7 @@ async function parseAndAppendShots() {
       method: 'POST',
       body: {
         script: scriptText,
-        default_duration: parseInt(document.getElementById('workflow-shot-duration')?.value || '10'),
+        default_duration: parseInt(getEl('wf-duration', 'workflow-shot-duration')?.value || '10'),
         style_preset: state.selectedPresetKey || ''
       }
     });
@@ -695,8 +754,8 @@ async function parseAndAppendShots() {
     const parsedShots = res.shots || [];
     appendLog(`拆解成功，识别到 ${parsedShots.length} 个镜头分镜，正在追加到工作流...`, 'success');
 
-    const defaultRes = document.getElementById('workflow-resolution')?.value || '1080p';
-    const defaultModel = document.getElementById('workflow-model-name')?.value || 'Omni';
+    const defaultRes = getEl('wf-resolution', 'workflow-resolution')?.value || '1080p';
+    const defaultModel = getEl('wf-model-name', 'workflow-model-name')?.value || 'Omni';
 
     for (const s of parsedShots) {
       s.resolution = defaultRes;
@@ -718,8 +777,9 @@ async function parseAndAppendShots() {
 async function addNewShotCard() {
   if (!state.currentWorkflowId) return;
   const count = (state.workflow?.shots || []).length + 1;
-  const defaultRes = document.getElementById('workflow-resolution')?.value || '1080p';
-  const defaultModel = document.getElementById('workflow-model-name')?.value || 'Omni';
+  const defaultRes = getEl('wf-resolution', 'workflow-resolution')?.value || '1080p';
+  const defaultModel = getEl('wf-model-name', 'workflow-model-name')?.value || 'Omni';
+  const defaultDuration = parseInt(getEl('wf-duration', 'workflow-shot-duration')?.value || '10');
 
   try {
     await api(`/workflows/${state.currentWorkflowId}/shots`, {
@@ -727,7 +787,7 @@ async function addNewShotCard() {
       body: {
         name: `分镜 ${count}`,
         prompt: 'A cinematic high quality scene, detailed 8k, photorealistic.',
-        duration: parseInt(document.getElementById('workflow-shot-duration')?.value || '10'),
+        duration: defaultDuration,
         sequence: count,
         scene_index: count,
         mode: 'text2video',
@@ -771,7 +831,7 @@ async function resetShot(shotId) {
 // 重置所有分镜状态
 async function resetAllShotsStatus() {
   if (!state.currentWorkflowId) return;
-  if (!confirm('确定要重置所有分镜的状态为待生成吗？')) return;
+  if (!confirm('确定要重置所有分镜的状态为待生成吗？已生成的视频链接将保留备份。')) return;
   try {
     const res = await api(`/workflows/${state.currentWorkflowId}/reset_status`, { method: 'POST' });
     appendLog(`✅ ${res.message || '所有分镜状态已重置为待生成'}`, 'success');
@@ -848,7 +908,7 @@ async function startContinuousGeneration() {
     appendLog('连续生成下发失败: ' + e.message, 'error');
   } finally {
     if (btn) {
-      btn.innerHTML = '⚡ 开始连续生成并置入画布';
+      btn.innerHTML = '🚀 开始连续连拍生成';
       btn.classList.remove('loading');
     }
   }
@@ -863,7 +923,7 @@ function updateOverallProgress(shots) {
   const textEl = document.getElementById('overall-progress-text');
   if (textEl) textEl.textContent = `连拍进度: ${done} / ${total} 镜头已完成`;
 
-  const pctEl = document.getElementById('overall-percentage-text');
+  const pctEl = getEl('overall-progress-pct', 'overall-percentage-text');
   if (pctEl) pctEl.textContent = `${pct}%`;
 
   const fillEl = document.getElementById('overall-progress-fill');
@@ -890,19 +950,22 @@ function copyNarrationText(shotId, btnEl) {
 }
 
 // 一键复制本地视频原片绝对路径（供在 Google Vids 插入视频时快速粘贴选择）
-function copyLocalVideoPath(videoUrl, btnEl) {
-  if (!videoUrl) return;
-  const filename = videoUrl.split('/').pop().split('?')[0];
-  const localPath = 'C:\\Users\\win10\\Documents\\ChatGPT\\视频制作\\video_farm_data\\outputs\\' + filename;
-  navigator.clipboard.writeText(localPath).then(() => {
+function copyLocalVideoPath(videoUrl, btnEl, localPath) {
+  let path = localPath;
+  if (!path && videoUrl) {
+    const filename = videoUrl.split('/').pop().split('?')[0];
+    path = 'C:\\Users\\win10\\Documents\\ChatGPT\\视频制作\\video_farm_data\\outputs\\' + filename;
+  }
+  if (!path) return;
+  navigator.clipboard.writeText(path).then(() => {
     const orig = btnEl ? btnEl.innerHTML : '';
-    if (btnEl) btnEl.innerHTML = '✅ 已复制路径';
-    appendLog(`分镜视频本地路径已复制: ${localPath}`, 'success');
+    if (btnEl) btnEl.innerHTML = '✅ 已复制绝对路径';
+    appendLog(`已复制视频物理绝对路径: ${path} (在 Google Vids 选择视频窗口直接 Ctrl+V)`, 'success');
     setTimeout(() => {
       if (btnEl) btnEl.innerHTML = orig;
-    }, 2000);
+    }, 2500);
   }).catch(() => {
-    appendLog('复制路径失败，请手动下载', 'warn');
+    prompt('请复制成片本地绝对路径：', path);
   });
 }
 
@@ -968,6 +1031,7 @@ function syncShotsDOM(shots) {
 
       if (targetVideoUrl) {
         if (!existingVideo || currentVideoSrc !== targetVideoUrl) {
+          const localPathAttr = escapeAttr(shot.local_video_path || '');
           previewBox.innerHTML = `
             <div class="shot-preview-container">
               <video controls autoplay muted loop src="${targetVideoUrl}" style="width: 100%; border-radius: 8px; max-height: 240px; background: #000; box-shadow: 0 4px 12px rgba(0,0,0,0.4);"></video>
@@ -976,13 +1040,13 @@ function syncShotsDOM(shots) {
                   <a href="${targetVideoUrl}" target="_blank" download class="btn btn-sm btn-primary" style="font-size: 11px; padding: 4px 10px; text-decoration: none; font-weight: 600;">
                     ⬇️ 下载 1080p MP4 原片
                   </a>
-                  <button class="btn btn-sm btn-secondary" style="font-size: 11px; padding: 4px 8px;" onclick="copyLocalVideoPath('${targetVideoUrl}', this)" title="复制本地路径，在 Google Vids 插入视频时可直接粘贴选择">
-                    📋 复制本地路径
+                  <button class="btn btn-sm btn-secondary" style="font-size: 11px; padding: 4px 10px; font-weight: 600;" onclick="copyLocalVideoPath('${targetVideoUrl}', this, '${localPathAttr}')" title="复制本地绝对路径，在 Google Vids 插入/选择视频窗口中直接粘贴">
+                    📋 复制本地绝对路径 (Google Vids直接粘贴)
                   </button>
                 </div>
                 <div style="font-size: 11px; color: #10b981; background: rgba(16,185,129,0.1); border: 1px solid rgba(16,185,129,0.25); border-radius: 6px; padding: 5px 8px; display: flex; align-items: center; justify-content: space-between;">
                   <span>💡 已完成生成并下载 · 自动化窗口已安全退出以释放 ~800MB 内存</span>
-                  <span style="font-size: 10px; color: var(--text-muted);">可直接拖入 Google Vids 场景 ${shot.scene_index || index + 1}</span>
+                  <span style="font-size: 10px; color: var(--text-muted);">可直接拖入或粘贴至 Google Vids 场景 ${shot.scene_index || index + 1}</span>
                 </div>
               </div>
             </div>
@@ -1061,12 +1125,12 @@ async function showNewWorkflowModal() {
       method: 'POST',
       body: {
         title: title.trim(),
-        doc_url: document.getElementById('workflow-doc-url')?.value || '',
-        style_prompt: document.getElementById('global-style-prompt')?.value || '',
-        aspect_ratio: document.getElementById('workflow-aspect-ratio')?.value || '16:9',
-        duration_per_shot: parseInt(document.getElementById('workflow-shot-duration')?.value || '10'),
-        resolution: document.getElementById('workflow-resolution')?.value || '1080p',
-        model_name: document.getElementById('workflow-model-name')?.value || 'Omni'
+        doc_url: getEl('wf-doc-url', 'workflow-doc-url')?.value || '',
+        style_prompt: getEl('wf-style-prompt', 'global-style-prompt')?.value || '',
+        aspect_ratio: getEl('wf-aspect-ratio', 'workflow-aspect-ratio')?.value || '16:9',
+        duration_per_shot: parseInt(getEl('wf-duration', 'workflow-shot-duration')?.value || '10'),
+        resolution: getEl('wf-resolution', 'workflow-resolution')?.value || '1080p',
+        model_name: getEl('wf-model-name', 'workflow-model-name')?.value || 'Omni'
       }
     });
     await selectWorkflow(newWf.id);
@@ -1254,7 +1318,7 @@ async function executeBatchImport() {
 // 导出当前工程为标准化 JSON
 async function loadWorkflowExportJson() {
   if (!state.currentWorkflowId) return;
-  const textarea = document.getElementById('export-json-textarea');
+  const textarea = getEl('batch-export-textarea', 'export-json-textarea');
   if (textarea) textarea.value = '正在拉取工程标准化资产数据...';
 
   try {
@@ -1271,7 +1335,7 @@ async function loadWorkflowExportJson() {
 
 // 复制导出的 JSON
 function copyExportJson() {
-  const textarea = document.getElementById('export-json-textarea');
+  const textarea = getEl('batch-export-textarea', 'export-json-textarea');
   if (!textarea || !textarea.value) return;
   navigator.clipboard.writeText(textarea.value).then(() => {
     alert('已复制当前工程完整 JSON 至剪贴板！');
@@ -1285,7 +1349,7 @@ function copyExportJson() {
 
 // 下载导出的 JSON 文件
 function downloadExportJson() {
-  const textarea = document.getElementById('export-json-textarea');
+  const textarea = getEl('batch-export-textarea', 'export-json-textarea');
   if (!textarea || !textarea.value) return;
   const title = (state.workflow?.title || 'google_vids_workflow').replace(/[\\/:*?"<>|\s]+/g, '_');
   const blob = new Blob([textarea.value], { type: 'application/json;charset=utf-8' });
