@@ -1093,7 +1093,8 @@ async def create_task(
 @app.post("/api/tasks/create-audio")
 async def create_audio_task_endpoint(
     prompt: str = Form(...),
-    model: str = Form("gemini-audio"),
+    model: str = Form("zh-CN-YunxiNeural"),
+    voice: Optional[str] = Form(None),
     input_video: Optional[UploadFile] = File(None),
     input_video_path: Optional[str] = Form(None),
     ref_image: Optional[UploadFile] = File(None),
@@ -1132,6 +1133,7 @@ async def create_audio_task_endpoint(
     if not target_prof_id or target_prof_id.lower() in ("auto", "none", "null"):
         target_prof_id = None
 
+    chosen_model = (voice.strip() if voice and voice.strip() else (model.strip() if model and model.strip() else "zh-CN-YunxiNeural"))
     task = Task(
         id=task_id,
         prompt=prompt.strip(),
@@ -1139,7 +1141,7 @@ async def create_audio_task_endpoint(
         input_video_path=video_dest_str,
         engine="gemini",
         task_type="audio",
-        model=model.strip() if model else "gemini-audio",
+        model=chosen_model,
         status="queued",
         priority=priority,
         assigned_profile_id=target_prof_id

@@ -7,109 +7,155 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Google Vids · 连续长视频工作流工作台</title>
-  <link rel="stylesheet" href="/static/style.css?v=20261001_v11">
+  <link rel="stylesheet" href="/static/style.css?v=20261002_v12">
   <style>
+    :root {
+      --bg-page: #0b0f19;
+      --bg-surface: #111827;
+      --bg-card: #1f2937;
+      --bg-input: #0f172a;
+      --border-color: rgba(255, 255, 255, 0.08);
+      --border-focus: #3b82f6;
+      --text-main: #f3f4f6;
+      --text-sub: #9ca3af;
+      --text-muted: #6b7280;
+      --blue-primary: #3b82f6;
+      --blue-hover: #2563eb;
+      --cyan-accent: #06b6d4;
+      --green-ok: #10b981;
+      --radius-sm: 4px;
+      --radius-md: 6px;
+      --radius-lg: 10px;
+      --radius-pill: 9999px;
+      --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.2);
+    }
+
+    body {
+      background-color: var(--bg-page);
+      color: var(--text-main);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      overflow-x: hidden;
+    }
+
     .vids-container {
-      max-width: 1280px;
+      max-width: 1440px;
       margin: 0 auto;
-      padding: 16px 20px 60px;
+      padding: 10px 16px 40px;
       display: flex;
       flex-direction: column;
-      gap: 16px;
+      gap: 10px;
     }
-    
-    /* 顶部工作流导航头 */
+
+    /* 顶栏操作台：第一层紧凑控制栏 */
     .vids-top-bar {
       display: flex;
       align-items: center;
       justify-content: space-between;
       background: var(--bg-surface);
       border: 1px solid var(--border-color);
-      border-radius: var(--radius-lg);
-      padding: 14px 20px;
+      border-radius: var(--radius-md);
+      padding: 8px 14px;
       box-shadow: var(--shadow-sm);
       flex-wrap: wrap;
-      gap: 12px;
+      gap: 10px;
     }
     .vids-header-left {
       display: flex;
       align-items: center;
-      gap: 14px;
+      gap: 10px;
     }
     .vids-logo-badge {
-      width: 42px;
-      height: 42px;
+      width: 32px;
+      height: 32px;
       background: linear-gradient(135deg, #ea4335, #4285f4, #34a853, #fbbc05);
-      border-radius: 10px;
+      border-radius: 8px;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 22px;
-      box-shadow: 0 4px 12px rgba(66, 133, 244, 0.3);
+      font-size: 18px;
+      box-shadow: 0 2px 8px rgba(66, 133, 244, 0.3);
       flex-shrink: 0;
     }
-    .vids-header-title h2 {
-      font-size: 17px;
+    .vids-brand-title {
+      font-size: 14px;
       font-weight: 700;
       color: var(--text-main);
+      margin: 0;
       display: flex;
       align-items: center;
-      gap: 8px;
-      margin: 0;
+      gap: 6px;
     }
-    .vids-header-title p {
+    .vids-header-mid {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--bg-card);
+      padding: 3px 8px 3px 10px;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border-color);
+    }
+    .vids-header-mid label {
       font-size: 12px;
       color: var(--text-sub);
-      margin: 2px 0 0 0;
+      white-space: nowrap;
+      font-weight: 600;
     }
-    .vids-doc-status {
+    .vids-header-actions {
       display: flex;
       align-items: center;
-      gap: 10px;
-      background: var(--bg-card);
-      border: 1px solid var(--border-color);
-      padding: 6px 14px;
-      border-radius: var(--radius-pill);
-      font-size: 12px;
+      gap: 6px;
+      flex-wrap: wrap;
     }
-    .status-indicator {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: var(--green-ok);
-      box-shadow: 0 0 6px var(--green-ok);
-    }
-    
-    /* 核心操作工具栏 */
-    .controls-banner {
-      background: var(--bg-surface);
-      border: 1px solid var(--border-color);
-      border-radius: var(--radius-lg);
-      padding: 12px 18px;
+
+    /* 第二层：超薄状态与辅助工具条 */
+    .status-strip {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 16px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      padding: 6px 14px;
+      gap: 12px;
       flex-wrap: wrap;
-      box-shadow: var(--shadow-sm);
+      font-size: 12px;
     }
-    .controls-left {
+    .status-strip-flow {
       display: flex;
       align-items: center;
-      gap: 10px;
-      flex-wrap: wrap;
+      gap: 6px;
+      color: var(--text-sub);
     }
-    .progress-box {
+    .status-flow-step {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-weight: 600;
+      color: var(--text-sub);
+    }
+    .status-flow-step.active {
+      color: var(--cyan-accent);
+    }
+    .status-flow-sep {
+      opacity: 0.4;
+      font-size: 11px;
+    }
+    .status-strip-progress {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 240px;
       flex: 1;
-      min-width: 220px;
-      max-width: 360px;
+      max-width: 380px;
     }
     .progress-bar-bg {
-      height: 8px;
+      height: 6px;
       background: var(--bg-input);
       border-radius: var(--radius-pill);
       overflow: hidden;
-      margin-top: 4px;
+      flex: 1;
     }
     .progress-bar-fill {
       height: 100%;
@@ -117,28 +163,34 @@
       width: 0%;
       transition: width 0.3s ease;
     }
+    .status-strip-actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
 
     /* 折叠抽屉：资产预设与剧本拆解器 */
     .assets-drawer {
       display: none;
       background: var(--bg-surface);
       border: 1px solid rgba(59, 130, 246, 0.3);
-      border-radius: var(--radius-lg);
-      padding: 18px 20px;
-      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
-      animation: drawerSlideDown 0.25s ease-out;
+      border-radius: var(--radius-md);
+      padding: 14px 16px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+      animation: drawerSlideDown 0.2s ease-out;
     }
-    .assets-drawer.active {
+    .assets-drawer.active,
+    .assets-drawer.open {
       display: block;
     }
     @keyframes drawerSlideDown {
-      from { opacity: 0; transform: translateY(-8px); }
+      from { opacity: 0; transform: translateY(-6px); }
       to { opacity: 1; transform: translateY(0); }
     }
     .drawer-grid {
       display: grid;
-      grid-template-columns: 1.1fr 0.9fr;
-      gap: 20px;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
     }
     @media (max-width: 960px) {
       .drawer-grid {
@@ -149,214 +201,271 @@
       background: var(--bg-card);
       border: 1px solid var(--border-color);
       border-radius: var(--radius-md);
-      padding: 16px;
+      padding: 12px 14px;
       display: flex;
       flex-direction: column;
-      gap: 12px;
+      gap: 10px;
     }
     .drawer-header {
       display: flex;
       align-items: center;
       justify-content: space-between;
       border-bottom: 1px solid var(--border-color);
-      padding-bottom: 10px;
-      margin-bottom: 4px;
+      padding-bottom: 8px;
     }
     .drawer-title {
-      font-size: 14px;
-      font-weight: 700;
-      color: var(--text-main);
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    /* 极简 4 步流水线指示器 */
-    .vids-pipeline-steps {
-      display: grid;
-      grid-template-columns: 1fr auto 1fr auto 1fr auto 1fr;
-      align-items: center;
-      gap: 8px;
-      background: var(--bg-surface);
-      border: 1px solid var(--border-color);
-      border-radius: var(--radius-lg);
-      padding: 10px 16px;
-      box-shadow: var(--shadow-sm);
-    }
-    @media (max-width: 900px) {
-      .vids-pipeline-steps {
-        display: flex;
-        flex-direction: column;
-        align-items: stretch;
-      }
-      .pipeline-arrow {
-        display: none;
-      }
-    }
-    .pipeline-step {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      padding: 6px 12px;
-      border-radius: var(--radius-md);
-      background: var(--bg-card);
-      border: 1px solid rgba(255, 255, 255, 0.05);
-      transition: all 0.2s;
-    }
-    .pipeline-step:hover {
-      border-color: rgba(59, 130, 246, 0.35);
-      background: rgba(59, 130, 246, 0.05);
-    }
-    .pipeline-step .step-num {
-      width: 24px;
-      height: 24px;
-      border-radius: 50%;
-      background: linear-gradient(135deg, var(--blue-primary), var(--cyan-accent));
-      color: #fff;
-      font-size: 12px;
-      font-weight: 700;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      flex-shrink: 0;
-      box-shadow: 0 2px 6px rgba(37, 99, 235, 0.3);
-    }
-    .pipeline-step .step-text {
-      display: flex;
-      flex-direction: column;
-      gap: 1px;
-    }
-    .pipeline-step .step-text strong {
-      font-size: 12px;
-      color: var(--text-main);
-    }
-    .pipeline-step .step-text span {
-      font-size: 11px;
-      color: var(--text-muted);
-    }
-    .pipeline-arrow {
-      color: var(--text-muted);
       font-size: 13px;
-      font-weight: bold;
-      text-align: center;
-    }
-
-    /* 预设风格 Chip */
-    .preset-chips {
+      font-weight: 700;
+      color: var(--text-main);
       display: flex;
-      flex-wrap: wrap;
+      align-items: center;
       gap: 6px;
     }
-    .preset-chip {
-      background: var(--bg-card);
-      border: 1px solid var(--border-color);
-      color: var(--text-sub);
-      padding: 4px 10px;
-      border-radius: var(--radius-pill);
-      font-size: 11px;
-      cursor: pointer;
-      transition: all 0.2s ease;
-      display: flex;
-      align-items: center;
-      gap: 4px;
-    }
-    .preset-chip:hover {
-      border-color: var(--blue-primary);
-      color: var(--text-main);
-      background: var(--bg-card-hover);
-    }
-    .preset-chip.active {
-      background: rgba(59, 130, 246, 0.15);
-      border-color: var(--blue-primary);
-      color: var(--blue-primary);
-      font-weight: 600;
-    }
 
-    /* 实时日志面板与折叠 */
+    /* 可折叠执行日志面板 */
     .live-log-panel {
       background: #060911;
       border: 1px solid var(--border-color);
       border-radius: var(--radius-md);
-      margin-bottom: 16px;
-      overflow: hidden;
-      box-shadow: var(--shadow-sm);
+      padding: 6px 12px;
+      font-family: 'Consolas', 'Menlo', 'Courier New', monospace;
+      font-size: 11px;
+      display: none;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .live-log-panel.visible {
+      display: flex;
     }
     .live-log-header {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 6px 12px;
-      background: rgba(15, 23, 42, 0.75);
-      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-      font-size: 12px;
-      font-weight: 600;
       color: var(--text-sub);
+      font-size: 11px;
+      font-weight: 600;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      padding-bottom: 4px;
     }
     .live-log-box {
-      background: #04060a;
-      padding: 8px 12px;
-      font-family: Consolas, Monaco, monospace;
-      font-size: 11px;
-      color: #10b981;
-      height: 58px;
+      color: #38bdf8;
+      max-height: 90px;
       overflow-y: auto;
-      line-height: 1.5;
-      transition: height 0.25s ease;
-    }
-    .live-log-box.expanded {
-      height: 160px;
+      line-height: 1.4;
     }
 
-    /* 分镜卡片整体 */
+    /* ===== 分镜卡片 Shot Card 规整高密度布局 ===== */
     .shot-card {
       background: var(--bg-surface);
       border: 1px solid var(--border-color);
-      border-radius: var(--radius-lg);
-      padding: 16px 18px;
-      margin-bottom: 16px;
-      transition: all 0.25s ease;
+      border-radius: var(--radius-md);
+      padding: 10px 14px;
+      margin-bottom: 10px;
+      transition: border-color 0.2s, box-shadow 0.2s;
       position: relative;
-      box-shadow: var(--shadow-sm);
     }
     .shot-card:hover {
-      border-color: rgba(59, 130, 246, 0.4);
-      box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+      border-color: rgba(59, 130, 246, 0.35);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
     }
     .shot-card.status-running {
       border-color: var(--blue-primary);
-      box-shadow: 0 0 16px rgba(59, 130, 246, 0.25);
+      box-shadow: 0 0 12px rgba(59, 130, 246, 0.25);
     }
     .shot-card.status-completed {
-      border-color: rgba(16, 185, 129, 0.45);
+      border-color: rgba(16, 185, 129, 0.4);
     }
     .shot-card.status-failed {
       border-color: rgba(239, 68, 68, 0.4);
     }
-    
+
+    /* 物理级图片尺寸防撑破铁律 */
+    .shot-card img {
+      max-height: 48px !important;
+      max-width: 80px !important;
+      object-fit: cover !important;
+      border-radius: 4px !important;
+    }
+
+    /* 卡片头部 */
     .shot-card-header {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      margin-bottom: 12px;
-      padding-bottom: 8px;
+      margin-bottom: 8px;
+      padding-bottom: 6px;
       border-bottom: 1px solid rgba(255, 255, 255, 0.05);
       flex-wrap: wrap;
-      gap: 8px;
+      gap: 6px;
+    }
+    .shot-header-left {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
     }
     .shot-seq-badge {
       display: inline-flex;
       align-items: center;
-      gap: 6px;
-      font-size: 13px;
+      gap: 4px;
+      font-size: 12px;
       font-weight: 700;
       color: var(--text-main);
+      background: var(--bg-card);
+      padding: 2px 8px;
+      border-radius: 4px;
+      border: 1px solid var(--border-color);
+    }
+    .shot-header-actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
     }
 
+    /* 分镜双栏布局：左侧参数与资产 (58%)，右侧监视器 (42%) */
+    .shot-body-layout {
+      display: grid;
+      grid-template-columns: 1.15fr 0.85fr;
+      gap: 12px;
+      align-items: stretch;
+    }
+    @media (max-width: 960px) {
+      .shot-body-layout {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    /* 左列内容容器 */
+    .shot-params-col {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    /* 首尾帧紧凑横向并排条带 */
+    .frame-duo-strip {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(15, 23, 42, 0.5);
+      border: 1px solid rgba(59, 130, 246, 0.18);
+      border-radius: 5px;
+      padding: 4px 6px;
+    }
+    .frame-capsule {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--bg-input);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 4px;
+      padding: 2px 4px;
+      flex: 1;
+      min-width: 0;
+    }
+    .frame-capsule-tag {
+      font-size: 10px;
+      font-weight: 700;
+      color: var(--cyan-accent);
+      white-space: nowrap;
+      padding: 0 2px;
+    }
+    .frame-capsule-thumb {
+      width: 48px !important;
+      height: 30px !important;
+      min-width: 48px !important;
+      max-width: 48px !important;
+      min-height: 30px !important;
+      max-height: 30px !important;
+      border-radius: 3px;
+      overflow: hidden;
+      background: #000;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    .frame-capsule-thumb img {
+      width: 100% !important;
+      height: 100% !important;
+      object-fit: cover !important;
+      display: block;
+    }
+    .frame-capsule-empty {
+      font-size: 9px;
+      color: var(--text-muted);
+      text-align: center;
+      user-select: none;
+      line-height: 1;
+    }
+    .frame-capsule-input {
+      font-size: 11px;
+      padding: 2px 6px;
+      height: 24px;
+      flex: 1;
+      min-width: 60px;
+      background: transparent;
+      border: none;
+      color: var(--text-main);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .frame-capsule-input:focus {
+      outline: none;
+      background: rgba(255, 255, 255, 0.05);
+    }
+    .frame-duo-arrow {
+      color: var(--blue-primary);
+      font-weight: 800;
+      font-size: 12px;
+      flex-shrink: 0;
+      user-select: none;
+      opacity: 0.8;
+    }
+
+    /* 右列：监视器与成片交付舞台 (锁定 175px 高度) */
+    .shot-media-preview-box {
+      background: #070a12;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      padding: 8px 10px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      height: 175px !important;
+      max-height: 175px !important;
+      position: relative;
+      overflow: hidden;
+    }
+    .shot-media-preview-box video {
+      width: 100%;
+      border-radius: 4px;
+      max-height: 120px !important;
+      background: #000;
+      object-fit: contain;
+      display: block;
+      margin: 0 auto;
+    }
+    .stage-waiting-box {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      height: 100%;
+      text-align: center;
+      padding: 6px;
+    }
+
+    /* 状态徽章 */
     .shot-status-badge {
       display: inline-flex;
       align-items: center;
       gap: 4px;
-      padding: 3px 8px;
+      padding: 2px 8px;
       border-radius: var(--radius-pill);
       font-size: 11px;
       font-weight: 600;
@@ -379,226 +488,125 @@
       color: #ef4444;
     }
 
-    /* 分镜内容双栏响应式网格 */
-    .shot-card-body,
-    .shot-body-layout {
-      display: grid;
-      grid-template-columns: 1.15fr 0.85fr;
-      gap: 16px;
-      align-items: stretch;
-    }
-    @media (max-width: 960px) {
-      .shot-card-body,
-      .shot-body-layout {
-        grid-template-columns: 1fr;
-      }
-    }
-
-    /* 全局防撑破防护：卡片内任何图片不可超越父容器 */
-    .shot-card img {
-      max-width: 100%;
-    }
-
-    /* 左列：首尾帧与图片参考胶囊化条带容器 */
-    .frame-asset-strip-container {
-      background: rgba(15, 23, 42, 0.4);
-      border: 1px solid rgba(59, 130, 246, 0.2);
-      border-radius: 6px;
-      padding: 6px 8px;
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-    }
-    .frame-strip-row {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      background: var(--bg-input);
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      border-radius: 6px;
-      padding: 3px 6px;
-      transition: all 0.2s ease;
-    }
-    .frame-strip-row:hover {
-      border-color: rgba(59, 130, 246, 0.35);
-    }
-    .frame-strip-row.has-image {
-      border-color: rgba(59, 130, 246, 0.45);
-      background: rgba(15, 23, 42, 0.6);
-    }
-    .frame-strip-label {
-      font-size: 11px;
-      font-weight: 600;
-      color: var(--cyan-accent);
-      min-width: 62px;
-      white-space: nowrap;
-      display: flex;
-      align-items: center;
-      gap: 4px;
-    }
-    .frame-strip-thumb-box {
-      width: 58px;
-      height: 36px;
-      min-width: 58px;
-      max-width: 58px;
-      min-height: 36px;
-      max-height: 36px;
-      border-radius: 4px;
-      overflow: hidden;
-      background: #000;
-      border: 1px solid rgba(255, 255, 255, 0.15);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      cursor: pointer;
-      position: relative;
-      flex-shrink: 0;
-    }
-    .frame-asset-thumb {
-      width: 58px !important;
-      height: 36px !important;
-      min-width: 58px !important;
-      max-width: 58px !important;
-      min-height: 36px !important;
-      max-height: 36px !important;
-      object-fit: cover !important;
-      display: block;
-      transition: transform 0.2s ease;
-    }
-    .frame-strip-thumb-box:hover .frame-asset-thumb {
-      transform: scale(1.08);
-    }
-    .frame-thumb-empty {
-      font-size: 10px;
-      color: var(--text-muted);
-      text-align: center;
-      line-height: 1.1;
-      padding: 2px;
-      cursor: pointer;
-      user-select: none;
-    }
-    .frame-thumb-empty:hover {
-      color: var(--blue-primary);
-    }
-
-    /* 右列：监视器与成果舞台 */
-    .shot-media-preview-box,
-    .shot-stage-box {
-      background: #080c14;
-      border: 1px solid var(--border-color);
-      border-radius: var(--radius-md);
-      padding: 12px;
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      min-height: 220px;
-      position: relative;
-      overflow: hidden;
-    }
-    .shot-media-preview-box video {
-      width: 100%;
-      border-radius: 6px;
-      max-height: 200px;
-      background: #000;
-      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.6);
-      display: block;
-    }
-
-    .stage-transition-card {
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-      align-items: center;
-      justify-content: center;
-      height: 100%;
-      width: 100%;
-    }
-    .stage-transition-flex {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 10px;
-      width: 100%;
-    }
-    .stage-thumb-item {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 4px;
-    }
-    .stage-thumb-img {
-      width: 110px !important;
-      height: 64px !important;
-      min-width: 110px !important;
-      max-width: 110px !important;
-      min-height: 64px !important;
-      max-height: 64px !important;
-      object-fit: cover !important;
-      border-radius: 4px;
-      border: 1px solid rgba(59, 130, 246, 0.35);
-      cursor: zoom-in;
-      display: block;
-      background: #000;
-      transition: transform 0.2s ease, border-color 0.2s ease;
-    }
-    .stage-thumb-img:hover {
-      transform: scale(1.05);
-      border-color: var(--cyan-accent);
-    }
-    .stage-thumb-label {
-      font-size: 10px;
-      color: var(--text-sub);
-      font-weight: 600;
-    }
-    .stage-arrow-wrap {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 2px;
-      color: var(--blue-primary);
-    }
-    .stage-thumb-empty-placeholder {
-      width: 110px;
-      height: 64px;
-      border: 1px dashed rgba(255, 255, 255, 0.15);
-      border-radius: 4px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 10px;
-      color: var(--text-muted);
-      background: rgba(0, 0, 0, 0.25);
-    }
-
-    /* 徽章与标签 */
     .badge-1080p {
       background: rgba(16, 185, 129, 0.15);
       color: #10b981;
       border: 1px solid rgba(16, 185, 129, 0.3);
-      padding: 2px 6px;
-      border-radius: 4px;
-      font-size: 11px;
+      padding: 1px 5px;
+      border-radius: 3px;
+      font-size: 10px;
       font-weight: 700;
     }
     .badge-720p {
       background: rgba(156, 163, 175, 0.15);
       color: var(--text-sub);
       border: 1px solid rgba(156, 163, 175, 0.3);
-      padding: 2px 6px;
-      border-radius: 4px;
-      font-size: 11px;
+      padding: 1px 5px;
+      border-radius: 3px;
+      font-size: 10px;
     }
-    .badge-mode {
-      background: rgba(168, 85, 247, 0.15);
-      color: #c084fc;
-      border: 1px solid rgba(168, 85, 247, 0.3);
-      padding: 2px 8px;
-      border-radius: 4px;
+
+    /* 预设标签 Chips */
+    .preset-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .preset-chip {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-pill);
+      padding: 3px 10px;
       font-size: 11px;
+      cursor: pointer;
+      color: var(--text-sub);
+      transition: all 0.2s;
+    }
+    .preset-chip:hover {
+      border-color: var(--blue-primary);
+      color: #fff;
+      background: rgba(59, 130, 246, 0.15);
+    }
+
+    /* 按钮基础 */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      font-size: 12px;
+      font-weight: 600;
+      border-radius: var(--radius-md);
+      padding: 5px 12px;
+      cursor: pointer;
+      border: 1px solid transparent;
+      transition: all 0.2s;
+      white-space: nowrap;
+      text-decoration: none;
+    }
+    .btn-sm {
+      padding: 3px 8px;
+      font-size: 11px;
+      height: 26px;
+    }
+    .btn-primary {
+      background: var(--blue-primary);
+      color: #fff;
+    }
+    .btn-primary:hover {
+      background: var(--blue-hover);
+    }
+    .btn-secondary {
+      background: var(--bg-card);
+      border-color: var(--border-color);
+      color: var(--text-main);
+    }
+    .btn-secondary:hover {
+      border-color: rgba(255, 255, 255, 0.2);
+      background: rgba(255, 255, 255, 0.05);
+    }
+    .btn-danger {
+      background: rgba(239, 68, 68, 0.15);
+      border-color: rgba(239, 68, 68, 0.3);
+      color: #ef4444;
+    }
+    .btn-danger:hover {
+      background: rgba(239, 68, 68, 0.3);
+    }
+
+    /* 输入框基础 */
+    .form-input, .form-select, .form-textarea {
+      background: var(--bg-input);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-sm);
+      color: var(--text-main);
+      font-size: 12px;
+      padding: 4px 8px;
+      transition: border-color 0.2s;
+      box-sizing: border-box;
+    }
+    .form-input:focus, .form-select:focus, .form-textarea:focus {
+      outline: none;
+      border-color: var(--border-focus);
+    }
+    .form-row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      flex: 1;
+    }
+    .form-label {
+      font-size: 11px;
+      color: var(--text-sub);
       font-weight: 600;
     }
 
-    /* Lightbox Modal 弹层 */
+    /* Lightbox Modal */
     .lightbox-modal {
       position: fixed;
       inset: 0;
@@ -608,35 +616,24 @@
       display: none;
       align-items: center;
       justify-content: center;
-      padding: 24px;
     }
     .lightbox-modal.active {
       display: flex;
     }
     .lightbox-content {
-      max-width: 90vw;
-      max-height: 90vh;
+      position: relative;
+      max-width: 85vw;
+      max-height: 80vh;
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 12px;
-      position: relative;
     }
     .lightbox-content img {
-      max-width: 100%;
-      max-height: 80vh;
-      object-fit: contain;
-      border-radius: 8px;
-      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8);
-      border: 1px solid rgba(255, 255, 255, 0.15);
-    }
-    .lightbox-caption {
-      color: #e2e8f0;
-      font-size: 13px;
-      background: rgba(15, 23, 42, 0.8);
-      padding: 6px 16px;
-      border-radius: 20px;
-      border: 1px solid rgba(255, 255, 255, 0.1);
+      max-width: 85vw !important;
+      max-height: 75vh !important;
+      object-fit: contain !important;
+      border-radius: 6px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.8);
     }
     .lightbox-close-btn {
       position: absolute;
@@ -645,41 +642,85 @@
       background: rgba(255, 255, 255, 0.2);
       border: none;
       color: #fff;
-      font-size: 20px;
-      width: 32px;
-      height: 32px;
+      font-size: 18px;
+      width: 28px;
+      height: 28px;
       border-radius: 50%;
       cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: center;
-      transition: background 0.2s;
     }
-    .lightbox-close-btn:hover {
-      background: rgba(239, 68, 68, 0.8);
+    .lightbox-caption {
+      color: #e5e7eb;
+      font-size: 12px;
+      margin-top: 8px;
+      text-align: center;
     }
 
-    /* Modal 弹窗与 Tab 增强 */
+    /* Modal Backdrop */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.75);
+      backdrop-filter: blur(4px);
+      z-index: 9999;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+    .modal-backdrop.active {
+      display: flex;
+    }
+    .modal-panel {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-lg);
+      width: 100%;
+      max-width: 780px;
+      max-height: 85vh;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+      overflow: hidden;
+    }
+    .modal-panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 18px;
+      border-bottom: 1px solid var(--border-color);
+    }
+    .modal-panel-body {
+      padding: 16px 18px;
+      overflow-y: auto;
+      flex: 1;
+    }
+    .modal-panel-footer {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 10px;
+      padding: 12px 18px;
+      border-top: 1px solid var(--border-color);
+      background: rgba(0, 0, 0, 0.2);
+    }
     .modal-tab-nav {
       display: flex;
-      gap: 4px;
+      gap: 8px;
+      padding: 8px 18px 0;
       border-bottom: 1px solid var(--border-color);
-      padding: 0 20px;
-      background: rgba(15, 23, 42, 0.4);
     }
     .modal-tab-btn {
-      padding: 10px 18px;
-      font-size: 13px;
-      font-weight: 600;
-      color: var(--text-sub);
       background: transparent;
       border: none;
-      border-bottom: 2px solid transparent;
+      color: var(--text-sub);
+      font-size: 13px;
+      font-weight: 600;
+      padding: 8px 14px;
       cursor: pointer;
-      transition: all 0.2s;
-    }
-    .modal-tab-btn:hover {
-      color: var(--text-main);
+      border-bottom: 2px solid transparent;
     }
     .modal-tab-btn.active {
       color: var(--blue-primary);
@@ -687,9 +728,6 @@
     }
     .modal-tab-content {
       display: none;
-      padding: 20px;
-      overflow-y: auto;
-      max-height: calc(85vh - 130px);
     }
     .modal-tab-content.active {
       display: block;
@@ -697,49 +735,49 @@
   </style>
 </head>
 <body>
-  <header class="navbar">
-    <div class="nav-brand">
-      <div class="brand-badge">📽️</div>
-      <div class="brand-info">
-        <h1>Google Vids · 自动化视频流水线工作台</h1>
-        <p>Google Flow/Veo 工业级多模态镜头渲染引擎 · 极简全宽工作流</p>
-      </div>
+  <!-- 顶层导航栏 -->
+  <header class="navbar" style="background: var(--bg-surface); border-bottom: 1px solid var(--border-color); padding: 8px 18px; display: flex; align-items: center; justify-content: space-between;">
+    <div style="display: flex; align-items: center; gap: 10px;">
+      <div style="font-size: 18px;">🎬</div>
+      <div style="font-weight: 700; font-size: 15px; color: var(--text-main);">Google Vids · 自动化视频流水线工作台</div>
+      <span style="font-size: 11px; background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 999px; padding: 1px 8px;">Veo 1080p 超清插值</span>
     </div>
-    
-    <div class="nav-center">
-      <div class="vids-doc-status" id="vids-doc-box">
-        <span class="status-indicator"></span>
-        <span style="color: var(--text-sub);" id="vids-doc-title">当前工程: 载入中...</span>
-        <a href="https://docs.google.com/videos/u/0/?pli=1" target="_blank" class="badge" style="text-decoration: none; color: var(--blue-primary); background: rgba(59,130,246,0.1); border: 1px solid rgba(59,130,246,0.25);">🔗 打开 Google Vids</a>
-      </div>
-    </div>
-    
-    <div class="nav-actions">
-      <a href="/" class="btn btn-secondary btn-sm">返回中央控制台</a>
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <a href="https://docs.google.com/videos/" target="_blank" class="btn btn-secondary btn-sm" style="text-decoration: none;">🔗 打开 Google Vids</a>
+      <a href="/" class="btn btn-secondary btn-sm" style="text-decoration: none;">返回中央控制台</a>
     </div>
   </header>
 
   <div class="vids-container">
+    <!-- 第一层：顶栏操作台 (合并工作流切换与核心按钮) -->
     <div class="vids-top-bar">
       <div class="vids-header-left">
         <div class="vids-logo-badge">🎬</div>
-        <div class="vids-header-title">
-          <h2 id="workflow-title-display">载入工作流中...</h2>
-          <p id="workflow-meta-desc">Google Vids 连续连拍工程 · 支持 1080p 超清分辨率 · 首尾帧平滑过渡 · 批量镜头渲染</p>
+        <div class="vids-header-mid">
+          <label for="workflow-select">📁 工程:</label>
+          <select id="workflow-select" class="form-select" onchange="onWorkflowSelectChange(this.value)" style="min-width: 220px; max-width: 320px; height: 28px; font-size: 12px; font-weight: 600; background: var(--bg-surface);"></select>
+          <button class="btn btn-secondary btn-sm" onclick="openRenameWorkflowModal()" title="重命名当前工程">✏️</button>
+          <button class="btn btn-secondary btn-sm" onclick="openProjectManagerModal()" title="查看与清理全部工程">📁 管理</button>
+          <button class="btn btn-danger btn-sm" onclick="confirmDeleteCurrentWorkflow()" title="删除当前工程">🗑️</button>
         </div>
       </div>
-      <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
-        <div style="display: flex; align-items: center; gap: 6px; background: var(--bg-card); padding: 4px 8px 4px 12px; border-radius: var(--radius-md); border: 1px solid var(--border-color);">
-          <label for="workflow-select" style="font-size: 12px; color: var(--text-sub); white-space: nowrap; font-weight: 600;">📁 当前工程:</label>
-          <select id="workflow-select" class="form-select" onchange="onWorkflowSelectChange(this.value)" style="min-width: 260px; max-width: 360px; height: 30px; font-size: 12px; font-weight: 600; padding: 2px 8px; border: 1px solid rgba(59,130,246,0.3); background: var(--bg-surface); color: var(--text-main); cursor: pointer;"></select>
-        </div>
-        <button class="btn btn-secondary btn-sm" onclick="openJsonModal('import')" style="display:flex; align-items:center; gap:6px; background: rgba(59,130,246,0.12); border-color: var(--blue-primary); color: #fff;">
-          📥 JSON 批量导入/导出
+
+      <div class="vids-header-actions">
+        <button class="btn btn-primary" id="btn-start-continuous" onclick="startContinuousGeneration()" style="font-size: 12px; height: 30px; font-weight: 700; background: linear-gradient(135deg, #2563eb, #06b6d4); box-shadow: 0 2px 10px rgba(37,99,235,0.3);">
+          🚀 开始连续生成
         </button>
-        <button class="btn btn-secondary btn-sm" id="btn-toggle-drawer" onclick="toggleAssetsDrawer()" style="display:flex; align-items:center; gap:6px;">
-          ⚙️ 资产预设与剧本拆解 <span id="drawer-arrow">▾</span>
+        <button class="btn btn-secondary btn-sm" onclick="openJsonModal('import')">
+          📥 导入 JSON
         </button>
-        <button class="btn btn-primary btn-sm" onclick="showNewWorkflowModal()">➕ 新建工程</button>
+        <button class="btn btn-secondary btn-sm" onclick="downloadWorkflowPackageZip()" title="一键打包全部已生成 1080p 视频与剪辑清单 ZIP">
+          📦 打包成片 ZIP
+        </button>
+        <button class="btn btn-secondary btn-sm" id="btn-toggle-drawer" onclick="toggleAssetsDrawer()">
+          ⚙️ 风格与剧本 <span id="drawer-arrow">▾</span>
+        </button>
+        <button class="btn btn-primary btn-sm" onclick="showNewWorkflowModal()">
+          ➕ 新工程
+        </button>
       </div>
     </div>
 
@@ -748,150 +786,113 @@
       <div class="drawer-grid">
         <div class="drawer-card">
           <div class="drawer-header">
-            <span class="drawer-title">🎨 全局资产套件与风格预设</span>
-            <span class="badge" style="font-size: 11px;">全局生效</span>
+            <span class="drawer-title">🎨 全局风格预设与渲染画质</span>
+            <span class="badge-1080p">全局生效</span>
           </div>
 
-          <div class="form-group" style="margin-bottom: 10px;">
-            <label class="form-label" style="font-size: 11px;">快捷套用风格预设包:</label>
+          <div class="form-group">
+            <label class="form-label">快捷套用风格预设包:</label>
             <div class="preset-chips" id="preset-chips-container"></div>
           </div>
 
-          <div class="form-group" style="margin-bottom: 10px;">
-            <label class="form-label" style="font-size: 11px;">全局风格基底词 (Prompt Prefix):</label>
-            <textarea class="form-textarea" id="wf-style-prompt" rows="2" style="font-size: 12px;" placeholder="例如：写实农业纪录片、自然光微距、克制摄影..."></textarea>
+          <div class="form-group">
+            <label class="form-label">全局风格基底词 (Prompt Prefix):</label>
+            <textarea class="form-textarea" id="wf-style-prompt" rows="2" placeholder="例如：写实农业纪录片、自然光微距、克制摄影..."></textarea>
           </div>
 
           <div class="form-row">
-            <div class="form-group" style="margin-bottom: 0;">
-              <label class="form-label" style="font-size: 11px;">全局画幅比例:</label>
-              <select class="form-select" id="wf-aspect-ratio" style="font-size: 12px; height: 32px;">
+            <div class="form-group">
+              <label class="form-label">画幅比例:</label>
+              <select class="form-select" id="wf-aspect-ratio" style="height: 28px;">
                 <option value="16:9">16:9 横屏 (Google Vids 标准)</option>
                 <option value="9:16">9:16 竖屏 (短剧/Shorts/TikTok)</option>
               </select>
             </div>
-            <div class="form-group" style="margin-bottom: 0;">
-              <label class="form-label" style="font-size: 11px;">渲染画质 (Veo 质量):</label>
-              <select class="form-select" id="wf-resolution" style="font-size: 12px; height: 32px; font-weight: 700; color: #10b981;">
+            <div class="form-group">
+              <label class="form-label">渲染画质:</label>
+              <select class="form-select" id="wf-resolution" style="height: 28px; font-weight: 700; color: #10b981;">
                 <option value="1080p">1080p 超清 (veo-quality 推荐)</option>
                 <option value="720p">720p 高清 (veo-lite 快速)</option>
               </select>
             </div>
-            <div class="form-group" style="margin-bottom: 0;">
-              <label class="form-label" style="font-size: 11px;">默认模型:</label>
-              <select class="form-select" id="wf-model-name" style="font-size: 12px; height: 32px;">
+            <div class="form-group">
+              <label class="form-label">默认模型:</label>
+              <select class="form-select" id="wf-model-name" style="height: 28px;">
                 <option value="Omni">Omni (支持全模态)</option>
                 <option value="Veo">Veo (电影级镜头)</option>
               </select>
             </div>
           </div>
 
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px;">
-            <span style="font-size: 11px; color: var(--text-muted);">修改后点击保存立即应用于当前工作流</span>
-            <button class="btn btn-secondary btn-sm" onclick="saveWorkflowSettings()">💾 保存资产套件设置</button>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
+            <span style="font-size: 11px; color: var(--text-muted);">保存后立即应用于当前工作流</span>
+            <button class="btn btn-secondary btn-sm" onclick="saveWorkflowSettings()">💾 保存风格设置</button>
           </div>
         </div>
 
         <div class="drawer-card">
           <div class="drawer-header">
             <span class="drawer-title">📜 故事剧本智能拆解器</span>
-            <span class="badge" style="font-size: 11px; background: rgba(59,130,246,0.15); color: var(--blue-primary);">AI 智能分镜</span>
+            <span style="font-size: 11px; color: var(--blue-primary);">AI 拆解分镜</span>
           </div>
 
-          <div class="form-group" style="margin-bottom: 8px; flex: 1;">
-            <label class="form-label" style="font-size: 11px;">粘贴文案或分镜剧本:</label>
-            <textarea class="form-textarea" id="script-input-text" rows="4" style="font-size: 12px;" placeholder="粘贴文本或分镜脚本，系统将智能提取镜头、英文 Prompt 与中文旁白..."></textarea>
+          <div class="form-group" style="flex: 1;">
+            <label class="form-label">粘贴文案或分镜剧本:</label>
+            <textarea class="form-textarea" id="script-input-text" rows="4" placeholder="粘贴文本或分镜脚本，系统将智能提取镜头、英文 Prompt 与中文旁白..."></textarea>
           </div>
 
-          <div style="display: flex; gap: 10px; align-items: center; justify-content: space-between;">
-            <button class="btn btn-secondary btn-sm" onclick="fillSampleScript()">📝 填入示例文案</button>
-            <div style="display: flex; gap: 8px;">
-              <button class="btn btn-primary btn-sm" onclick="parseAndAppendShots()">⚡ 智能拆解并追加分镜</button>
-              <button class="btn btn-secondary btn-sm" onclick="toggleAssetsDrawer()">收起抽屉</button>
+          <div style="display: flex; gap: 8px; align-items: center; justify-content: space-between;">
+            <button class="btn btn-secondary btn-sm" onclick="fillSampleScript()">📝 填入示例</button>
+            <div style="display: flex; gap: 6px;">
+              <button class="btn btn-primary btn-sm" onclick="parseAndAppendShots()">⚡ 智能拆解并追加</button>
+              <button class="btn btn-secondary btn-sm" onclick="toggleAssetsDrawer()">收起</button>
             </div>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- 极简操作工具栏与进度条 -->
-    <div class="controls-banner">
-      <div class="controls-left">
-        <button class="btn btn-primary" id="btn-start-continuous" onclick="startContinuousGeneration()" style="font-size: 14px; padding: 9px 22px; font-weight: 700; background: linear-gradient(135deg, #2563eb, #06b6d4); box-shadow: 0 4px 14px rgba(37,99,235,0.35);">
-          🚀 开始连续连拍生成
-        </button>
-        <button class="btn btn-secondary btn-sm" onclick="openJsonModal('import')" style="font-weight: 600;">
-          📥 批量导入 JSON
-        </button>
-        <button class="btn btn-secondary btn-sm" onclick="addNewShotCard()">
-          ➕ 新增单镜头
-        </button>
-        <button class="btn btn-secondary btn-sm" onclick="resetAllShotsStatus()">
-          🔄 重置待生成
-        </button>
+    <!-- 第二层：超薄状态与辅助工具条 (合并进度与流线说明) -->
+    <div class="status-strip">
+      <div class="status-strip-flow">
+        <span class="status-flow-step active">① 资产导入</span>
+        <span class="status-flow-sep">➔</span>
+        <span class="status-flow-step">② 1080p渲染</span>
+        <span class="status-flow-sep">➔</span>
+        <span class="status-flow-step">③ 原地即播</span>
+        <span class="status-flow-sep">➔</span>
+        <span class="status-flow-step">④ 剪辑置入</span>
       </div>
 
-      <div class="progress-box">
-        <div style="display: flex; justify-content: space-between; font-size: 12px; color: var(--text-sub);">
-          <span id="overall-progress-text">连拍进度: 0 / 0 镜头已完成</span>
-          <span id="overall-progress-pct" style="font-weight: 700; color: var(--blue-primary);">0%</span>
-        </div>
+      <div class="status-strip-progress">
+        <span id="overall-progress-text" style="white-space: nowrap;">连拍进度: 0 / 0 镜头已完成</span>
         <div class="progress-bar-bg">
           <div class="progress-bar-fill" id="overall-progress-fill"></div>
         </div>
+        <span id="overall-progress-pct" style="font-weight: 700; color: var(--blue-primary); font-size: 11px;">0%</span>
+      </div>
+
+      <div class="status-strip-actions">
+        <button class="btn btn-secondary btn-sm" onclick="addNewShotCard()">➕ 新增镜头</button>
+        <button class="btn btn-secondary btn-sm" onclick="resetAllShotsStatus()">🔄 重置待生成</button>
+        <button class="btn btn-secondary btn-sm" id="btn-toggle-log-strip" onclick="toggleLiveLogExpand()">📟 日志 ▾</button>
       </div>
     </div>
 
-    <!-- 极简 4 步流线胶囊指示器 (直观展示 Vids 与 Flow 协同以及关窗释放内存设计) -->
-    <div class="vids-pipeline-steps" style="margin-bottom: 4px;">
-      <div class="pipeline-step">
-        <div class="step-num">1</div>
-        <div class="step-text">
-          <strong>① 导入分镜资产</strong>
-          <span>批量导入 JSON / 本地首尾帧</span>
-        </div>
-      </div>
-      <div class="pipeline-arrow">➔</div>
-      <div class="pipeline-step">
-        <div class="step-num">2</div>
-        <div class="step-text">
-          <strong>② Veo 1080p 极速渲染</strong>
-          <span>电影级镜头插值 (Flow/Veo)</span>
-        </div>
-      </div>
-      <div class="pipeline-arrow">➔</div>
-      <div class="pipeline-step">
-        <div class="step-num">3</div>
-        <div class="step-text">
-          <strong>③ 原地秒播 · 释放内存</strong>
-          <span>卡片即显试看，关窗释放800MB</span>
-        </div>
-      </div>
-      <div class="pipeline-arrow">➔</div>
-      <div class="pipeline-step">
-        <div class="step-num">4</div>
-        <div class="step-text">
-          <strong>④ 一键置入 Google Vids</strong>
-          <span>复制本地路径，粘贴进剪辑画布</span>
-        </div>
-      </div>
-    </div>
-
-    <!-- 实时执行日志框（可折叠） -->
-    <div class="live-log-panel">
+    <!-- 实时执行日志面板 (默认收起，可切换展开) -->
+    <div class="live-log-panel" id="live-log-panel-wrap">
       <div class="live-log-header">
-        <div style="display: flex; align-items: center; gap: 8px;">
-          <span>📟 引擎执行日志</span>
-          <span style="font-size: 10px; color: var(--text-muted); font-weight: normal;">(监视排队生成进度与无缝置入状态)</span>
-        </div>
         <div style="display: flex; align-items: center; gap: 6px;">
-          <button class="btn btn-secondary btn-sm" id="btn-toggle-log" style="padding: 1px 8px; font-size: 11px; height: 22px;" onclick="toggleLiveLogExpand()">展开 ⤢</button>
-          <button class="btn btn-secondary btn-sm" style="padding: 1px 8px; font-size: 11px; height: 22px;" onclick="clearLiveLog()">清空</button>
+          <span>📟 引擎执行日志</span>
+          <span style="font-size: 10px; color: var(--text-muted);">(排队任务进度与无缝置入状态)</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 4px;">
+          <button class="btn btn-secondary btn-sm" style="height: 20px; font-size: 10px; padding: 0 6px;" onclick="clearLiveLog()">清空</button>
+          <button class="btn btn-secondary btn-sm" style="height: 20px; font-size: 10px; padding: 0 6px;" onclick="toggleLiveLogExpand()">收起 ▴</button>
         </div>
       </div>
       <div class="live-log-box" id="vids-live-log">
         <div>[系统就绪] Google Vids 自动化工作流与连续连拍引擎已初始化。</div>
-        <div>[提示] 点击「📥 批量导入 JSON」导入分镜资产，或点击「🚀 开始连续连拍生成」即可自动排队生成！</div>
       </div>
     </div>
 
@@ -908,13 +909,58 @@
     </div>
   </div>
 
+  <!-- 工程管理中心 Modal (查看所有工程、批量清理空工程) -->
+  <div class="modal-backdrop" id="project-modal-backdrop" onclick="handleBackdropClick(event)">
+    <div class="modal-panel" style="max-width: 820px;" onclick="event.stopPropagation()">
+      <div class="modal-panel-header">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 18px;">📁</span>
+          <span style="font-weight: 700; font-size: 15px;">工程管理中心 (Workflows Manager)</span>
+        </div>
+        <button class="btn btn-secondary btn-sm" onclick="closeProjectModal()">✕ 关闭</button>
+      </div>
+      <div class="modal-panel-body">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+          <div style="font-size: 12px; color: var(--text-sub);">管理已有工程，清理无分镜测试工程以释放系统数据库与缓存。</div>
+          <button class="btn btn-danger btn-sm" onclick="cleanEmptyProjects()">🧹 一键清理无分镜空工程</button>
+        </div>
+        <div id="project-list-container" style="display: flex; flex-direction: column; gap: 8px; max-height: 480px; overflow-y: auto;">
+          <!-- 动态载入工程列表 -->
+        </div>
+      </div>
+      <div class="modal-panel-footer">
+        <button class="btn btn-secondary btn-sm" onclick="closeProjectModal()">完成</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 重命名工程 Modal -->
+  <div class="modal-backdrop" id="rename-modal-backdrop" onclick="handleBackdropClick(event)">
+    <div class="modal-panel" style="max-width: 460px;" onclick="event.stopPropagation()">
+      <div class="modal-panel-header">
+        <div style="font-weight: 700; font-size: 14px;">✏️ 重命名工程</div>
+        <button class="btn btn-secondary btn-sm" onclick="closeRenameModal()">✕</button>
+      </div>
+      <div class="modal-panel-body">
+        <div class="form-group">
+          <label class="form-label">新工程标题:</label>
+          <input type="text" class="form-input" id="rename-input" style="height: 32px;" />
+        </div>
+      </div>
+      <div class="modal-panel-footer">
+        <button class="btn btn-secondary btn-sm" onclick="closeRenameModal()">取消</button>
+        <button class="btn btn-primary btn-sm" onclick="submitRenameWorkflow()">保存重命名</button>
+      </div>
+    </div>
+  </div>
+
   <!-- JSON 批量导入/导出 Modal -->
   <div class="modal-backdrop" id="json-modal-backdrop" onclick="handleBackdropClick(event)">
     <div class="modal-panel" style="max-width: 860px;" onclick="event.stopPropagation()">
       <div class="modal-panel-header">
         <div style="display: flex; align-items: center; gap: 8px;">
-          <span style="font-size: 20px;">📋</span>
-          <span style="font-weight: 700; font-size: 16px;">JSON 批量导入与导出 (Batch Import / Export)</span>
+          <span style="font-size: 18px;">📋</span>
+          <span style="font-weight: 700; font-size: 15px;">JSON 批量导入与导出 (Batch Import / Export)</span>
         </div>
         <button class="btn btn-secondary btn-sm" onclick="closeJsonModal()">✕ 关闭</button>
       </div>
@@ -925,84 +971,95 @@
       </div>
 
       <div class="modal-tab-content active" id="tab-content-import">
-        <div style="display: flex; flex-direction: column; gap: 14px;">
-          <div style="background: rgba(15, 23, 42, 0.6); padding: 12px 16px; border-radius: 8px; border: 1px solid var(--border-color); display: flex; flex-wrap: wrap; gap: 16px; align-items: center; justify-content: space-between;">
-            <div style="display: flex; align-items: center; gap: 14px;">
-              <span style="font-size: 13px; font-weight: 600; color: var(--text-main);">导入目标模式:</span>
-              <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer;">
+        <div style="padding: 14px 18px; display: flex; flex-direction: column; gap: 12px;">
+          <div style="background: rgba(15, 23, 42, 0.6); padding: 10px 14px; border-radius: 6px; border: 1px solid var(--border-color); display: flex; flex-wrap: wrap; gap: 14px; align-items: center; justify-content: space-between;">
+            <div style="display: flex; align-items: center; gap: 12px;">
+              <span style="font-size: 12px; font-weight: 600; color: var(--text-main);">导入目标模式:</span>
+              <label style="display: flex; align-items: center; gap: 4px; font-size: 12px; cursor: pointer;">
                 <input type="radio" name="import-mode-radio" value="new" checked />
                 <span>新建独立工作流工程</span>
               </label>
-              <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer;">
+              <label style="display: flex; align-items: center; gap: 4px; font-size: 12px; cursor: pointer;">
                 <input type="radio" name="import-mode-radio" value="append" />
                 <span>追加到当前工程末尾</span>
               </label>
-              <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer;">
+              <label style="display: flex; align-items: center; gap: 4px; font-size: 12px; cursor: pointer;">
                 <input type="radio" name="import-mode-radio" value="replace" />
-                <span>清空并覆盖当前工程分镜</span>
+                <span>覆盖当前工程全部镜头</span>
               </label>
-            </div>
-            <div style="display: flex; gap: 8px;">
-              <button class="btn btn-secondary btn-sm" onclick="fillSampleImportJson()">📝 填入 1080p 首尾帧示例</button>
-              <label class="btn btn-secondary btn-sm" style="cursor: pointer; margin: 0;">
-                📂 从本地文件载入 (.json)
-                <input type="file" accept=".json" style="display: none;" onchange="loadJsonFileToTextarea(this)" />
-              </label>
-              <button class="btn btn-secondary btn-sm" onclick="clearImportTextarea()">🧹 清空</button>
             </div>
           </div>
 
-          <div>
-            <textarea class="form-textarea" id="batch-import-textarea" rows="12" style="font-family: Consolas, Monaco, monospace; font-size: 12px; line-height: 1.5;" placeholder='支持格式：
-1. 完整工作流对象: { "title": "...", "resolution": "1080p", "shots": [ ... ] }
-2. 镜头数组: [ { "name": "镜头1", "mode": "first_last_frame", "image_url": "...", "end_image_url": "...", "prompt": "..." } ]
-3. 带有 markdown 代码块包裹的文本可以直接粘贴'></textarea>
+          <div class="form-group">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <label class="form-label">粘贴分镜资产 JSON 内容:</label>
+              <div style="display: flex; gap: 6px;">
+                <button class="btn btn-secondary btn-sm" style="height: 22px; font-size: 10px;" onclick="fillSampleJson('first_last_frame')">示例: 首尾帧插值</button>
+                <button class="btn btn-secondary btn-sm" style="height: 22px; font-size: 10px;" onclick="fillSampleJson('image2video')">示例: 单图参考</button>
+                <button class="btn btn-secondary btn-sm" style="height: 22px; font-size: 10px;" onclick="fillSampleJson('text2video')">示例: 纯提示词</button>
+              </div>
+            </div>
+            <textarea class="form-textarea" id="json-import-textarea" rows="10" style="font-family: 'Consolas', monospace; font-size: 11px;" placeholder='[ { "name": "镜头01", "mode": "first_last_frame", "image_url": "C:/path/start.png", "end_image_url": "C:/path/end.png", "prompt": "..." } ]'></textarea>
           </div>
 
-          <div style="font-size: 12px; color: var(--text-sub); background: rgba(59, 130, 246, 0.06); padding: 10px 14px; border-radius: 6px; border-left: 3px solid var(--blue-primary); line-height: 1.6;">
-            💡 <strong>支持字段自动识别与首尾帧适配</strong>：<br>
-            • <strong>起始首帧</strong>：<code>image_url</code> / <code>start_image_path</code> / <code>first_frame</code> / <code>first_image</code>（支持本地绝对路径如 E:/...）<br>
-            • <strong>目标尾帧</strong>：<code>end_image_url</code> / <code>end_image_path</code> / <code>last_frame</code> / <code>end_frame</code><br>
-            • <strong>画质规格</strong>：<code>resolution</code>: "1080p"（自动映射底层 veo-quality 高画质）
-          </div>
-
-          <div id="import-msg-box" style="display: none; padding: 10px 14px; border-radius: 6px; font-size: 13px;"></div>
-
-          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 6px;">
-            <div style="display: flex; align-items: center; gap: 8px;">
-              <input type="checkbox" id="import-auto-start-checkbox" checked style="width: 16px; height: 16px; accent-color: #2563eb; cursor: pointer;" />
-              <label for="import-auto-start-checkbox" style="font-size: 13px; font-weight: 600; color: var(--text-main); cursor: pointer;">
-                🚀 导入成功后自动启动并排队下发生成任务
-              </label>
-            </div>
-            <div style="display: flex; gap: 12px;">
-              <button class="btn btn-secondary" onclick="closeJsonModal()">取消</button>
-              <button class="btn btn-primary" id="btn-submit-import" onclick="executeBatchImport()" style="font-weight: 700; padding: 8px 24px; background: linear-gradient(135deg, #2563eb, #06b6d4);">🚀 立即解析并批量导入</button>
-            </div>
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-size: 11px; color: var(--text-muted);">支持标准 JSON 数组或包含 shots 字段的对象</span>
+            <button class="btn btn-primary" onclick="executeBatchJsonImport()" style="font-size: 12px; padding: 6px 18px;">🚀 确认导入并渲染镜头</button>
           </div>
         </div>
       </div>
 
       <div class="modal-tab-content" id="tab-content-export">
-        <div style="display: flex; flex-direction: column; gap: 14px;">
-          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
-            <div style="font-size: 13px; color: var(--text-sub);">
-              当前工程的全部配置、分镜 Prompt、首尾帧路径及成片链接已标准化打包：
-            </div>
-            <div style="display: flex; gap: 8px;">
-              <button class="btn btn-secondary btn-sm" onclick="loadWorkflowExportJson()">🔄 重新拉取最新</button>
-              <button class="btn btn-primary btn-sm" onclick="copyExportJson()">📋 复制到剪贴板</button>
-              <button class="btn btn-secondary btn-sm" onclick="downloadExportJson()">💾 下载 .json 文件</button>
-            </div>
+        <div style="padding: 14px 18px; display: flex; flex-direction: column; gap: 12px;">
+          <div class="form-group">
+            <label class="form-label">当前工程全量资产 JSON 数据:</label>
+            <textarea class="form-textarea" id="json-export-textarea" rows="12" readonly style="font-family: 'Consolas', monospace; font-size: 11px;"></textarea>
           </div>
-          <div>
-            <textarea class="form-textarea" id="batch-export-textarea" rows="14" readonly style="font-family: Consolas, Monaco, monospace; font-size: 12px; line-height: 1.5; background: #060911;" placeholder="正在生成当前工作流的完整 JSON 导出..."></textarea>
+          <div style="display: flex; justify-content: flex-end; gap: 8px;">
+            <button class="btn btn-secondary btn-sm" onclick="copyExportJson()">📋 复制到剪贴板</button>
+            <button class="btn btn-primary btn-sm" onclick="downloadExportJson()">💾 下载为 .json 文件</button>
           </div>
         </div>
       </div>
     </div>
   </div>
 
-  <script src="/static/vids.js?v=20261001_v11"></script>
+  <!-- 新建工程 Modal -->
+  <div class="modal-backdrop" id="new-wf-modal-backdrop" onclick="handleBackdropClick(event)">
+    <div class="modal-panel" style="max-width: 500px;" onclick="event.stopPropagation()">
+      <div class="modal-panel-header">
+        <div style="font-weight: 700; font-size: 14px;">➕ 新建视频工作流工程</div>
+        <button class="btn btn-secondary btn-sm" onclick="closeNewWorkflowModal()">✕</button>
+      </div>
+      <div class="modal-panel-body" style="display: flex; flex-direction: column; gap: 12px;">
+        <div class="form-group">
+          <label class="form-label">工程标题:</label>
+          <input type="text" class="form-input" id="new-wf-title" placeholder="例如：抗逆防卫｜4段10秒竖屏首尾帧视频" />
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">画幅比例:</label>
+            <select class="form-select" id="new-wf-aspect">
+              <option value="16:9">16:9 横屏 (Google Vids 标准)</option>
+              <option value="9:16">9:16 竖屏 (短剧/Shorts/TikTok)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">画质:</label>
+            <select class="form-select" id="new-wf-resolution" style="color: #10b981; font-weight: 700;">
+              <option value="1080p">1080p 超清 (推荐)</option>
+              <option value="720p">720p 高清</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div class="modal-panel-footer">
+        <button class="btn btn-secondary btn-sm" onclick="closeNewWorkflowModal()">取消</button>
+        <button class="btn btn-primary btn-sm" onclick="submitCreateNewWorkflow()">创建工程</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/vids.js?v=20261002_v12"></script>
 </body>
 </html>

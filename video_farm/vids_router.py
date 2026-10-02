@@ -9,7 +9,11 @@ import json
 from typing import Optional, List, Dict, Any
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, Query, Body, Request, UploadFile, File
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse, Response
+import io
+import zipfile
+import csv
+from datetime import datetime
 from pydantic import BaseModel
 
 import urllib.parse
@@ -18,6 +22,63 @@ from . import db
 from . import vids_workflow
 
 router = APIRouter(prefix="/api/vids", tags=["Google Vids"])
+
+# -------------------------------------------------------------
+# 智能语义化命名与剪辑资产交付系统
+# -------------------------------------------------------------
+def sanitize_filename_part(s: str, max_len: int = 24) -> str:
+    """清理文件名片段，移除非法字符并适度截断"""
+    if not s or not isinstance(s, str):
+        return ""
+    # 替换换行、制表符、连续空格为单个下划线
+    s = re.sub(r'[\r\n\t\s]+', '_', s.strip())
+    # 移除非法字符 \ / : * ? " < > | 以及标点符号
+    s = re.sub(r'[\/:*?"<>|\\，。！？；：“”‘’（）()、·]+', '_', s)
+    s = re.sub(r'_+', '_', s).strip('_')
+    if len(s) > max_len:
+        s = s[:max_len].rstrip('_')
+    return s
+
+
+def build_semantic_shot_filename(shot: Dict[str, Any], wf: Optional[Dict[str, Any]] = None, ext: str = "mp4") -> str:
+    """
+    生成高度语义化、剪辑友好的标准化文件名
+    格式: [序数01]_[分镜名]_[SceneX]_[运镜模式]_[画质]_[台词或Prompt核心摘要].[ext]
+    例如: 01_镜头01_Scene1_首尾帧过渡_1080p_偏碱的土壤里磷容易与钙结合.mp4
+    """
+    seq = shot.get("sequence") or 1
+    scene = shot.get("scene_index") or seq
+    raw_name = shot.get("name") or f"Shot{seq}"
+    # 如果名字以 "镜头 01" 开头，清理格式
+    name = sanitize_filename_part(raw_name, 16)
+    
+    mode = shot.get("mode") or "text2video"
+    mode_map = {
+        "first_last_frame": "首尾帧过渡",
+        "image2video": "图生视频",
+        "text2video": "文生视频",
+        "extend": "尾帧延续"
+    }
+    mode_cn = mode_map.get(mode, "视频")
+    res = (shot.get("resolution") or (wf.get("resolution") if wf else "1080p") or "1080p").strip()
+    
+    # 优先提取台词，若无台词则提取提示词前段
+    summary_raw = (shot.get("narration") or "").strip()
+    if not summary_raw:
+        summary_raw = (shot.get("prompt") or "").strip()
+    summary = sanitize_filename_part(summary_raw, 22)
+    
+    parts = [f"{seq:02d}", name, f"Scene{scene}", mode_cn, res]
+    if summary:
+        parts.append(summary)
+    
+    filename = "_".join(p for p in parts if p)
+    clean_ext = ext.lstrip(".").lower()
+    if not filename.lower().endswith(f".{clean_ext}"):
+        filename += f".{clean_ext}"
+    return filename
+
+
 
 UPLOADS_VIDS_DIR = Path("video_farm_data/uploads/vids")
 UPLOADS_VIDS_DIR.mkdir(parents=True, exist_ok=True)
@@ -665,4 +726,222 @@ def reset_workflow_shots_status(workflow_id: str):
         "success": True,
         "workflow": updated_wf,
         "message": "所有镜头已重置为待生成状态"
+    }
+
+
+@router.get("/shots/{shot_id}/semantic_name")
+def get_shot_semantic_name(shot_id: str):
+    """获取分镜的标准语义化文件名及剪辑定位信息"""
+    shot = db.get_vids_shot(shot_id)
+    if not shot:
+        raise HTTPException(status_code=404, detail="分镜不存在")
+    wf = db.get_vids_workflow(shot["workflow_id"]) if shot.get("workflow_id") else None
+    filename = build_semantic_shot_filename(shot, wf)
+    return {
+        "shot_id": shot_id,
+        "semantic_filename": filename,
+        "narration": shot.get("narration", ""),
+        "scene_index": shot.get("scene_index", 1),
+        "sequence": shot.get("sequence", 1),
+        "duration": shot.get("duration", 8),
+        "mode": shot.get("mode", "text2video"),
+        "resolution": shot.get("resolution", "1080p")
+    }
+
+
+@router.get("/shots/{shot_id}/download")
+def download_shot_video(shot_id: str):
+    """单镜头规范命名直接下载接口"""
+    shot = db.get_vids_shot(shot_id)
+    if not shot:
+        raise HTTPException(status_code=404, detail="分镜不存在")
+    wf = db.get_vids_workflow(shot["workflow_id"]) if shot.get("workflow_id") else None
+    
+    video_path = None
+    local_p = shot.get("local_video_path")
+    if local_p and Path(local_p).exists() and Path(local_p).is_file():
+        video_path = Path(local_p)
+    else:
+        v_url = shot.get("video_url") or ""
+        if "/media/outputs/" in v_url:
+            fname = v_url.split("/media/outputs/")[-1].split("?")[0]
+            cand = Path("video_farm_data/outputs") / fname
+            if cand.exists() and cand.is_file():
+                video_path = cand
+        elif v_url.startswith("/") or ":" in v_url:
+            cand = Path(v_url.replace("/media/file?path=", ""))
+            if cand.exists() and cand.is_file():
+                video_path = cand
+    
+    if not video_path or not video_path.exists():
+        raise HTTPException(status_code=404, detail="成片视频文件尚未生成或不存在")
+        
+    filename = build_semantic_shot_filename(shot, wf, ext=video_path.suffix or ".mp4")
+    quoted_filename = urllib.parse.quote(filename)
+    
+    headers = {
+        'Content-Disposition': f'attachment; filename="{quoted_filename}"; filename*=UTF-8\'\'{quoted_filename}',
+        "X-Semantic-Filename": quoted_filename,
+        "Access-Control-Expose-Headers": "Content-Disposition, X-Semantic-Filename"
+    }
+    return FileResponse(
+        path=str(video_path),
+        filename=filename,
+        media_type="video/mp4",
+        headers=headers
+    )
+
+
+@router.get("/workflows/{workflow_id}/package_zip")
+def package_workflow_zip(workflow_id: str):
+    """一键打包当前工程全部分镜成片（规范语义命名）并附带剪辑分镜与台词对齐清单"""
+    wf = db.get_vids_workflow(workflow_id)
+    if not wf:
+        raise HTTPException(status_code=404, detail="工作流不存在")
+    
+    shots = wf.get("shots") or []
+    completed_shots = []
+    for s in shots:
+        local_p = s.get("local_video_path")
+        v_path = None
+        if local_p and Path(local_p).exists() and Path(local_p).is_file():
+            v_path = Path(local_p)
+        elif s.get("video_url"):
+            v_url = s.get("video_url")
+            if "/media/outputs/" in v_url:
+                fname = v_url.split("/media/outputs/")[-1].split("?")[0]
+                cand = Path("video_farm_data/outputs") / fname
+                if cand.exists() and cand.is_file():
+                    v_path = cand
+        if v_path and v_path.exists():
+            completed_shots.append((s, v_path))
+            
+    if not completed_shots:
+        raise HTTPException(status_code=400, detail="当前工程暂无可打包的已完成视频成片")
+        
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        manifest_lines = [
+            "==================================================",
+            "  Google Vids 连续生成工程剪辑素材与台词对齐表",
+            "==================================================",
+            f"工程名称: {wf.get('title', '')}",
+            f"画质规格: {wf.get('resolution', '1080p')} · {wf.get('aspect_ratio', '16:9')}",
+            f"默认模型: {wf.get('model_name', 'Omni')} / Google Veo",
+            f"导出时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            f"包含镜头: 共 {len(completed_shots)} / {len(shots)} 段成片",
+            "--------------------------------------------------\n",
+            "【剪辑软件导入使用指南】",
+            "1. 所有视频文件已按 [01, 02...] 时间线顺序规范命名，可直接批量拖入剪映 / PR / Final Cut / Google Vids 轨道。",
+            "2. 下方清单清晰标注了每个视频对应的「场景Scene」、「旁白台词」、「提示词核心」与建议时长。",
+            "3. 剪映用户建议：将所有视频拖入视频轨，将下方台词复制到剪映「文本朗读」或直接作为字幕轨道对齐。\n",
+            "--------------------------------------------------\n"
+        ]
+        
+        csv_rows = [
+            ["序号", "分镜ID", "分镜名称", "场景号", "规范文件名", "时长(秒)", "运镜模式", "画质", "旁白台词", "画面提示词"]
+        ]
+        
+        for shot, v_path in completed_shots:
+            fn = build_semantic_shot_filename(shot, wf, ext=v_path.suffix or ".mp4")
+            zf.write(str(v_path), arcname=f"videos/{fn}")
+            
+            seq = shot.get("sequence", 1)
+            scene = shot.get("scene_index", seq)
+            name = shot.get("name", f"镜头 {seq}")
+            dur = shot.get("duration", 8)
+            mode = shot.get("mode", "text2video")
+            narr = shot.get("narration", "")
+            prompt = shot.get("prompt", "")
+            
+            manifest_lines.append(f"【镜头 {seq:02d}】{name}")
+            manifest_lines.append(f"  - 对应场景: Scene {scene}")
+            manifest_lines.append(f"  - 素材文件: videos/{fn}")
+            manifest_lines.append(f"  - 视频时长: {dur} 秒 | 运镜模式: {mode}")
+            manifest_lines.append(f"  - 旁白台词: {narr if narr else '(无台词)'}")
+            manifest_lines.append(f"  - 视觉提示: {prompt}\n")
+            
+            csv_rows.append([
+                str(seq), str(shot.get("id", "")), name, str(scene), fn, str(dur), mode, str(shot.get("resolution", "1080p")), narr, prompt
+            ])
+            
+        txt_content = "\n".join(manifest_lines)
+        zf.writestr("00_剪辑分镜与台词对齐表.txt", txt_content.encode("utf-8-sig"))
+        
+        csv_buffer = io.StringIO()
+        csv_writer = csv.writer(csv_buffer)
+        csv_writer.writerows(csv_rows)
+        zf.writestr("00_剪辑分镜与台词对齐表.csv", csv_buffer.getvalue().encode("utf-8-sig"))
+        
+        clean_wf_backup = {k: v for k, v in wf.items() if k != "shots"}
+        clean_wf_backup["shots"] = [
+            {k: v for k, v in s.items()} for s in shots
+        ]
+        zf.writestr("project_workflow.json", json.dumps(clean_wf_backup, ensure_ascii=False, indent=2).encode("utf-8"))
+        
+    zip_buffer.seek(0)
+    safe_wf_title = sanitize_filename_part(wf.get("title") or "Vids_Project", 20)
+    date_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+    zip_name = f"{safe_wf_title}_剪辑素材包_{date_str}.zip"
+    quoted_zip_name = urllib.parse.quote(zip_name)
+    
+    headers = {
+        'Content-Disposition': f'attachment; filename="{quoted_zip_name}"; filename*=UTF-8\'\'{quoted_zip_name}',
+        "Access-Control-Expose-Headers": "Content-Disposition"
+    }
+    return Response(
+        content=zip_buffer.getvalue(),
+        media_type="application/zip",
+        headers=headers
+    )
+
+
+@router.put("/workflows/{workflow_id}/rename")
+def rename_workflow(workflow_id: str, payload: Dict[str, Any] = Body(...)):
+    """重命名工作流工程标题"""
+    wf = db.get_vids_workflow(workflow_id)
+    if not wf:
+        raise HTTPException(status_code=404, detail="工作流不存在")
+    new_title = (payload.get("title") or "").strip()
+    if not new_title:
+        raise HTTPException(status_code=400, detail="工程标题不能为空")
+    db.update_vids_workflow(workflow_id, {"title": new_title})
+    return {
+        "success": True,
+        "workflow_id": workflow_id,
+        "title": new_title,
+        "message": f"工程已重命名为: {new_title}"
+    }
+
+
+@router.post("/workflows/clean_empty")
+def clean_empty_workflows():
+    """一键清理所有0镜头的无用空工程与测试废稿，释放工程列表空间"""
+    wfs = db.list_vids_workflows()
+    deleted = []
+    for wf in wfs:
+        if wf.get("total_shots", 0) == 0:
+            db.delete_vids_workflow(wf["id"])
+            deleted.append({"id": wf["id"], "title": wf.get("title", "")})
+    return {
+        "success": True,
+        "deleted_count": len(deleted),
+        "deleted_workflows": deleted,
+        "message": f"已清理 {len(deleted)} 个无分镜的空工程/废弃测试工程"
+    }
+
+
+@router.get("/workflows_stats")
+def get_workflows_stats():
+    """获取所有工程的生命周期统计数据"""
+    wfs = db.list_vids_workflows()
+    empty_count = sum(1 for w in wfs if w.get("total_shots", 0) == 0)
+    total_shots = sum(w.get("total_shots", 0) for w in wfs)
+    total_completed = sum(w.get("completed_shots", 0) for w in wfs)
+    return {
+        "total_workflows": len(wfs),
+        "empty_workflows_count": empty_count,
+        "total_shots": total_shots,
+        "total_completed_shots": total_completed,
+        "workflows": wfs
     }

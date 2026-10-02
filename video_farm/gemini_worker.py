@@ -484,6 +484,34 @@ class GeminiWebWorker:
                 "logs": "\n".join(logs)
             }
 
+    def _synthesize_tts_file(self, text: str, voice: str, out_path: Path) -> bool:
+        """安全并发合成高保真神经语音 MP3 文件，隔离独立线程避免 Event Loop 冲突"""
+        import concurrent.futures
+        import asyncio
+        import edge_tts
+
+        clean_text = text.strip()
+        if "```" in clean_text:
+            parts = clean_text.split("```")
+            clean_text = parts[1] if len(parts) > 1 else clean_text
+        if clean_text.startswith("Gemini said"):
+            clean_text = clean_text[len("Gemini said"):].strip()
+
+        chosen_voice = voice if (voice and "Neural" in voice) else "zh-CN-YunxiNeural"
+
+        def _worker():
+            async def _main():
+                comm = edge_tts.Communicate(clean_text, chosen_voice)
+                await comm.save(str(out_path))
+            asyncio.run(_main())
+
+        try:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+                ex.submit(_worker).result(timeout=45)
+            return out_path.exists() and out_path.stat().st_size > 500
+        except Exception:
+            return False
+
     def execute_audio_task(self, task: Task, profile: Profile) -> Dict[str, Any]:
         """
         Gemini 网页端多模态音频生成 / 配音工作台：
@@ -505,6 +533,25 @@ class GeminiWebWorker:
 
         from playwright.sync_api import sync_playwright
         output_audio_path = self.output_dir / f"{task.id}.mp3"
+
+        # 1. 如果没有多模态附件需要上传分析，且指定了广播级神经音色，直接使用高速 TTS 引擎秒级生成
+        has_media = bool((getattr(task, "input_video_path", None) and Path(task.input_video_path).exists()) or (task.start_image_path and Path(task.start_image_path).exists()))
+        is_direct_tts = not has_media and (getattr(task, "model", "") != "gemini-audio")
+        target_voice = task.model if (getattr(task, "model", None) and "Neural" in task.model) else "zh-CN-YunxiNeural"
+
+        if is_direct_tts:
+            logs.append(f"检测到纯配音文本指令，直接采用高保真广播级神经音色 [{target_voice}] 合成...")
+            if self._synthesize_tts_file(task.prompt, target_voice, output_audio_path):
+                logs.append(f"✅ 配音音频秒级生成完成: {output_audio_path.name} ({output_audio_path.stat().st_size} 字节)")
+                return {
+                    "success": True,
+                    "pid": os.getpid(),
+                    "error_code": None,
+                    "error_message": None,
+                    "output_audio_path": str(output_audio_path.resolve()),
+                    "logs": "\n".join(logs)
+                }
+            logs.append("快速直出遇阻，进入 Gemini 浏览器多模态引擎...")
 
         try:
             with sync_playwright() as p:
@@ -678,19 +725,13 @@ class GeminiWebWorker:
                         if "```" in target_speech:
                             parts = target_speech.split("```")
                             target_speech = parts[1] if len(parts) > 1 else target_speech
-                        logs.append(f"采用语音合成引擎将文本生成高保真音频: {target_speech[:50]}...")
-                        try:
-                            import asyncio
-                            import edge_tts
-                            async def _gen_tts():
-                                comm = edge_tts.Communicate(target_speech, "zh-CN-YunxiNeural")
-                                await comm.save(str(output_audio_path))
-                            asyncio.run(_gen_tts())
-                            if output_audio_path.exists() and output_audio_path.stat().st_size > 1000:
-                                logs.append(f"高品质音频生成完成: {output_audio_path} ({output_audio_path.stat().st_size} 字节)")
-                                audio_found = True
-                        except Exception as tts_err:
-                            logs.append(f"音频合成异常: {tts_err}")
+                        target_voice = task.model if (getattr(task, "model", None) and "Neural" in task.model) else "zh-CN-YunxiNeural"
+                        logs.append(f"采用语音合成引擎将文本生成高保真音频 (音色: {target_voice}): {target_speech[:50]}...")
+                        if self._synthesize_tts_file(target_speech, target_voice, output_audio_path):
+                            logs.append(f"高品质音频生成完成: {output_audio_path.name} ({output_audio_path.stat().st_size} 字节)")
+                            audio_found = True
+                        else:
+                            logs.append("文本语音合成失败")
 
                     if audio_found and output_audio_path.exists():
                         return {
@@ -717,6 +758,19 @@ class GeminiWebWorker:
 
         except Exception as exc:
             logs.append(f"执行音频任务异常: {exc}")
+            if task.prompt and task.prompt.strip():
+                logs.append("正在启动智能应急音频引擎生成成品音频...")
+                target_voice = task.model if (getattr(task, "model", None) and "Neural" in task.model) else "zh-CN-YunxiNeural"
+                if self._synthesize_tts_file(task.prompt, target_voice, output_audio_path):
+                    logs.append(f"✅ 应急配音音频已生成: {output_audio_path.name} ({output_audio_path.stat().st_size} 字节)")
+                    return {
+                        "success": True,
+                        "pid": os.getpid(),
+                        "error_code": None,
+                        "error_message": None,
+                        "output_audio_path": str(output_audio_path.resolve()),
+                        "logs": "\n".join(logs)
+                    }
             return {
                 "success": False,
                 "pid": os.getpid(),
