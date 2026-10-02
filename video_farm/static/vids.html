@@ -272,26 +272,47 @@
       font-weight: 600;
     }
 
-    /* 实时日志框 */
-    .live-log-box {
+    /* 实时日志面板与折叠 */
+    .live-log-panel {
       background: #060911;
       border: 1px solid var(--border-color);
       border-radius: var(--radius-md);
-      padding: 10px 14px;
-      font-family: Consolas, Monaco, monospace;
+      margin-bottom: 16px;
+      overflow: hidden;
+      box-shadow: var(--shadow-sm);
+    }
+    .live-log-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 12px;
+      background: rgba(15, 23, 42, 0.75);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
       font-size: 12px;
+      font-weight: 600;
+      color: var(--text-sub);
+    }
+    .live-log-box {
+      background: #04060a;
+      padding: 8px 12px;
+      font-family: Consolas, Monaco, monospace;
+      font-size: 11px;
       color: #10b981;
-      max-height: 110px;
+      height: 58px;
       overflow-y: auto;
       line-height: 1.5;
+      transition: height 0.25s ease;
+    }
+    .live-log-box.expanded {
+      height: 160px;
     }
 
-    /* 分镜卡片流 */
+    /* 分镜卡片整体 */
     .shot-card {
       background: var(--bg-surface);
       border: 1px solid var(--border-color);
       border-radius: var(--radius-lg);
-      padding: 18px 20px;
+      padding: 16px 18px;
       margin-bottom: 16px;
       transition: all 0.25s ease;
       position: relative;
@@ -299,7 +320,7 @@
     }
     .shot-card:hover {
       border-color: rgba(59, 130, 246, 0.4);
-      box-shadow: 0 6px 18px rgba(0, 0, 0, 0.2);
+      box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
     }
     .shot-card.status-running {
       border-color: var(--blue-primary);
@@ -316,8 +337,8 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      margin-bottom: 14px;
-      padding-bottom: 10px;
+      margin-bottom: 12px;
+      padding-bottom: 8px;
       border-bottom: 1px solid rgba(255, 255, 255, 0.05);
       flex-wrap: wrap;
       gap: 8px;
@@ -358,133 +379,195 @@
       color: #ef4444;
     }
 
-    /* 分镜内容两列流式响应式排布 */
+    /* 分镜内容双栏响应式网格 */
+    .shot-card-body,
     .shot-body-layout {
       display: grid;
-      grid-template-columns: 1.18fr 0.82fr;
-      gap: 20px;
-      align-items: start;
+      grid-template-columns: 1.15fr 0.85fr;
+      gap: 16px;
+      align-items: stretch;
     }
-    @media (max-width: 900px) {
+    @media (max-width: 960px) {
+      .shot-card-body,
       .shot-body-layout {
         grid-template-columns: 1fr;
       }
     }
 
-    /* 首尾帧与图片参考卡片 */
-    .frame-asset-container {
-      background: rgba(15, 23, 42, 0.5);
+    /* 全局防撑破防护：卡片内任何图片不可超越父容器 */
+    .shot-card img {
+      max-width: 100%;
+    }
+
+    /* 左列：首尾帧与图片参考胶囊化条带容器 */
+    .frame-asset-strip-container {
+      background: rgba(15, 23, 42, 0.4);
       border: 1px solid rgba(59, 130, 246, 0.2);
-      border-radius: var(--radius-md);
-      padding: 10px 12px;
-      margin: 8px 0;
-    }
-    .frame-asset-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 12px;
-    }
-    .frame-asset-grid.single-col {
-      grid-template-columns: 1fr;
-    }
-    .frame-asset-box {
-      background: var(--bg-input);
-      border: 1px dashed var(--border-color);
-      border-radius: var(--radius-sm);
-      padding: 8px 10px;
+      border-radius: 6px;
+      padding: 6px 8px;
       display: flex;
       flex-direction: column;
       gap: 6px;
-      transition: all 0.2s;
     }
-    .frame-asset-box.has-image {
-      border-style: solid;
-      border-color: rgba(59, 130, 246, 0.4);
-    }
-    .frame-asset-header {
+    .frame-strip-row {
       display: flex;
       align-items: center;
-      justify-content: space-between;
+      gap: 8px;
+      background: var(--bg-input);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 6px;
+      padding: 3px 6px;
+      transition: all 0.2s ease;
+    }
+    .frame-strip-row:hover {
+      border-color: rgba(59, 130, 246, 0.35);
+    }
+    .frame-strip-row.has-image {
+      border-color: rgba(59, 130, 246, 0.45);
+      background: rgba(15, 23, 42, 0.6);
+    }
+    .frame-strip-label {
       font-size: 11px;
       font-weight: 600;
       color: var(--cyan-accent);
-    }
-    .frame-asset-input-row {
-      display: flex;
-      gap: 6px;
-      align-items: center;
-    }
-
-    /* 图片预览组件强化（带灯箱点击态与防裂图） */
-    .frame-thumb-wrapper {
-      position: relative;
-      width: 100%;
-      height: 96px;
-      border-radius: 6px;
-      overflow: hidden;
-      background: #000;
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      cursor: zoom-in;
-    }
-    .frame-thumb-img {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      display: block;
-      transition: transform 0.25s ease;
-    }
-    .frame-thumb-wrapper:hover .frame-thumb-img {
-      transform: scale(1.04);
-    }
-    .frame-thumb-hover-overlay {
-      position: absolute;
-      inset: 0;
-      background: rgba(0, 0, 0, 0.45);
+      min-width: 62px;
+      white-space: nowrap;
       display: flex;
       align-items: center;
-      justify-content: center;
-      gap: 6px;
-      color: #fff;
-      font-size: 11px;
-      font-weight: 600;
-      opacity: 0;
-      transition: opacity 0.2s ease;
-    }
-    .frame-thumb-wrapper:hover .frame-thumb-hover-overlay {
-      opacity: 1;
-    }
-    .frame-asset-thumb-placeholder {
-      height: 80px;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      color: var(--text-muted);
-      font-size: 11px;
-      border-radius: 6px;
-      background: rgba(0, 0, 0, 0.2);
-      border: 1px dashed rgba(255, 255, 255, 0.08);
       gap: 4px;
     }
+    .frame-strip-thumb-box {
+      width: 58px;
+      height: 36px;
+      min-width: 58px;
+      max-width: 58px;
+      min-height: 36px;
+      max-height: 36px;
+      border-radius: 4px;
+      overflow: hidden;
+      background: #000;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      position: relative;
+      flex-shrink: 0;
+    }
+    .frame-asset-thumb {
+      width: 58px !important;
+      height: 36px !important;
+      min-width: 58px !important;
+      max-width: 58px !important;
+      min-height: 36px !important;
+      max-height: 36px !important;
+      object-fit: cover !important;
+      display: block;
+      transition: transform 0.2s ease;
+    }
+    .frame-strip-thumb-box:hover .frame-asset-thumb {
+      transform: scale(1.08);
+    }
+    .frame-thumb-empty {
+      font-size: 10px;
+      color: var(--text-muted);
+      text-align: center;
+      line-height: 1.1;
+      padding: 2px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .frame-thumb-empty:hover {
+      color: var(--blue-primary);
+    }
 
-    /* 右侧视频即显即播区 */
-    .shot-media-preview-box {
-      background: var(--bg-card);
+    /* 右列：监视器与成果舞台 */
+    .shot-media-preview-box,
+    .shot-stage-box {
+      background: #080c14;
       border: 1px solid var(--border-color);
       border-radius: var(--radius-md);
       padding: 12px;
       display: flex;
       flex-direction: column;
-      gap: 10px;
-      min-height: 220px;
       justify-content: center;
+      min-height: 220px;
+      position: relative;
+      overflow: hidden;
     }
     .shot-media-preview-box video {
       width: 100%;
-      border-radius: 8px;
-      max-height: 250px;
+      border-radius: 6px;
+      max-height: 200px;
       background: #000;
-      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.6);
+      display: block;
+    }
+
+    .stage-transition-card {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      width: 100%;
+    }
+    .stage-transition-flex {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      width: 100%;
+    }
+    .stage-thumb-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+    }
+    .stage-thumb-img {
+      width: 110px !important;
+      height: 64px !important;
+      min-width: 110px !important;
+      max-width: 110px !important;
+      min-height: 64px !important;
+      max-height: 64px !important;
+      object-fit: cover !important;
+      border-radius: 4px;
+      border: 1px solid rgba(59, 130, 246, 0.35);
+      cursor: zoom-in;
+      display: block;
+      background: #000;
+      transition: transform 0.2s ease, border-color 0.2s ease;
+    }
+    .stage-thumb-img:hover {
+      transform: scale(1.05);
+      border-color: var(--cyan-accent);
+    }
+    .stage-thumb-label {
+      font-size: 10px;
+      color: var(--text-sub);
+      font-weight: 600;
+    }
+    .stage-arrow-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+      color: var(--blue-primary);
+    }
+    .stage-thumb-empty-placeholder {
+      width: 110px;
+      height: 64px;
+      border: 1px dashed rgba(255, 255, 255, 0.15);
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      color: var(--text-muted);
+      background: rgba(0, 0, 0, 0.25);
     }
 
     /* 徽章与标签 */
@@ -794,10 +877,22 @@
       </div>
     </div>
 
-    <!-- 实时执行日志框 -->
-    <div class="live-log-box" id="vids-live-log">
-      <div>[系统就绪] Google Vids 自动化工作流与连续连拍引擎已初始化。</div>
-      <div>[提示] 点击「📥 批量导入 JSON」导入分镜资产，或点击「🚀 开始连续连拍生成」即可自动排队生成！</div>
+    <!-- 实时执行日志框（可折叠） -->
+    <div class="live-log-panel">
+      <div class="live-log-header">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span>📟 引擎执行日志</span>
+          <span style="font-size: 10px; color: var(--text-muted); font-weight: normal;">(监视排队生成进度与无缝置入状态)</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 6px;">
+          <button class="btn btn-secondary btn-sm" id="btn-toggle-log" style="padding: 1px 8px; font-size: 11px; height: 22px;" onclick="toggleLiveLogExpand()">展开 ⤢</button>
+          <button class="btn btn-secondary btn-sm" style="padding: 1px 8px; font-size: 11px; height: 22px;" onclick="clearLiveLog()">清空</button>
+        </div>
+      </div>
+      <div class="live-log-box" id="vids-live-log">
+        <div>[系统就绪] Google Vids 自动化工作流与连续连拍引擎已初始化。</div>
+        <div>[提示] 点击「📥 批量导入 JSON」导入分镜资产，或点击「🚀 开始连续连拍生成」即可自动排队生成！</div>
+      </div>
     </div>
 
     <!-- 分镜卡片全宽容器 -->
