@@ -717,6 +717,14 @@ def reset_workflow_shots_status(workflow_id: str):
     
     shots = db.list_vids_shots(workflow_id)
     for s in shots:
+        old_tid = s.get("task_id")
+        if old_tid:
+            try:
+                old_task = db.get_task(old_tid)
+                if old_task and old_task.status in ("queued", "running", "retry_wait"):
+                    db.update_task_status(old_tid, status="cancelled", error_message="用户已重置工作流分镜状态")
+            except Exception:
+                pass
         # 保留已有成片记录，防止用户点击重置后历史成片丢失
         existing_video_url = s.get("video_url") or ""
         existing_local_path = s.get("local_video_path") or ""

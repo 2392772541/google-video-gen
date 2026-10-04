@@ -671,6 +671,10 @@ def create_vids_workflow(
 def sync_shot_with_task(shot_dict: Dict[str, Any], conn: sqlite3.Connection) -> Dict[str, Any]:
     t_id = shot_dict.get("task_id")
     if not t_id:
+        if shot_dict.get("video_url") and shot_dict.get("status") != "completed":
+            shot_dict["status"] = "completed"
+            shot_dict["progress"] = 100
+            conn.execute("UPDATE vids_shots SET status = 'completed', progress = 100 WHERE id = ?", (shot_dict["id"],))
         return shot_dict
     t_row = conn.execute("SELECT status, output_video_path, error_message FROM tasks WHERE id = ?", (t_id,)).fetchone()
     if not t_row:
@@ -717,7 +721,10 @@ def sync_shot_with_task(shot_dict: Dict[str, Any], conn: sqlite3.Connection) -> 
             updates["status"] = "running"
             updates["progress"] = 5
     elif t_status == "failed":
-        if shot_dict.get("status") != "failed":
+        if shot_dict.get("status") == "pending":
+            updates["task_id"] = ""
+            updates["error_message"] = ""
+        elif shot_dict.get("status") != "failed":
             updates["status"] = "failed"
             updates["error_message"] = t_err or "视频生成失败"
     elif t_status == "retry_wait":
