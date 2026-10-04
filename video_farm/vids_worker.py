@@ -55,59 +55,54 @@ class VidsWorker:
             except Exception as e:
                 logs.append(f"清理锁文件提示: {e}")
 
-    def _dismiss_overlays(self, page, logs: List[str]):
-        """主动关闭 Google Vids 的新手引导浮层、条款弹窗和对话框，强力穿透 Material 3 遮罩"""
-        try:
-            page.keyboard.press("Escape")
-            page.wait_for_timeout(300)
-        except Exception:
-            pass
+    def _dismiss_overlays(self, page, logs: List[str], press_esc: bool = True):
+        """主动关闭 Google Vids 的新手引导浮层、开局欢迎弹窗和遮罩，强力穿透 Material 3 遮罩"""
+        if press_esc:
+            try:
+                page.keyboard.press("Escape")
+                page.wait_for_timeout(300)
+            except Exception:
+                pass
 
-        # 深度穿透消除 Material 3 和 Google 遮罩浮层，防止 scrim 拦截 pointer events
+        # 深度穿透消除开局欢迎弹窗 (Blank vid) 以及 Material 3 / Google 遮罩浮层，防止 scrim 拦截 pointer events
         try:
             removed = page.evaluate("""() => {
                 let count = 0;
-                const btns = document.querySelectorAll(
-                    '[role="dialog"] button, .javascriptMaterialdesignGm3WizDialog-dialog button, .goog-modalpopup button'
-                );
+                // 优先点击关闭、空白工程按钮
+                const btns = Array.from(document.querySelectorAll('button, [role="button"], span, div'));
                 for (const b of btns) {
                     const txt = (b.innerText || b.getAttribute('aria-label') || '').trim();
-                    if (/^(关闭|跳过|知道了|好|完成|Close|Dismiss|Got it|OK|Done|Skip)$/i.test(txt)) {
-                        b.click();
-                        count++;
+                    if (/^(Blank vid|Close|关闭|跳过|知道了|好|完成|Dismiss|Got it|OK|Done|Skip)$/i.test(txt)) {
+                        try {
+                            b.click();
+                            count++;
+                        } catch(e){}
                     }
                 }
-                const scrims = document.querySelectorAll(
-                    '.javascriptMaterialdesignGm3WizDialog-dialog__scrim, .goog-modalpopup-bg, .modal-backdrop'
-                );
-                scrims.forEach(s => { s.remove(); count++; });
+                // 强力移除所有拦截 pointer events 的弹窗容器与遮罩
+                const selectors = [
+                    '[role="dialog"]',
+                    '.javascriptMaterialdesignGm3WizDialog-dialog',
+                    '.javascriptMaterialdesignGm3WizDialog-dialog__scrim',
+                    '.goog-modalpopup',
+                    '.goog-modalpopup-bg',
+                    '.modal-backdrop'
+                ];
+                selectors.forEach(sel => {
+                    document.querySelectorAll(sel).forEach(el => {
+                        try {
+                            el.style.display = 'none';
+                            el.remove();
+                            count++;
+                        } catch(e){}
+                    });
+                });
                 return count;
             }""")
             if removed > 0:
                 logs.append(f"穿透清理 Google Vids 遮罩浮层 (处理 {removed} 项)")
         except Exception:
             pass
-
-        dismiss_selectors = [
-            ".goog-modalpopup-bg",
-            "[role='dialog'] button:has-text('Got it')",
-            "[role='dialog'] button:has-text('Dismiss')",
-            "[role='dialog'] button:has-text('Close')",
-            "[role='dialog'] button:has-text('知道了')",
-            "[role='dialog'] button:has-text('关闭')",
-            "[role='dialog'] button:has-text('跳过')",
-            "button[aria-label='关闭']",
-            "button[aria-label='Close']"
-        ]
-        for sel in dismiss_selectors:
-            try:
-                btn = page.query_selector(sel)
-                if btn and btn.is_visible():
-                    logs.append(f"检测到弹窗浮层遮罩 ({sel})，自动执行消除...")
-                    btn.click(force=True)
-                    page.wait_for_timeout(500)
-            except Exception:
-                pass
 
     def execute_task(self, task: Task, profile: Profile) -> Dict[str, Any]:
         worker_name = threading.current_thread().name
@@ -208,59 +203,73 @@ class VidsWorker:
             # 消除可能出现的初始模态框
             self._dismiss_overlays(page, logs)
 
-            # 2. 唤起侧边栏中的「AI 视频」核心入口
-            ai_entry_btn = page.locator("#content-library-rail-video-generation-element")
+            # 2. 唤起侧边栏中的「AI 视频」核心入口 (强化中英文多选择器与 30s 宽裕容错)
+            ai_selectors = [
+                "#content-library-rail-video-generation-element",
+                "[aria-label*='AI 视频']",
+                "[aria-label*='生成视频']",
+                "[aria-label*='Generate an AI video']",
+                "[data-tooltip*='AI video']"
+            ]
+            ai_entry_btn = page.locator(", ".join(ai_selectors)).first
             if ai_entry_btn.count() == 0:
                 logs.append("等待 AI 视频入口元素渲染...")
-                ai_entry_btn.wait_for(state="attached", timeout=15000)
+                ai_entry_btn.wait_for(state="attached", timeout=30000)
 
             logs.append("点击「AI 视频」工具栏按钮展开面板...")
-            ai_entry_btn.click(force=True)
+            try:
+                ai_entry_btn.click(force=True, timeout=10000)
+            except Exception:
+                ai_entry_btn.evaluate("el => el.click()")
             page.wait_for_timeout(2000)
 
             # 3. 模式与素材绑定
-            # 模式识别：是否有首尾帧/参考图
             has_reference_image = bool(task.start_image_path and Path(task.start_image_path).exists())
             if has_reference_image:
                 logs.append(f"检测到首帧/参考图素材: {task.start_image_path}")
-                # 尝试点击「添加动画」Tab (#c15 或包含添加动画文本)
-                anim_tab = page.locator("#c15, [aria-label='添加动画'], button:has-text('添加动画')").first
+                anim_tab = page.locator("#c15, [aria-label*='添加动画'], button:has-text('添加动画'), [aria-label*='Animate'], button:has-text('Animate'), [role='tab']:has-text('Animate')").first
                 if anim_tab.count() > 0 and anim_tab.is_visible():
                     logs.append("切换至「添加动画 (Animate)」多模态模式...")
-                    anim_tab.click()
-                    page.wait_for_timeout(1000)
-                    # 查找文件上传输入框
+                    try:
+                        anim_tab.click(force=True)
+                    except Exception:
+                        anim_tab.evaluate("el => el.click()")
+                    page.wait_for_timeout(1500)
                     file_input = page.locator("input[type='file']").first
                     if file_input.count() > 0:
                         logs.append(f"上传参考图像素材: {task.start_image_path}")
                         file_input.set_input_files(str(Path(task.start_image_path).resolve()))
-                        page.wait_for_timeout(2000)
+                        page.wait_for_timeout(3000)
             else:
-                # 默认「创建」Tab (#c13)
-                create_tab = page.locator("#c13, [aria-label='创建'], button:has-text('创建')").first
+                create_tab = page.locator("#c13, [aria-label*='创建'], button:has-text('创建'), [aria-label*='Create'], button:has-text('Create'), [role='tab']:has-text('Create')").first
                 if create_tab.count() > 0 and create_tab.is_visible():
-                    create_tab.click()
-                    page.wait_for_timeout(500)
+                    try:
+                        create_tab.click(force=True)
+                    except Exception:
+                        create_tab.evaluate("el => el.click()")
+                    page.wait_for_timeout(1000)
 
-            # 4. 生成设置：分辨率 (1080p / 720p) 与画幅 (强化防遮挡容错)
-            self._dismiss_overlays(page, logs)
+            # 4. 生成设置：分辨率 (1080p / 720p) 与画幅 (强化 JS 穿透与菜单自闭)
             try:
-                settings_btn = page.locator(".appsDocsAiGenerativeaiVideoUiSidebarWizVideogencreationviewMenubuttonsMenubuttonGenerationSettingsButton").first
+                settings_btn = page.locator(".appsDocsAiGenerativeaiVideoUiSidebarWizVideogencreationviewMenubuttonsMenubuttonGenerationSettingsButton, [aria-label*='Generation settings'], [aria-label*='生成设置']").first
                 if settings_btn.count() > 0 and settings_btn.is_visible():
                     logs.append(f"当前生成配置面板: {repr(settings_btn.inner_text())}")
                     settings_btn.click(force=True, timeout=5000)
-                    page.wait_for_timeout(800)
+                    page.wait_for_timeout(1000)
 
-                    # 分辨率匹配：如果请求 1080p
                     is_1080p = "1080" in (task.model or "").lower() or (getattr(task, "resolution", "") == "1080p")
                     target_res_text = "1080p" if is_1080p else "720p"
-                    res_option = page.locator(f"[role='menuitemradio']:has-text('{target_res_text}')").first
-                    if res_option.count() > 0 and res_option.is_visible():
+                    res_option = page.locator(f"[role='menuitem']:has-text('{target_res_text}'), [role='menuitemradio']:has-text('{target_res_text}'), li:has-text('{target_res_text}')").first
+                    if res_option.count() > 0:
                         logs.append(f"选择清晰度规格 -> {target_res_text}")
-                        res_option.click(force=True, timeout=3000)
+                        try:
+                            res_option.evaluate("el => el.click()")
+                        except Exception:
+                            res_option.click(force=True, timeout=3000)
                         page.wait_for_timeout(600)
-                    else:
-                        page.keyboard.press("Escape")
+                    # 关闭设置菜单避免遮挡输入框
+                    page.keyboard.press("Escape")
+                    page.wait_for_timeout(400)
             except Exception as set_err:
                 logs.append(f"画质配置菜单交互容错跳过: {set_err}")
                 try:
@@ -268,23 +277,25 @@ class VidsWorker:
                 except Exception:
                     pass
 
-            # 5. 填入镜头提示词
-            # 展开富文本输入框
-            expand_btn = page.locator(".collapsiblePromptBoxToggleExpansionButton").first
-            if expand_btn.count() > 0 and expand_btn.is_visible():
-                expand_btn.click()
-                page.wait_for_timeout(500)
+            # 5. 填入镜头提示词 (严防误折叠已展开的输入框)
+            input_box = page.locator("[contenteditable='true'][jsname='ZeIRi'], [contenteditable='true'][role='textbox'], [contenteditable='true']").first
+            if input_box.count() == 0 or not input_box.is_visible():
+                expand_btn = page.locator(".collapsiblePromptBoxToggleExpansionButton, button[aria-label='展开'], button[aria-label='Expand']").first
+                if expand_btn.count() > 0 and expand_btn.is_visible():
+                    expand_btn.click(force=True)
+                    page.wait_for_timeout(500)
 
-            input_box = page.locator("[contenteditable='true'][jsname='ZeIRi']").first
             if input_box.count() == 0:
-                input_box = page.locator("[contenteditable='true'][role='textbox']").first
+                input_box = page.locator("[contenteditable='true']").first
 
             logs.append(f"注入镜头提示词: {task.prompt}")
+            try:
+                input_box.click(force=True, timeout=4000)
+            except Exception:
+                pass
             input_box.fill(task.prompt)
-            page.wait_for_timeout(1000)
+            page.wait_for_timeout(600)
 
-            # 6. 触发生成 (强化多模式定位与防阻塞触发)
-            self._dismiss_overlays(page, logs)
             try:
                 input_box.dispatch_event("input")
                 input_box.dispatch_event("change")
@@ -292,15 +303,17 @@ class VidsWorker:
                 pass
             page.wait_for_timeout(500)
 
+            # 6. 触发生成 (精准定位专属生成按钮，排除旁白与无关工具按钮)
             gen_selectors = [
                 ".collapsiblePromptBoxGenerateButton",
-                "button[aria-label*='生成']",
-                "button[aria-label*='Generate']",
-                "button[aria-label*='创建']",
-                "button:has-text('生成')",
-                "button:has-text('Generate')",
-                "[role='button']:has-text('生成')",
-                "[role='button']:has-text('Generate')"
+                "button[aria-label='Generate']",
+                "button[aria-label='生成']",
+                "[role='button'][aria-label='Generate']",
+                "[role='button'][aria-label='生成']",
+                "button[aria-label*='Generate video']",
+                "button[aria-label*='生成视频']",
+                "button:text-is('Generate')",
+                "button:text-is('生成')"
             ]
             gen_btn = None
             for g_sel in gen_selectors:
@@ -316,6 +329,20 @@ class VidsWorker:
                     if loc.count() > 0 and loc.is_visible():
                         gen_btn = loc
                         break
+
+            if not gen_btn:
+                # 智能遍历探测
+                all_btns = page.locator("button, [role='button']").all()
+                for b in all_btns:
+                    try:
+                        if b.is_visible():
+                            aria = (b.get_attribute("aria-label") or "").lower()
+                            txt = (b.inner_text() or "").strip().lower()
+                            if ("generate" in aria or "生成" in aria or txt in ["generate", "生成"]) and "voiceover" not in aria and "旁白" not in aria:
+                                gen_btn = b
+                                break
+                    except Exception:
+                        pass
 
             if not gen_btn:
                 raise RuntimeError("未定位到 Google Vids 生成按钮，请检查页面是否展开输入框或已被风控拦截")
