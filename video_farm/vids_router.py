@@ -97,6 +97,7 @@ class CreateWorkflowRequest(BaseModel):
     duration_per_shot: int = 10
     resolution: str = "1080p"
     model_name: str = "Omni"
+    engine: str = "vids"
     shots: Optional[List[Dict[str, Any]]] = None
 
 
@@ -108,6 +109,7 @@ class UpdateWorkflowRequest(BaseModel):
     duration_per_shot: Optional[int] = None
     resolution: Optional[str] = None
     model_name: Optional[str] = None
+    engine: Optional[str] = None
     status: Optional[str] = None
 
 
@@ -123,6 +125,7 @@ class CreateShotRequest(BaseModel):
     end_image_url: str = ""
     resolution: str = "1080p"
     model_name: str = "Omni"
+    engine: Optional[str] = None
 
 
 class UpdateShotRequest(BaseModel):
@@ -137,6 +140,7 @@ class UpdateShotRequest(BaseModel):
     end_image_url: Optional[str] = None
     resolution: Optional[str] = None
     model_name: Optional[str] = None
+    engine: Optional[str] = None
     status: Optional[str] = None
     progress: Optional[int] = None
     video_url: Optional[str] = None
@@ -212,6 +216,11 @@ def batch_import_json(payload: Dict[str, Any] = Body(...)):
     """
     target_wf_id = payload.get("workflow_id")
     import_mode = payload.get("import_mode") or ("new" if not target_wf_id else "append")
+    ui_engine = payload.get("engine")
+    if ui_engine:
+        ui_engine = str(ui_engine).strip().lower()
+        if ui_engine not in ("vids", "flow", "gemini"):
+            ui_engine = "vids"
     
     raw_data = payload.get("data") if "data" in payload else payload
     
@@ -221,7 +230,13 @@ def batch_import_json(payload: Dict[str, Any] = Body(...)):
         if not target_wf:
             import_mode = "new"
 
-    normalized = vids_workflow.normalize_imported_workflow_json(raw_data, default_workflow=target_wf)
+    normalized = vids_workflow.normalize_imported_workflow_json(
+        raw_data,
+        default_workflow=target_wf,
+        default_engine=ui_engine
+    )
+
+    chosen_engine = ui_engine or normalized.get("engine") or (target_wf.get("engine") if target_wf else None) or "vids"
 
     if import_mode == "new" or not target_wf:
         wf = db.create_vids_workflow(
@@ -231,13 +246,16 @@ def batch_import_json(payload: Dict[str, Any] = Body(...)):
             aspect_ratio=normalized.get("aspect_ratio") or "16:9",
             duration_per_shot=normalized.get("duration_per_shot") or 10,
             resolution=normalized.get("resolution") or "1080p",
-            model_name=normalized.get("model_name") or "Omni"
+            model_name=normalized.get("model_name") or "Omni",
+            engine=chosen_engine
         )
         wf_id = wf["id"]
         start_seq = 1
     else:
         wf_id = target_wf["id"]
         updates = {}
+        if chosen_engine:
+            updates["engine"] = chosen_engine
         if normalized.get("style_prompt"):
             updates["style_prompt"] = normalized["style_prompt"]
         if normalized.get("resolution"):
@@ -263,6 +281,7 @@ def batch_import_json(payload: Dict[str, Any] = Body(...)):
     default_model = normalized.get("model_name") or "Omni"
 
     for idx, shot in enumerate(normalized.get("shots", []), start=start_seq):
+        shot_eng = shot.get("engine") or chosen_engine or "vids"
         s = db.create_vids_shot(
             workflow_id=wf_id,
             name=shot.get("name") or f"镜头 {idx}",
@@ -275,7 +294,8 @@ def batch_import_json(payload: Dict[str, Any] = Body(...)):
             image_url=shot.get("image_url", ""),
             end_image_url=shot.get("end_image_url", ""),
             resolution=shot.get("resolution") or default_res,
-            model_name=shot.get("model_name") or default_model
+            model_name=shot.get("model_name") or default_model,
+            engine=shot_eng
         )
         created_shots.append(s)
 
@@ -395,6 +415,7 @@ def list_workflows():
 
 @router.post("/workflows")
 def create_workflow(req: CreateWorkflowRequest):
+    wf_engine = getattr(req, "engine", "vids") or "vids"
     wf = db.create_vids_workflow(
         title=req.title,
         doc_url=req.doc_url,
@@ -402,7 +423,8 @@ def create_workflow(req: CreateWorkflowRequest):
         aspect_ratio=req.aspect_ratio,
         duration_per_shot=req.duration_per_shot,
         resolution=req.resolution,
-        model_name=req.model_name
+        model_name=req.model_name,
+        engine=wf_engine
     )
     if req.shots:
         for idx, shot in enumerate(req.shots, start=1):
@@ -418,7 +440,8 @@ def create_workflow(req: CreateWorkflowRequest):
                 image_url=shot.get("image_url", shot.get("start_image_path", "")),
                 end_image_url=shot.get("end_image_url", shot.get("end_image_path", "")),
                 resolution=shot.get("resolution", req.resolution),
-                model_name=shot.get("model_name", req.model_name)
+                model_name=shot.get("model_name", req.model_name),
+                engine=shot.get("engine") or wf_engine
             )
     return db.get_vids_workflow(wf["id"])
 
@@ -602,9 +625,18 @@ def _enqueue_shot_task(shot: Dict[str, Any], wf: Dict[str, Any]) -> str:
     shot_model = (shot.get("model_name") or wf.get("model_name") or "Omni").strip()
     shot_res = (shot.get("resolution") or wf.get("resolution") or "1080p").strip()
     
-    # Google Vids 原生模型与画质规格
-    # Google Vids 官方统一采用 Omni 多模态引擎，支持 1080p (超清) 与 720p (标清)
-    final_model = f"Omni ({shot_res})" if shot_res in ("1080p", "720p") else "Omni (1080p)"
+    engine = (shot.get("engine") or wf.get("engine") or "vids").strip().lower()
+    if engine not in ("vids", "flow", "gemini"):
+        engine = "vids"
+
+    if engine == "vids":
+        # Google Vids 原生模型与画质规格: Omni 多模态引擎，支持 1080p (超清) 与 720p (标清)
+        final_model = f"Omni ({shot_res})" if shot_res in ("1080p", "720p") else "Omni (1080p)"
+    elif engine == "flow":
+        final_model = shot_model if shot_model and shot_model != "Omni" else "veo-lite"
+    else:
+        final_model = shot_model or "gemini-video"
+
     duration_sec = shot.get("duration") or wf.get("duration") or 10
 
     aspect_ratio = wf.get("aspect_ratio") or "16:9"
@@ -618,7 +650,7 @@ def _enqueue_shot_task(shot: Dict[str, Any], wf: Dict[str, Any]) -> str:
         prompt=shot.get("prompt", "").strip(),
         start_image_path=start_path if (is_first_last or mode in ("image2video", "extend") or start_path) else "",
         end_image_path=end_path if is_first_last else "",
-        engine="vids",
+        engine=engine,
         task_type="video",
         model=final_model,
         project_id=wf.get("doc_url", ""),
@@ -631,10 +663,11 @@ def _enqueue_shot_task(shot: Dict[str, Any], wf: Dict[str, Any]) -> str:
     )
     
     db.add_task(task)
+    engine_name_cn = "Google Vids 原生工作流" if engine == "vids" else ("Google Flow 首尾帧模式" if engine == "flow" else "Gemini")
     db.log_task_event(
         task_id,
         "TASK_CREATED_VIDS",
-        f"Google Vids 任务下发: [{shot.get('name')}] (所属工程: {wf.get('title')}), 模型: {final_model}, 画质: {shot_res}, 时长: {duration_sec}s"
+        f"分镜任务下发 [{engine_name_cn}]: [{shot.get('name')}] (所属工程: {wf.get('title')}), 模型: {final_model}, 画质: {shot_res}, 时长: {duration_sec}s"
     )
     
     old_task_id = shot.get("task_id")

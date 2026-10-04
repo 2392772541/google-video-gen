@@ -903,6 +903,8 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     const selectedProfile = el.selectBatchProfile ? el.selectBatchProfile.value : "auto";
+    const selectEngineEl = document.getElementById("select-batch-engine");
+    const selectedEngine = selectEngineEl ? selectEngineEl.value : "vids";
 
     try {
       const resp = await fetch("/api/tasks/batch", {
@@ -910,7 +912,8 @@ document.addEventListener("DOMContentLoaded", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           shots: list,
-          profile_id: selectedProfile
+          profile_id: selectedProfile,
+          engine: selectedEngine
         })
       });
       const data = await resp.json();
@@ -2321,6 +2324,22 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function updateAssignedProfSelect() {
+
+    const geminiProfSel = document.getElementById("gemini-active-profile");
+    if (geminiProfSel) {
+      const curGVal = geminiProfSel.value || "auto";
+      geminiProfSel.innerHTML = "<option value=\"auto\">⚡ Auto · 智能轮转选择</option>";
+      state.profiles.forEach(p => {
+        if (p.enabled) {
+          const opt = document.createElement("option");
+          opt.value = p.id;
+          opt.textContent = `${p.name} (${p.account_label || "Google"}) [${p.status}]`;
+          geminiProfSel.appendChild(opt);
+        }
+      });
+      geminiProfSel.value = curGVal;
+    }
+
     const sel = el.selectAssignedProf;
     const imgSel = el.selectImageProfile;
     const batchSel = el.selectBatchProfile;
@@ -2819,6 +2838,727 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // 初始化智能配音工作台
   initAudioWorkbench();
+  // 初始化 Gemini 多模态创作中心
+  initGeminiHub();
+
+// Gemini Hub Part 1
+
+function initGeminiHub() {
+  let currentMode = "chat";
+  let attachedVideoFile = null;
+  let attachedVideoPath = "";
+  let attachedImageFile = null;
+  let attachedImagePath = "";
+
+  const activeProfSel = document.getElementById("gemini-active-profile");
+  const profStatusBadge = document.getElementById("gemini-profile-status-badge");
+  const btnLaunchChrome = document.getElementById("btn-gemini-launch-chrome");
+  const btnTestConn = document.getElementById("btn-gemini-test-conn");
+  const btnUnlockChrome = document.getElementById("btn-gemini-unlock-chrome");
+
+  const chatStatus = document.getElementById("gemini-chat-status");
+  const btnClearChat = document.getElementById("btn-gemini-clear-chat");
+  const feed = document.getElementById("gemini-messages-feed");
+  const chatInput = document.getElementById("gemini-chat-input");
+  const btnSend = document.getElementById("btn-gemini-chat-send");
+
+  const modeBtns = document.querySelectorAll(".gemini-mode-btn");
+  const voiceGroup = document.getElementById("gemini-voice-control-group");
+  const aspectGroup = document.getElementById("gemini-aspect-control-group");
+  const voiceSelect = document.getElementById("gemini-voice-select");
+  const aspectSelect = document.getElementById("gemini-aspect-select");
+
+  const attachmentBar = document.getElementById("gemini-attachment-bar");
+  const videoBadge = document.getElementById("gemini-video-badge");
+  const videoName = document.getElementById("gemini-video-name");
+  const btnRemoveVideo = document.getElementById("btn-remove-gemini-video");
+  const imageBadge = document.getElementById("gemini-image-badge");
+  const imageName = document.getElementById("gemini-image-name");
+  const btnRemoveImage = document.getElementById("btn-remove-gemini-image");
+
+  const fileVideo = document.getElementById("file-gemini-video");
+  const fileImage = document.getElementById("file-gemini-image");
+  const btnAttachVideo = document.getElementById("btn-gemini-attach-video");
+  const btnPickCompleted = document.getElementById("btn-gemini-pick-completed");
+  const btnAttachImage = document.getElementById("btn-gemini-attach-image");
+
+  const videoViewer = document.getElementById("gemini-video-viewer");
+  const videoPlaceholder = document.getElementById("gemini-video-placeholder");
+  const quickSelectVideo = document.getElementById("gemini-quick-select-video");
+  const btnRefreshVids = document.getElementById("btn-gemini-refresh-vids");
+
+  const assetTabs = document.querySelectorAll(".gemini-asset-tab");
+  const paneGallery = document.getElementById("pane-gemini-gallery");
+  const paneAudio = document.getElementById("pane-gemini-audio");
+  const paneVideo = document.getElementById("pane-gemini-video");
+  const galleryGrid = document.getElementById("gemini-gallery-grid");
+  const galleryEmpty = document.getElementById("gemini-gallery-empty");
+  const galleryCount = document.getElementById("gemini-gallery-count");
+  const audioList = document.getElementById("gemini-audio-list");
+  const audioEmpty = document.getElementById("gemini-audio-empty");
+  const audioCount = document.getElementById("gemini-audio-count");
+  const btnRefreshAssets = document.getElementById("btn-refresh-gemini-assets");
+
+  function updateProfBadge() {
+    if (!activeProfSel || !profStatusBadge) return;
+    const pid = activeProfSel.value;
+    if (pid === "auto") {
+      profStatusBadge.textContent = "⚡ 自动轮转";
+      profStatusBadge.style.background = "#ecfdf5";
+      profStatusBadge.style.color = "#047857";
+      return;
+    }
+    const p = state.profiles.find(x => x.id === pid || x.name === pid);
+    if (p) {
+      if (p.status === "busy") {
+        profStatusBadge.textContent = "⏳ 忙碌中";
+        profStatusBadge.style.background = "#fef3c7";
+        profStatusBadge.style.color = "#b45309";
+      } else if (p.status === "auth_expired") {
+        profStatusBadge.textContent = "⚠️ 需登录授权";
+        profStatusBadge.style.background = "#fee2e2";
+        profStatusBadge.style.color = "#b91c1c";
+      } else {
+        profStatusBadge.textContent = "🟢 空闲就绪";
+        profStatusBadge.style.background = "#ecfdf5";
+        profStatusBadge.style.color = "#047857";
+      }
+    }
+  }
+
+  if (activeProfSel) {
+    activeProfSel.addEventListener("change", updateProfBadge);
+  }
+
+  if (btnLaunchChrome) {
+    btnLaunchChrome.addEventListener("click", async () => {
+      let pid = activeProfSel ? activeProfSel.value : "auto";
+      if (pid === "auto") {
+        if (state.profiles.length > 0) pid = state.profiles[0].id;
+        else { showToast("暂无可用 Profile，请先添加账号", "warn"); return; }
+      }
+      showToast("正在拉起独立 Chrome 登录窗口...", "info");
+      try {
+        const resp = await fetch("/api/profiles/" + pid + "/launch-gemini-login", { method: "POST" });
+        const data = await resp.json();
+        if (resp.ok) {
+          showToast(data.message || "已启动 Chrome 登录窗口，登录后请关闭窗口", "success");
+        } else {
+          showToast(data.detail || "启动登录失败", "error");
+        }
+      } catch (e) {
+        showToast("请求异常: " + e.message, "error");
+      }
+    });
+  }
+
+  if (btnTestConn) {
+    btnTestConn.addEventListener("click", async () => {
+      let pid = activeProfSel ? activeProfSel.value : "auto";
+      if (pid === "auto") {
+        if (state.profiles.length > 0) pid = state.profiles[0].id;
+        else { showToast("暂无可用 Profile", "warn"); return; }
+      }
+      showToast("正在检查账号连通性与目录状态...", "info");
+      try {
+        const resp = await fetch("/api/profiles/" + pid + "/test-gemini", { method: "POST" });
+        const data = await resp.json();
+        if (data.success) {
+          showToast(data.message || "账号状态良好，可正常发起多模态任务！", "success");
+        } else {
+          showToast(data.message || "检测发现问题", "warn");
+        }
+        await fetchProfiles(true);
+        updateProfBadge();
+      } catch (e) {
+        showToast("检查失败: " + e.message, "error");
+      }
+    });
+  }
+
+  if (btnUnlockChrome) {
+    btnUnlockChrome.addEventListener("click", async () => {
+      let pid = activeProfSel ? activeProfSel.value : "auto";
+      if (pid === "auto") {
+        if (state.profiles.length > 0) pid = state.profiles[0].id;
+        else return;
+      }
+      try {
+        const resp = await fetch("/api/profiles/" + pid + "/close-chrome", { method: "POST" });
+        const data = await resp.json();
+        showToast(data.message || "已释放 Chrome 占用锁并重置为空闲", "success");
+        await fetchProfiles(true);
+        updateProfBadge();
+      } catch (e) {
+        showToast("释放锁失败: " + e.message, "error");
+      }
+    });
+  }
+
+  modeBtns.forEach(btn => {
+    btn.addEventListener("click", () => {
+      modeBtns.forEach(b => b.classList.remove("active", "btn-primary"));
+      btn.classList.add("active");
+      currentMode = btn.getAttribute("data-mode") || "chat";
+      if (currentMode === "chat") {
+        if (chatInput) chatInput.placeholder = "像 ChatGPT / Gemini 网页端一样输入对话内容、分镜剧本润色或提问... (Enter 发送, Shift+Enter 换行)";
+        if (voiceGroup) voiceGroup.style.display = "flex";
+        if (aspectGroup) aspectGroup.style.display = "none";
+      } else if (currentMode === "dubbing") {
+        if (chatInput) chatInput.placeholder = "输入自定义配音台词，或直接上传视频让 Gemini 深度分析画面自动生成高保真配音... (Enter 发送)";
+        if (voiceGroup) voiceGroup.style.display = "flex";
+        if (aspectGroup) aspectGroup.style.display = "none";
+      } else if (currentMode === "image") {
+        if (chatInput) chatInput.placeholder = "输入 AI 绘画提示词，如：高品质4K科技农业现代生态大棚，金黄色晨曦写实插画... (Enter 发送)";
+        if (voiceGroup) voiceGroup.style.display = "none";
+        if (aspectGroup) aspectGroup.style.display = "flex";
+      }
+    });
+  });
+
+  document.querySelectorAll(".btn-gemini-prompt-chip").forEach(chip => {
+    chip.addEventListener("click", () => {
+      const txt = chip.getAttribute("data-text");
+      if (chatInput && txt) {
+        chatInput.value = txt;
+        chatInput.focus();
+        showToast("已填入灵感提示词", "info");
+      }
+    });
+  });
+
+  function updateAttachmentBar() {
+    if (!attachmentBar) return;
+    const hasV = Boolean(attachedVideoFile || attachedVideoPath);
+    const hasI = Boolean(attachedImageFile || attachedImagePath);
+    attachmentBar.style.display = (hasV || hasI) ? "flex" : "none";
+    if (videoBadge) videoBadge.style.display = hasV ? "flex" : "none";
+    if (imageBadge) imageBadge.style.display = hasI ? "flex" : "none";
+
+    if (hasV && videoName) {
+      videoName.textContent = attachedVideoFile ? attachedVideoFile.name : (attachedVideoPath.split(/[\\/]/).pop() || "视频附件");
+    }
+    if (hasI && imageName) {
+      imageName.textContent = attachedImageFile ? attachedImageFile.name : (attachedImagePath.split(/[\\/]/).pop() || "参考图片");
+    }
+  }
+
+  function setAttachedVideo(fileOrUrl, isUrl = false) {
+    if (isUrl) {
+      attachedVideoPath = fileOrUrl;
+      attachedVideoFile = null;
+      if (videoViewer) {
+        videoViewer.src = fileOrUrl;
+        videoViewer.style.display = "block";
+      }
+      if (videoPlaceholder) videoPlaceholder.style.display = "none";
+    } else {
+      attachedVideoFile = fileOrUrl;
+      attachedVideoPath = "";
+      if (fileOrUrl && videoViewer) {
+        const blobUrl = URL.createObjectURL(fileOrUrl);
+        videoViewer.src = blobUrl;
+        videoViewer.style.display = "block";
+        if (videoPlaceholder) videoPlaceholder.style.display = "none";
+      }
+    }
+    const dubBtn = document.querySelector(".gemini-mode-btn[data-mode=\"dubbing\"]");
+    if (dubBtn) dubBtn.click();
+    updateAttachmentBar();
+    const vTab = document.querySelector(".gemini-asset-tab[data-tab=\"video\"]");
+    if (vTab) vTab.click();
+    showToast("已成功挂载参考视频", "info");
+  }
+
+  if (btnAttachVideo && fileVideo) {
+    btnAttachVideo.addEventListener("click", () => fileVideo.click());
+    fileVideo.addEventListener("change", (e) => {
+      if (e.target.files && e.target.files[0]) {
+        setAttachedVideo(e.target.files[0], false);
+      }
+    });
+  }
+
+  if (btnRemoveVideo) {
+    btnRemoveVideo.addEventListener("click", () => {
+      attachedVideoFile = null;
+      attachedVideoPath = "";
+      if (fileVideo) fileVideo.value = "";
+      if (videoViewer) { videoViewer.pause(); videoViewer.src = ""; videoViewer.style.display = "none"; }
+      if (videoPlaceholder) videoPlaceholder.style.display = "block";
+      updateAttachmentBar();
+      showToast("已移除参考视频", "info");
+    });
+  }
+
+  if (btnAttachImage && fileImage) {
+    btnAttachImage.addEventListener("click", () => fileImage.click());
+    fileImage.addEventListener("change", (e) => {
+      if (e.target.files && e.target.files[0]) {
+        attachedImageFile = e.target.files[0];
+        attachedImagePath = "";
+        updateAttachmentBar();
+        showToast("已挂载参考图片: " + e.target.files[0].name, "info");
+      }
+    });
+  }
+
+  if (btnRemoveImage) {
+    btnRemoveImage.addEventListener("click", () => {
+      attachedImageFile = null;
+      attachedImagePath = "";
+      if (fileImage) fileImage.value = "";
+      updateAttachmentBar();
+      showToast("已移除参考图片", "info");
+    });
+  }
+
+  if (btnPickCompleted) {
+    btnPickCompleted.addEventListener("click", () => {
+      const vTab = document.querySelector(".gemini-asset-tab[data-tab=\"video\"]");
+      if (vTab) vTab.click();
+      if (quickSelectVideo) quickSelectVideo.focus();
+      showToast("请在右侧【视频画面】下拉列表中快速选用成片", "info");
+    });
+  }
+
+  function populateCompletedVideos() {
+    if (!quickSelectVideo) return;
+    const cur = quickSelectVideo.value;
+    const vids = state.tasks.filter(t => t.has_video && t.video_url);
+    quickSelectVideo.innerHTML = "<option value=\"\">-- 点击选择成片库视频 --</option>";
+    vids.forEach(t => {
+      const opt = document.createElement("option");
+      opt.value = t.video_url;
+      opt.textContent = "[" + t.id + "] " + (t.prompt || "视频").slice(0, 26) + "... (" + (t.duration_sec || 5) + "s)";
+      quickSelectVideo.appendChild(opt);
+    });
+    if (cur) quickSelectVideo.value = cur;
+  }
+
+  if (quickSelectVideo) {
+    quickSelectVideo.addEventListener("change", () => {
+      const vUrl = quickSelectVideo.value;
+      if (vUrl) {
+        setAttachedVideo(vUrl, true);
+      }
+    });
+  }
+
+  if (btnRefreshVids) {
+    btnRefreshVids.addEventListener("click", async () => {
+      await fetchTasks(true);
+      populateCompletedVideos();
+      showToast("已刷新成片视频列表", "info");
+    });
+  }
+
+  assetTabs.forEach(tab => {
+    tab.addEventListener("click", () => {
+      assetTabs.forEach(t => t.classList.remove("active", "btn-primary"));
+      tab.classList.add("active");
+      const target = tab.getAttribute("data-tab");
+      if (paneGallery) paneGallery.style.display = (target === "gallery") ? "block" : "none";
+      if (paneAudio) paneAudio.style.display = (target === "audio") ? "block" : "none";
+      if (paneVideo) paneVideo.style.display = (target === "video") ? "flex" : "none";
+    });
+  });
+
+  if (btnRefreshAssets) {
+    btnRefreshAssets.addEventListener("click", () => {
+      fetchGeminiImages();
+      fetchGeminiAudios();
+      populateCompletedVideos();
+      showToast("已刷新资产看板", "info");
+    });
+  }
+
+  function scrollFeedToBottom() {
+    if (feed) feed.scrollTop = feed.scrollHeight;
+  }
+
+  function renderMessageBubble(msg) {
+    if (!feed) return;
+    const isUser = msg.role === "user";
+    const item = document.createElement("div");
+    item.className = isUser ? "gemini-msg-user" : "gemini-msg-assistant";
+    item.style.display = "flex";
+    item.style.flexDirection = "column";
+    item.style.alignItems = isUser ? "flex-end" : "flex-start";
+    item.style.gap = "4px";
+
+    const timeStr = msg.created_at ? msg.created_at.substring(11, 16) : "";
+    const roleBadge = isUser ? "<span style=\"font-size:10px;color:#888\">你 · " + timeStr + "</span>" : "<span style=\"font-size:10px;color:#10b981;font-weight:600\">✨ Gemini (" + (msg.profile_name || "AI") + ") · " + timeStr + "</span>";
+
+    const bubble = document.createElement("div");
+    bubble.style.maxWidth = "88%";
+    bubble.style.borderRadius = isUser ? "10px 10px 2px 10px" : "10px 10px 10px 2px";
+    bubble.style.padding = "10px 14px";
+    bubble.style.fontSize = "13px";
+    bubble.style.lineHeight = "1.6";
+    bubble.style.boxShadow = "0 1px 3px rgba(0,0,0,0.05)";
+
+    if (isUser) {
+      bubble.style.background = "#e6b64f";
+      bubble.style.color = "#252724";
+      bubble.style.fontWeight = "500";
+    } else {
+      bubble.style.background = "#fff";
+      bubble.style.color = "var(--text-main)";
+      bubble.style.border = "1px solid #e5e7eb";
+    }
+
+    if (isUser && msg.attachments_json) {
+      try {
+        const atts = JSON.parse(msg.attachments_json);
+        if (Array.isArray(atts) && atts.length > 0) {
+          const attBox = document.createElement("div");
+          attBox.style.display = "flex";
+          attBox.style.flexWrap = "wrap";
+          attBox.style.gap = "6px";
+          attBox.style.marginBottom = "8px";
+          atts.forEach(a => {
+            const chip = document.createElement("span");
+            chip.style.fontSize = "11px";
+            chip.style.padding = "2px 8px";
+            chip.style.background = "rgba(0,0,0,0.08)";
+            chip.style.borderRadius = "4px";
+            chip.textContent = (a.type === "video" ? "📹 " : "🖼️ ") + (a.name || "附件");
+            attBox.appendChild(chip);
+          });
+          bubble.appendChild(attBox);
+        }
+      } catch (e) {}
+    }
+
+    const textDiv = document.createElement("div");
+    textDiv.style.whiteSpace = "pre-wrap";
+    textDiv.style.wordBreak = "break-word";
+    textDiv.textContent = msg.content || "";
+    bubble.appendChild(textDiv);
+
+    if (!isUser && msg.audio_url) {
+      const audioBox = document.createElement("div");
+      audioBox.style.marginTop = "10px";
+      audioBox.style.padding = "10px";
+      audioBox.style.background = "#f8fafc";
+      audioBox.style.borderRadius = "6px";
+      audioBox.style.border = "1px solid #e2e8f0";
+
+      const audioHeader = document.createElement("div");
+      audioHeader.style.display = "flex";
+      audioHeader.style.justifyContent = "space-between";
+      audioHeader.style.alignItems = "center";
+      audioHeader.style.marginBottom = "6px";
+      audioHeader.innerHTML = "<span style=\"font-size:11px;font-weight:600;color:#0284c7\">🎙️ 神经配音成品</span><a href=\"" + msg.audio_url + "\" download=\"gemini_voiceover.mp3\" class=\"btn btn-secondary btn-sm\" style=\"padding:1px 6px;font-size:10px\">📥 下载 MP3</a>";
+
+      const audioPlayer = document.createElement("audio");
+      audioPlayer.controls = true;
+      audioPlayer.src = msg.audio_url;
+      audioPlayer.style.width = "100%";
+      audioPlayer.style.height = "32px";
+
+      audioBox.appendChild(audioHeader);
+      audioBox.appendChild(audioPlayer);
+      bubble.appendChild(audioBox);
+    }
+
+    if (!isUser && msg.image_urls_json) {
+      try {
+        const imgs = JSON.parse(msg.image_urls_json);
+        if (Array.isArray(imgs) && imgs.length > 0) {
+          const imgGrid = document.createElement("div");
+          imgGrid.style.display = "grid";
+          imgGrid.style.gridTemplateColumns = "repeat(auto-fill, minmax(140px, 1fr))";
+          imgGrid.style.gap = "8px";
+          imgGrid.style.marginTop = "10px";
+
+          imgs.forEach(url => {
+            const card = document.createElement("div");
+            card.style.borderRadius = "6px";
+            card.style.overflow = "hidden";
+            card.style.border = "1px solid #e5e7eb";
+            card.style.background = "#000";
+
+            const imgEl = document.createElement("img");
+            imgEl.src = url;
+            imgEl.style.width = "100%";
+            imgEl.style.height = "120px";
+            imgEl.style.objectFit = "cover";
+            imgEl.style.cursor = "pointer";
+            imgEl.onclick = () => window.open(url, "_blank");
+
+            const actBar = document.createElement("div");
+            actBar.style.padding = "4px";
+            actBar.style.background = "#fff";
+            actBar.style.display = "flex";
+            actBar.style.justifyContent = "space-between";
+            actBar.innerHTML = "<a href=\"" + url + "\" download class=\"btn btn-secondary btn-sm\" style=\"padding:1px 5px;font-size:10px\">📥 下载</a><button type=\"button\" class=\"btn btn-secondary btn-sm btn-use-as-ref\" style=\"padding:1px 5px;font-size:10px\">🎬 作参考图</button>";
+
+            actBar.querySelector(".btn-use-as-ref").onclick = () => {
+              applyImageAsStartFrame(url);
+            };
+
+            card.appendChild(imgEl);
+            card.appendChild(actBar);
+            imgGrid.appendChild(card);
+          });
+          bubble.appendChild(imgGrid);
+        }
+      } catch (e) {}
+    }
+
+    if (!isUser) {
+      const opBar = document.createElement("div");
+      opBar.style.display = "flex";
+      opBar.style.gap = "6px";
+      opBar.style.marginTop = "6px";
+
+      const btnCopy = document.createElement("button");
+      btnCopy.className = "btn btn-secondary btn-sm";
+      btnCopy.type = "button";
+      btnCopy.style.padding = "1px 6px";
+      btnCopy.style.fontSize = "10px";
+      btnCopy.textContent = "📋 复制文案";
+      btnCopy.onclick = () => {
+        navigator.clipboard.writeText(msg.content || "");
+        showToast("已复制文案到剪贴板", "success");
+      };
+      opBar.appendChild(btnCopy);
+      bubble.appendChild(opBar);
+    }
+
+    item.innerHTML = roleBadge;
+    item.appendChild(bubble);
+    feed.appendChild(item);
+  }
+
+  function applyImageAsStartFrame(imgUrl) {
+    const genTab = document.querySelector(".tab-button[data-target=\"view-generate\"]");
+    if (genTab) genTab.click();
+    const dropStart = document.getElementById("drop-start");
+    const hiddenPath = document.getElementById("hidden-start-image-path");
+    if (hiddenPath) hiddenPath.value = imgUrl;
+    if (dropStart) {
+      dropStart.style.backgroundImage = "url(\"" + imgUrl + "\")";
+      dropStart.style.backgroundSize = "cover";
+      dropStart.classList.add("has-image");
+    }
+    showToast("✨ 已将图片成功设为视频创作的起始帧参考图！", "success");
+  }
+
+  async function fetchGeminiMessages() {
+    try {
+      const resp = await fetch("/api/gemini/messages?session_id=default");
+      if (!resp.ok) return;
+      const data = await resp.json();
+      const msgs = data.messages || [];
+      if (msgs.length > 0 && feed) {
+        const welcome = feed.querySelector(".gemini-welcome-card");
+        feed.innerHTML = "";
+        if (welcome) feed.appendChild(welcome);
+        msgs.forEach(renderMessageBubble);
+        scrollFeedToBottom();
+      }
+    } catch (e) {
+      console.error("fetchGeminiMessages error", e);
+    }
+  }
+
+  async function fetchGeminiImages() {
+    try {
+      const resp = await fetch("/api/gemini/images?limit=60");
+      if (!resp.ok) return;
+      const data = await resp.json();
+      const imgs = data.images || [];
+      if (galleryCount) galleryCount.textContent = imgs.length;
+      if (galleryEmpty) galleryEmpty.style.display = imgs.length === 0 ? "block" : "none";
+      if (galleryGrid) {
+        galleryGrid.innerHTML = "";
+        imgs.forEach(im => {
+          const card = document.createElement("div");
+          card.style.borderRadius = "6px";
+          card.style.overflow = "hidden";
+          card.style.border = "1px solid #e5e7eb";
+          card.style.background = "#fff";
+          card.style.display = "flex";
+          card.style.flexDirection = "column";
+
+          const promptEsc = escapeHtml(im.prompt || "Gemini 绘画资产");
+          const profEsc = escapeHtml(im.profile_name || "Gemini");
+          card.innerHTML = `<div style="background:#000;height:110px;overflow:hidden;position:relative"><img src="${im.url}" style="width:100%;height:100%;object-fit:cover;cursor:pointer" onclick="window.open('${im.url}', '_blank')"></div><div style="padding:6px 8px;flex:1;display:flex;flex-direction:column;justify-content:space-between"><div style="font-size:11px;color:var(--text-sub);overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;min-height:28px" title="${promptEsc}">${promptEsc}</div><div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;padding-top:4px;border-top:1px solid #f0f0f0"><span style="font-size:9px;color:var(--text-muted)">${profEsc}</span><div style="display:flex;gap:4px"><a href="${im.url}" download class="btn btn-secondary btn-sm" style="padding:1px 5px;font-size:9px">📥</a><button type="button" class="btn btn-secondary btn-sm btn-set-ref" style="padding:1px 5px;font-size:9px" title="设为视频创作参考图">🎬</button></div></div></div>`;
+          card.querySelector(".btn-set-ref").onclick = () => applyImageAsStartFrame(im.url);
+          galleryGrid.appendChild(card);
+        });
+      }
+    } catch (e) {
+      console.error("fetchGeminiImages error", e);
+    }
+  }
+
+  function fetchGeminiAudios() {
+    if (!audioList) return;
+    const audios = state.tasks.filter(t => (t.task_type === "audio" || t.has_audio) && t.audio_url);
+    if (audioCount) audioCount.textContent = audios.length;
+    if (audioEmpty) audioEmpty.style.display = audios.length === 0 ? "block" : "none";
+    audioList.innerHTML = "";
+
+    audios.slice(0, 30).forEach(t => {
+      const item = document.createElement("div");
+      item.style.padding = "8px 10px";
+      item.style.background = "#fff";
+      item.style.border = "1px solid #e5e7eb";
+      item.style.borderRadius = "6px";
+      item.style.display = "flex";
+      item.style.flexDirection = "column";
+      item.style.gap = "6px";
+
+      const promptEsc = escapeHtml(t.prompt || "配音音频");
+      const modelEsc = escapeHtml(t.model || "广播级");
+      const timeStr = t.submit_time ? t.submit_time.substring(5, 16) : "";
+
+      item.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center"><span style="font-size:11px;font-weight:600;color:var(--text-main);max-width:70%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${promptEsc}</span><span style="font-size:10px;color:#0284c7;background:#f0f9ff;padding:1px 5px;border-radius:3px">${modelEsc}</span></div><audio controls src="${t.audio_url}" style="width:100%;height:30px"></audio><div style="display:flex;justify-content:space-between;align-items:center;font-size:10px;color:var(--text-muted)"><span>${timeStr}</span><div style="display:flex;gap:4px"><button type="button" class="btn btn-secondary btn-sm btn-copy-aud-txt" style="padding:1px 6px;font-size:9px">复制文案</button><a href="${t.audio_url}" download="voiceover_${t.id}.mp3" class="btn btn-secondary btn-sm" style="padding:1px 6px;font-size:9px">下载 MP3</a></div></div>`;
+      item.querySelector(".btn-copy-aud-txt").onclick = () => {
+        navigator.clipboard.writeText(t.prompt || "");
+        showToast("已复制配音文案", "success");
+      };
+      audioList.appendChild(item);
+    });
+  }
+
+  if (btnClearChat) {
+    btnClearChat.addEventListener("click", async () => {
+      if (!confirm("确定清空当前 Gemini 多模态会话历史吗？")) return;
+      try {
+        await fetch("/api/gemini/messages?session_id=default", { method: "DELETE" });
+        if (feed) {
+          const welcome = feed.querySelector(".gemini-welcome-card");
+          feed.innerHTML = "";
+          if (welcome) feed.appendChild(welcome);
+        }
+        showToast("会话已清空", "info");
+      } catch (e) {
+        showToast("清空失败: " + e.message, "error");
+      }
+    });
+  }
+
+  async function sendMessage() {
+    const msg = chatInput ? chatInput.value.trim() : "";
+    if (!msg && !attachedVideoFile && !attachedVideoPath && !attachedImageFile && !attachedImagePath) {
+      showToast("请输入文字对话内容，或上传视频/图片", "warn");
+      if (chatInput) chatInput.focus();
+      return;
+    }
+
+    if (btnSend) btnSend.disabled = true;
+    if (chatStatus) chatStatus.textContent = "正在处理与生成中...";
+
+    const formData = new FormData();
+    formData.append("message", msg);
+    formData.append("session_id", "default");
+    formData.append("mode", currentMode);
+    if (activeProfSel && activeProfSel.value) {
+      formData.append("profile_id", activeProfSel.value);
+    }
+    if (voiceSelect && voiceSelect.value) {
+      formData.append("voice", voiceSelect.value);
+    }
+    if (aspectSelect && aspectSelect.value) {
+      formData.append("aspect_ratio", aspectSelect.value);
+    }
+
+    if (attachedVideoFile) formData.append("video", attachedVideoFile);
+    else if (attachedVideoPath) formData.append("video_path", attachedVideoPath);
+
+    if (attachedImageFile) formData.append("image", attachedImageFile);
+    else if (attachedImagePath) formData.append("image_path", attachedImagePath);
+
+    const attachmentsPreview = [];
+    if (attachedVideoFile) attachmentsPreview.push({ type: "video", name: attachedVideoFile.name });
+    else if (attachedVideoPath) attachmentsPreview.push({ type: "video", name: attachedVideoPath.split(/[\\/]/).pop() });
+    if (attachedImageFile) attachmentsPreview.push({ type: "image", name: attachedImageFile.name });
+    else if (attachedImagePath) attachmentsPreview.push({ type: "image", name: attachedImagePath.split(/[\\/]/).pop() });
+
+    renderMessageBubble({
+      role: "user",
+      content: msg,
+      attachments_json: JSON.stringify(attachmentsPreview),
+      created_at: new Date().toISOString()
+    });
+    scrollFeedToBottom();
+
+    if (chatInput) chatInput.value = "";
+    if (btnRemoveVideo) btnRemoveVideo.click();
+    if (btnRemoveImage) btnRemoveImage.click();
+
+    const loadingBubble = document.createElement("div");
+    loadingBubble.className = "gemini-msg-assistant loading-placeholder";
+    loadingBubble.style.display = "flex";
+    loadingBubble.style.flexDirection = "column";
+    loadingBubble.style.alignItems = "flex-start";
+    loadingBubble.style.gap = "4px";
+    loadingBubble.innerHTML = `<span style="font-size:10px;color:#10b981;font-weight:600">✨ Gemini 多模态引擎调度中...</span><div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:10px 14px;font-size:12px;color:var(--text-sub)">⏳ 正在调度账号理解多模态输入并生成结果，请稍候...</div>`;
+    feed.appendChild(loadingBubble);
+    scrollFeedToBottom();
+
+    try {
+      const resp = await fetch("/api/gemini/chat", {
+        method: "POST",
+        body: formData
+      });
+      const data = await resp.json();
+      loadingBubble.remove();
+
+      if (data.assistant_message) {
+        renderMessageBubble(data.assistant_message);
+        scrollFeedToBottom();
+      } else {
+        showToast(data.error_message || "执行完成", data.success ? "success" : "warn");
+      }
+
+      if (data.warning) {
+        showToast(data.warning, "warn");
+      }
+
+      fetchGeminiImages();
+      await fetchTasks(true);
+      fetchGeminiAudios();
+    } catch (err) {
+      loadingBubble.remove();
+      showToast("网络请求异常: " + err.message, "error");
+      renderMessageBubble({
+        role: "assistant",
+        content: "❌ 请求处理失败: " + err.message + "。如果正在使用外部 Chrome，请关闭 Chrome 或点击上方【⏹ 释放占用】后再试。",
+        created_at: new Date().toISOString()
+      });
+      scrollFeedToBottom();
+    } finally {
+      if (btnSend) btnSend.disabled = false;
+      if (chatStatus) chatStatus.textContent = "就绪";
+    }
+  }
+
+  if (btnSend) {
+    btnSend.addEventListener("click", sendMessage);
+  }
+
+  if (chatInput) {
+    chatInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
+      }
+    });
+  }
+
+  updateProfBadge();
+  fetchGeminiMessages();
+  fetchGeminiImages();
+  fetchGeminiAudios();
+  populateCompletedVideos();
+}
+
 
 // ==================== 初始化与自动轮询 ====================
   setAspectRatio("16:9");

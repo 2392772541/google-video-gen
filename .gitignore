@@ -110,3 +110,6 @@ tasks_*.png
 temp_check_ui.py
 test_clean.py
 video_farm/tests/*.png
+# 根目录临时测试与截图
+/*.png
+/test_*.py

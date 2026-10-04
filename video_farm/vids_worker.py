@@ -414,14 +414,15 @@ class VidsWorker:
                         if target_media_url.startswith("blob:"):
                             b64_data = page.evaluate("""async (burl) => {
                                 const res = await fetch(burl);
-                                const buf = await res.arrayBuffer();
-                                let binary = '';
-                                const bytes = new Uint8Array(buf);
-                                for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
-                                return btoa(binary);
+                                const blob = await res.blob();
+                                return new Promise((resolve) => {
+                                    const reader = new FileReader();
+                                    reader.onloadend = () => resolve(reader.result);
+                                    reader.readAsDataURL(blob);
+                                });
                             }""", target_media_url)
-                            if b64_data:
-                                v_bytes = base64.b64decode(b64_data)
+                            if b64_data and "," in b64_data:
+                                v_bytes = base64.b64decode(b64_data.split(",", 1)[1])
                                 if len(v_bytes) > 10240:
                                     output_video_path.write_bytes(v_bytes)
                                     logs.append(f"通过 Blob 内存成功导出成片: {output_video_path} (大小: {len(v_bytes)} bytes)")

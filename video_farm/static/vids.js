@@ -362,7 +362,8 @@ async function selectWorkflow(workflowId) {
   if (descEl) {
     const res = wf.resolution || "1080p";
     const model = wf.model_name || "Omni";
-    descEl.textContent = `画幅 ${wf.aspect_ratio || "16:9"} · 清晰度 ${res} · 模型 ${model} · 单镜头 ${wf.duration_per_shot || 10}秒 · 包含 ${(wf.shots || []).length} 个分镜 · 原地即显即播并支持绝对路径直接导入 Google Vids`;
+    const engLabel = (wf.engine === "flow") ? "⚡ Google Flow" : "🎬 Google Vids";
+    descEl.textContent = `【${engLabel}】 画幅 ${wf.aspect_ratio || "16:9"} · 清晰度 ${res} · 模型 ${model} · 单镜头 ${wf.duration_per_shot || 10}秒 · 包含 ${(wf.shots || []).length} 个分镜 · 原地即显即播并支持绝对路径直接导入 Google Vids`;
   }
 
   const promptInput = getEl("wf-style-prompt", "global-style-prompt");
@@ -379,6 +380,9 @@ async function selectWorkflow(workflowId) {
 
   const modelSelect = getEl("wf-model-name", "workflow-model-name");
   if (modelSelect) modelSelect.value = wf.model_name || "Omni";
+
+  const engineSelect = getEl("wf-engine");
+  if (engineSelect && wf.engine) engineSelect.value = wf.engine;
 
   const docUrlInput = getEl("wf-doc-url", "workflow-doc-url");
   if (docUrlInput && wf.doc_url) docUrlInput.value = wf.doc_url;
@@ -622,6 +626,12 @@ card.innerHTML = `
               <option value="Veo" ${shotModel === 'Veo' ? 'selected' : ''}>Veo</option>
               <option value="Veo-Lite" ${shotModel === 'Veo-Lite' ? 'selected' : ''}>Veo-Lite</option>
             </select>
+
+            <span style="font-size: 10px; color: var(--text-sub); font-weight: 600; margin-left: 2px;">途径:</span>
+            <select class="form-select" style="width: 80px; padding: 1px 4px; font-size: 10px; height: 22px; font-weight: 600; color: #38bdf8;" onchange="updateShotField('${shot.id}', 'engine', this.value)">
+              <option value="vids" ${(shot.engine || state.workflow?.engine || 'vids') === 'vids' ? 'selected' : ''}>🎬 Vids</option>
+              <option value="flow" ${(shot.engine || state.workflow?.engine || 'vids') === 'flow' ? 'selected' : ''}>⚡ Flow</option>
+            </select>
           </div>
 
           <!-- 资产胶囊条带 (严控高、首尾帧并排) -->
@@ -708,6 +718,7 @@ async function saveWorkflowSettings() {
   const duration = parseInt(getEl('wf-duration', 'workflow-shot-duration')?.value || '10');
   const res = getEl('wf-resolution', 'workflow-resolution')?.value || '1080p';
   const model = getEl('wf-model-name', 'workflow-model-name')?.value || 'Omni';
+  const engine = getEl('wf-engine')?.value || 'vids';
   const docUrl = getEl('wf-doc-url', 'workflow-doc-url')?.value || '';
 
   try {
@@ -719,6 +730,7 @@ async function saveWorkflowSettings() {
         duration_per_shot: duration,
         resolution: res,
         model_name: model,
+        engine: engine,
         doc_url: docUrl
       }
     });
@@ -1272,6 +1284,13 @@ async function executeBatchImport() {
   const radio = document.querySelector('input[name="import-mode-radio"]:checked');
   const importMode = radio ? radio.value : 'new';
 
+  // 获取生成引擎途径 (vids, flow) - 解耦设计
+  const engineRadio = document.querySelector('input[name="import-engine-radio"]:checked');
+  let selectedEngine = 'vids';
+  if (engineRadio && ['vids', 'flow', 'gemini'].includes(engineRadio.value)) {
+    selectedEngine = engineRadio.value;
+  }
+
   let parsed = null;
   try {
     let clean = rawText;
@@ -1309,6 +1328,7 @@ async function executeBatchImport() {
       body: {
         workflow_id: state.currentWorkflowId,
         import_mode: importMode,
+        engine: selectedEngine,
         auto_start: autoStart,
         data: parsed
       }
@@ -1317,14 +1337,15 @@ async function executeBatchImport() {
     if (res.success) {
       const importedCount = res.imported_count || 0;
       const wf = res.workflow;
+      const engineLabel = selectedEngine === 'flow' ? '⚡ Google Flow 首尾帧模式' : '🎬 Google Vids 原生工作流';
       if (msgBox) {
         msgBox.style.display = 'block';
         msgBox.style.background = 'rgba(16, 185, 129, 0.15)';
         msgBox.style.color = '#10b981';
         msgBox.style.border = '1px solid #10b981';
-        msgBox.innerHTML = `✅ 批量导入成功！共导入 <strong>${importedCount}</strong> 个镜头（模式：${importMode === 'new' ? '新建工作流' : (importMode === 'append' ? '追加镜头' : '覆盖镜头')}，画质：${wf.resolution || '1080p'}）`;
+        msgBox.innerHTML = `✅ 批量导入成功！共导入 <strong>${importedCount}</strong> 个镜头（途径：${engineLabel}，模式：${importMode === 'new' ? '新建工作流' : (importMode === 'append' ? '追加镜头' : '覆盖镜头')}，画质：${wf.resolution || '1080p'}）`;
       }
-      appendLog(`【批量导入成功】已写入 ${importedCount} 个镜头资产至工作流 [${wf.title}]`, 'success');
+      appendLog(`【批量导入成功】已写入 ${importedCount} 个镜头资产至工作流 [${wf.title}]，生成引擎: ${engineLabel}`, 'success');
 
       // 切换到目标工作流并重新渲染
       await selectWorkflow(wf.id);
@@ -1690,6 +1711,8 @@ async function submitCreateNewWorkflow() {
   const title = (titleInput?.value || '').trim() || '未命名视频工程';
   const aspect = aspectSelect?.value || '16:9';
   const res = resSelect?.value || '1080p';
+  const engineSelect = document.getElementById('new-wf-engine');
+  const engine = engineSelect?.value || 'vids';
   
   try {
     const newWf = await api('/workflows', {
@@ -1702,7 +1725,8 @@ async function submitCreateNewWorkflow() {
         aspect_ratio: aspect,
         duration_per_shot: 8,
         resolution: res,
-        model_name: "Omni"
+        model_name: "Omni",
+        engine: engine
       })
     });
     appendLog(`创建新工作流成功: [${newWf.title}]`, 'info');

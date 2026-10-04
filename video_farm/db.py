@@ -3,6 +3,8 @@ import sqlite3
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 from datetime import datetime
+import json
+import uuid
 from .models import Task, Profile
 
 DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent / "video_farm_data/tasks.db"
@@ -88,6 +90,7 @@ def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
                 duration_per_shot INTEGER DEFAULT 10,
                 resolution TEXT DEFAULT '1080p',
                 model_name TEXT DEFAULT 'Omni',
+                engine TEXT DEFAULT 'vids',
                 status TEXT DEFAULT 'draft',
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
@@ -109,6 +112,7 @@ def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
                 end_image_url TEXT DEFAULT '',
                 resolution TEXT DEFAULT '1080p',
                 model_name TEXT DEFAULT 'Omni',
+                engine TEXT DEFAULT 'vids',
                 status TEXT DEFAULT 'pending',
                 progress INTEGER DEFAULT 0,
                 video_url TEXT,
@@ -118,6 +122,27 @@ def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
                 FOREIGN KEY(workflow_id) REFERENCES vids_workflows(id) ON DELETE CASCADE
             )
             """)
+
+
+            conn.execute("""
+            CREATE TABLE IF NOT EXISTS gemini_messages (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL DEFAULT 'default',
+                profile_id TEXT,
+                profile_name TEXT,
+                role TEXT NOT NULL, -- 'user', 'assistant'
+                mode TEXT DEFAULT 'chat', -- 'chat', 'dubbing', 'image'
+                content TEXT,
+                attachments_json TEXT,
+                audio_url TEXT,
+                audio_path TEXT,
+                image_urls_json TEXT,
+                status TEXT DEFAULT 'completed',
+                error_message TEXT,
+                created_at TEXT NOT NULL
+            )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_gemini_messages_session ON gemini_messages(session_id, created_at)")
 
             conn.execute("""
             CREATE TABLE IF NOT EXISTS task_events (
@@ -151,6 +176,8 @@ def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
                 conn.execute("ALTER TABLE vids_workflows ADD COLUMN resolution TEXT DEFAULT '1080p'")
             if "model_name" not in vids_wf_cols:
                 conn.execute("ALTER TABLE vids_workflows ADD COLUMN model_name TEXT DEFAULT 'Omni'")
+            if "engine" not in vids_wf_cols:
+                conn.execute("ALTER TABLE vids_workflows ADD COLUMN engine TEXT DEFAULT 'vids'")
 
             # Ensure columns exist in vids_shots
             vids_shot_cols = [r["name"] for r in conn.execute("PRAGMA table_info(vids_shots)").fetchall()]
@@ -168,6 +195,8 @@ def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
                 conn.execute("ALTER TABLE vids_shots ADD COLUMN task_id TEXT DEFAULT ''")
             if "local_video_path" not in vids_shot_cols:
                 conn.execute("ALTER TABLE vids_shots ADD COLUMN local_video_path TEXT DEFAULT ''")
+            if "engine" not in vids_shot_cols:
+                conn.execute("ALTER TABLE vids_shots ADD COLUMN engine TEXT DEFAULT 'vids'")
 
             event_cols = [r["name"] for r in conn.execute("PRAGMA table_info(task_events)").fetchall()]
             if "detail" not in event_cols:
@@ -650,6 +679,7 @@ def create_vids_workflow(
     resolution: str = "1080p",
     model_name: str = "Omni",
     workflow_id: Optional[str] = None,
+    engine: str = "vids",
     db_path: Path = DEFAULT_DB_PATH
 ) -> Dict[str, Any]:
     import uuid
@@ -660,9 +690,9 @@ def create_vids_workflow(
     try:
         with conn:
             conn.execute("""
-                INSERT INTO vids_workflows (id, title, doc_url, style_prompt, aspect_ratio, duration_per_shot, resolution, model_name, status, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?)
-            """, (wf_id, title, doc_url, style_prompt, aspect_ratio, duration_per_shot, resolution, model_name, now, now))
+                INSERT INTO vids_workflows (id, title, doc_url, style_prompt, aspect_ratio, duration_per_shot, resolution, model_name, engine, status, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?)
+            """, (wf_id, title, doc_url, style_prompt, aspect_ratio, duration_per_shot, resolution, model_name, engine or "vids", now, now))
         return get_vids_workflow(wf_id, db_path=db_path)
     finally:
         conn.close()
@@ -724,18 +754,6 @@ def sync_shot_with_task(shot_dict: Dict[str, Any], conn: sqlite3.Connection) -> 
         if shot_dict.get("status") == "pending":
             updates["task_id"] = ""
             updates["error_message"] = ""
-        elif t_out and Path(t_out).exists():
-            p_out = Path(t_out)
-            v_url = f"/media/outputs/{p_out.name}"
-            updates["status"] = "completed"
-            updates["progress"] = 100
-            updates["video_url"] = v_url
-            try:
-                updates["local_video_path"] = str(p_out.resolve())
-            except Exception:
-                updates["local_video_path"] = str(p_out)
-            updates["error_message"] = ""
-            conn.execute("UPDATE tasks SET status = 'completed', error_message = '' WHERE id = ?", (t_id,))
         elif shot_dict.get("status") != "failed":
             updates["status"] = "failed"
             updates["error_message"] = t_err or "视频生成失败"
@@ -827,6 +845,7 @@ def create_vids_shot(
     model_name: str = "Omni",
     task_id: str = "",
     shot_id: Optional[str] = None,
+    engine: str = "vids",
     db_path: Path = DEFAULT_DB_PATH
 ) -> Dict[str, Any]:
     import uuid
@@ -837,9 +856,9 @@ def create_vids_shot(
     try:
         with conn:
             conn.execute("""
-                INSERT INTO vids_shots (id, workflow_id, sequence, name, prompt, narration, duration, scene_index, mode, image_url, end_image_url, resolution, model_name, status, progress, task_id, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?)
-            """, (sid, workflow_id, sequence, name, prompt, narration, duration, s_idx, mode, image_url, end_image_url, resolution, model_name, task_id, now, now))
+                INSERT INTO vids_shots (id, workflow_id, sequence, name, prompt, narration, duration, scene_index, mode, image_url, end_image_url, resolution, model_name, engine, status, progress, task_id, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?)
+            """, (sid, workflow_id, sequence, name, prompt, narration, duration, s_idx, mode, image_url, end_image_url, resolution, model_name, engine or "vids", task_id, now, now))
             row = conn.execute("SELECT * FROM vids_shots WHERE id = ?", (sid,)).fetchone()
             return dict(row)
     finally:
@@ -1028,5 +1047,91 @@ def transition_task(task_id: str, action: str, db_path: Path = DEFAULT_DB_PATH):
                 raise ValueError('Unknown task action')
             conn.execute('INSERT INTO task_events(task_id,event_type,detail,created_at,message,timestamp) VALUES(?,?,?,?,?,?)',(task_id,'MANUAL_'+action.upper(),'Web状态转换',now,'Web状态转换',now))
         return {'id':task_id,'status':status}
+    finally:
+        conn.close()
+
+
+def add_gemini_message(msg: dict, db_path: Path = DEFAULT_DB_PATH) -> dict:
+    conn = get_db_connection(db_path)
+    now = datetime.now().astimezone().isoformat()
+    msg_id = msg.get("id") or f"gmsg_{uuid.uuid4().hex[:12]}"
+    created_at = msg.get("created_at") or now
+    try:
+        with conn:
+            conn.execute("""
+                INSERT INTO gemini_messages (
+                    id, session_id, profile_id, profile_name, role, mode,
+                    content, attachments_json, audio_url, audio_path,
+                    image_urls_json, status, error_message, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                msg_id,
+                msg.get("session_id", "default"),
+                msg.get("profile_id"),
+                msg.get("profile_name"),
+                msg.get("role", "user"),
+                msg.get("mode", "chat"),
+                msg.get("content", ""),
+                msg.get("attachments_json", "[]"),
+                msg.get("audio_url"),
+                msg.get("audio_path"),
+                msg.get("image_urls_json", "[]"),
+                msg.get("status", "completed"),
+                msg.get("error_message"),
+                created_at
+            ))
+        res = dict(msg)
+        res["id"] = msg_id
+        res["created_at"] = created_at
+        return res
+    finally:
+        conn.close()
+
+def list_gemini_messages(session_id: str = "default", limit: int = 100, db_path: Path = DEFAULT_DB_PATH) -> list[dict]:
+    conn = get_db_connection(db_path)
+    try:
+        rows = conn.execute("""
+            SELECT * FROM gemini_messages
+            WHERE session_id = ?
+            ORDER BY created_at ASC
+            LIMIT ?
+        """, (session_id, limit)).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+def clear_gemini_messages(session_id: str = "default", db_path: Path = DEFAULT_DB_PATH) -> int:
+    conn = get_db_connection(db_path)
+    try:
+        with conn:
+            return conn.execute("DELETE FROM gemini_messages WHERE session_id = ?", (session_id,)).rowcount
+    finally:
+        conn.close()
+
+def list_gemini_images(db_path: Path = DEFAULT_DB_PATH, limit: int = 60) -> list[dict]:
+    conn = get_db_connection(db_path)
+    try:
+        rows = conn.execute("""
+            SELECT id, session_id, profile_id, profile_name, content, image_urls_json, created_at
+            FROM gemini_messages
+            WHERE image_urls_json IS NOT NULL AND image_urls_json != '[]' AND image_urls_json != ''
+            ORDER BY created_at DESC
+            LIMIT ?
+        """, (limit,)).fetchall()
+        images = []
+        for r in rows:
+            try:
+                urls = json.loads(r["image_urls_json"]) if r["image_urls_json"] else []
+                for url in urls:
+                    images.append({
+                        "message_id": r["id"],
+                        "url": url,
+                        "prompt": r["content"],
+                        "profile_name": r["profile_name"] or "Gemini",
+                        "created_at": r["created_at"]
+                    })
+            except Exception:
+                pass
+        return images
     finally:
         conn.close()

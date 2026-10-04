@@ -38,121 +38,274 @@
 <!-- ================= 视图 1: 生成视频 ================= -->
 <!-- ================= 视图 0: 一键全自动成片 (Pipeline) ================= -->
 <!-- ================= 视图: Gemini 智能配音与多模态音频工作台 ================= -->
-<section class="view-pane" id="view-audio"><div class="page-heading"><div><h1>配音与音频</h1><p>先写台词，再选择音色；画面参考可选。</p></div></div>
-<div class="card audio-studio-card" style="margin-bottom:24px">
-<div class="card-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
-<div>
-<h2 class="card-title" style="display:flex;align-items:center;gap:8px">声音创作</h2>
-<p style="margin:4px 0 0 0">
-              可上传/选择已生成的视频作为画面参考，输入解说台词或提示词，一键生成高质量宣传片解说、音效或旁白音频。
+<section class="view-pane" id="view-audio">
+  <!-- 顶部多账号统一管理调度横幅 -->
+  <div class="card gemini-hub-card" style="margin-bottom:16px;padding:16px 20px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
+      <div style="display:flex;align-items:center;gap:14px">
+        <div style="width:42px;height:42px;border-radius:10px;background:linear-gradient(135deg, #10b981 0%, #059669 100%);display:grid;place-items:center;color:#fff;font-weight:700;font-size:20px;box-shadow:0 2px 8px rgba(16,185,129,0.25)">G</div>
+        <div>
+          <h1 style="margin:0;font-size:16px;font-weight:700;display:flex;align-items:center;gap:8px;color:#1c1d1a">
+            Gemini 多模态创作工作台
+            <span class="badge-chip" style="background:#ecfdf5;color:#047857;border:1px solid #a7f3d0;font-size:11px;font-weight:600">多模态全功能集成 · 多账号统一调度</span>
+          </h1>
+          <p style="margin:3px 0 0 0;font-size:11px;color:var(--text-sub)">
+            上传任意视频让 Gemini 网页端解说配音，支持文字多轮对话、AI 绘画资产管理及 7 个独立 Google 账号一键无缝切换。
+          </p>
+        </div>
+      </div>
+
+      <!-- 多账号统一管理与操作栏 -->
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <div style="display:flex;align-items:center;gap:6px;background:#f8faf6;padding:4px 10px;border-radius:6px;border:1px solid #e2e4dc">
+          <span style="font-size:11px;color:var(--text-sub);white-space:nowrap;font-weight:600">👤 当前调度账号:</span>
+          <select id="gemini-active-profile" class="form-control" style="min-width:180px;height:30px;padding:2px 8px;font-size:12px;font-weight:600">
+            <option value="auto">⚡ Auto · 智能轮转选择</option>
+          </select>
+          <span id="gemini-profile-status-badge" class="badge-chip" style="font-size:10px;padding:2px 6px;background:#ecfdf5;color:#047857">就绪</span>
+        </div>
+        <button class="btn btn-secondary btn-sm" id="btn-gemini-launch-chrome" type="button" title="启动独立 Chrome 窗口登录 Gemini 网页版完成授权">
+          🌐 登录网页版
+        </button>
+        <button class="btn btn-secondary btn-sm" id="btn-gemini-test-conn" type="button" title="快速检测该账号的 Gemini 会话就绪状态">
+          ⚡ 检查连通
+        </button>
+        <button class="btn btn-secondary btn-sm" id="btn-gemini-unlock-chrome" type="button" title="释放外部 Chrome 进程占用锁">
+          ⏹ 释放占用
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 主体工作区网格：左侧交互对话与生成流，右侧统一资产看板 -->
+  <div class="gemini-workspace-grid" style="display:grid;grid-template-columns:minmax(0, 1.4fr) minmax(0, 1fr);gap:18px;align-items:start">
+    
+    <!-- 左栏：多模态对话流与输入坞 -->
+    <div class="gemini-chat-column" style="display:flex;flex-direction:column;gap:14px">
+      <div class="card" style="padding:0;overflow:hidden;display:flex;flex-direction:column">
+        <!-- 对话卡片头部 -->
+        <div style="padding:12px 18px;border-bottom:1px solid var(--border-color);display:flex;justify-content:space-between;align-items:center;background:#fafbf8">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-size:13px;font-weight:600;color:var(--text-main)">💬 多模态会话与创作流</span>
+            <span id="gemini-chat-status" style="font-size:11px;color:var(--text-muted)">就绪</span>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-secondary btn-sm" id="btn-gemini-clear-chat" type="button" style="padding:3px 8px;font-size:11px">
+              🧹 清空会话
+            </button>
+          </div>
+        </div>
+
+        <!-- 消息滚动流列表 -->
+        <div id="gemini-messages-feed" style="height:440px;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:14px;background:#fcfdfa">
+          <!-- 默认引导欢迎卡片 -->
+          <div class="gemini-welcome-card" style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:16px;margin-bottom:8px">
+            <div style="font-weight:600;font-size:13px;color:#10b981;margin-bottom:6px">✨ 欢迎使用 Gemini 多模态创作工作台</div>
+            <p style="margin:0 0 10px 0;font-size:12px;color:var(--text-sub);line-height:1.6">
+              已为您整合网页端同款能力：您可以随时上传任意视频并生成配套解说配音，进行自由文字问答，或生成并统一管理 AI 绘画资产。
             </p>
-</div>
-<div style="display:flex;gap:8px">
-<button class="btn btn-secondary btn-sm" id="btn-audio-reset-form" title="清空并重置输入表单">🧹 清空重置</button>
-</div>
-</div>
-<div class="card-body">
-<form id="form-create-audio" onsubmit="return false;">
-<div class="audio-workbench-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:24px">
-<!-- 左栏：多模态参考视频与素材选择 -->
-<div class="audio-column audio-column-1" style="display:flex;flex-direction:column;gap:16px">
-<div class="audio-section" style="border-radius:8px;padding:16px">
-<h3 style="margin:0 0 12px 0;display:flex;align-items:center;gap:6px">
-<span>📹 视频素材与多模态参考（可选）</span>
-</h3>
-<!-- 方式 1: 从已完成成片选择 -->
-<div class="form-group" style="margin-bottom:14px">
-<label class="form-label" style="display:flex;justify-content:space-between"><span>从成片库快速选用已有视频：</span><button class="btn btn-secondary btn-sm" id="btn-refresh-audio-video-select" type="button">刷新成片</button></label>
-<select class="form-control" id="audio-select-completed-video">
-<option value="">-- 点击下拉选择已生成的视频成片 --</option>
-</select>
-<div class="form-hint" style="margin-top:4px">
-                      选中后将自动带入视频路径并在下方窗口中预览播放。
-                    </div>
-</div>
-<!-- 方式 2: 本地路径输入 -->
-<div class="form-group" style="margin-bottom:14px">
-<label class="form-label">或输入本地视频绝对路径：</label>
-<input class="form-control" id="audio-input-video-path" placeholder="例如: E:/公司素材/01_output.mp4 或成片输出路径" type="text"/>
-</div>
-<!-- 方式 3: 文件上传 -->
-<div class="form-group" style="margin-bottom:14px">
-<label class="form-label">或直接上传视频文件：</label>
-<input accept="video/mp4,video/quicktime,video/webm,video/*" class="form-control" id="audio-upload-video-file" type="file"/>
-</div>
-<!-- 可选参考图 -->
-<div class="form-group" style="margin-bottom:14px">
-<label class="form-label">附加视觉参考图（可选）：</label>
-<div style="display:flex;gap:8px">
-<input class="form-control" id="audio-ref-image-path" placeholder="参考图本地绝对路径 (可选)" style="flex:1" type="text"/>
-<label class="btn btn-secondary btn-sm" style="display:inline-flex;align-items:center;cursor:pointer;margin:0">
-                        📁 上传
-                        <input accept="image/*" id="audio-upload-ref-img" style="display:none" type="file"/>
-</label>
-</div>
-</div>
-<!-- 实时视频预览窗口 -->
-<div id="audio-preview-box" style="margin-top:10px;display:none;border-radius:8px;overflow:hidden">
-<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 10px">
-<span id="audio-preview-filename" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:80%">预览画面</span>
-<button class="btn btn-secondary btn-sm" id="btn-audio-clear-preview" style="padding:2px 6px" type="button">✖ 移除</button>
-</div>
-<video controls="" id="audio-preview-player" playsinline="" style="width:100%;max-height:220px;display:block;outline:none"></video>
-</div>
-</div>
-</div>
-<!-- 右栏：配音文案与音色调度 -->
-<div class="audio-column audio-column-2" style="display:flex;flex-direction:column;gap:16px">
-<div class="audio-section" style="border-radius:8px;padding:16px;display:flex;flex-direction:column;gap:14px">
-<h3 style="margin:0;display:flex;align-items:center;gap:6px">
-<span>🎙️ 配音文案与音色设置</span>
-</h3>
-<!-- 配音文案/提示词大输入框 -->
-<div class="form-group" style="margin:0">
-<label class="form-label" style="display:flex;justify-content:space-between"><span><b>配音台词 / 提示词：</b><span>*</span></span><span>直接输入文案或多模态指令</span></label>
-<textarea class="form-control" id="audio-prompt-input" placeholder="在此输入需要生成的视频解说词、宣传片旁白，或者给 Gemini 的分析提炼指令...
-例如：『本品富含高活性寡糖成分，高效激发作物细胞免疫，显著促进根系萌发与长势稳健，为高产丰收筑牢根基。』" rows="6" style="resize:vertical;line-height:1.6"></textarea>
-</div>
-<!-- 快捷灵感预设标签 -->
-<div>
-<label class="form-label" style="margin-bottom:6px">快捷灵感模板（点击一键填入）：</label>
-<div style="display:flex;flex-wrap:wrap;gap:6px">
-<button class="badge-chip btn-audio-preset" data-text="本段展现产品活性成分迅速渗透，根深叶茂，促进长势稳健，为高产丰收筑牢根基。" type="button">🌾 商业农化高产</button>
-<button class="badge-chip btn-audio-preset" data-text="画面聚焦分子层级的靶向识别，酶解微孔高效螯合，显著激发植物自身抗逆防护机制。" type="button">🔬 微观机理解读</button>
-<button class="badge-chip btn-audio-preset" data-text="科技赋能现代农业，以精准配方打破传统壁垒，见证生命力爆发的震撼蜕变。" type="button">🎬 科技大片旁白</button>
-<button class="badge-chip btn-audio-preset" data-text="请深度理解当前参考视频的画面内容与节奏，生成一段契合镜头运镜与展示主题的高品质产品宣传画外音。" type="button">💬 视频多模态提炼</button>
-</div>
-</div>
-<!-- 音色选择 -->
-<div class="form-group" style="margin:0">
-<label class="form-label"><b>解说音色选择：</b></label>
-<select class="form-control" id="audio-voice-select">
-<option selected="" value="zh-CN-YunxiNeural">🎙️ 云希 (阳光沉稳男声 · 推荐商业/农化/宣传片)</option>
-<option value="zh-CN-XiaoxiaoNeural">🎙️ 晓晓 (温柔亲切女声 · 推荐温情解说/故事叙述)</option>
-<option value="zh-CN-YunjianNeural">🎙️ 云健 (沉浸影视男声 · 推荐大片旁白/纪录片)</option>
-<option value="zh-CN-YunyangNeural">🎙️ 云扬 (专业播音男声 · 推荐发布会/新闻播报)</option>
-<option value="zh-CN-XiaoyiNeural">🎙️ 晓伊 (甜美生动女声 · 推荐科普/短视频/微课)</option>
-<option value="gemini-audio">🌐 Gemini 网页端原生对话朗读</option>
-</select>
-</div>
-<!-- 调度账号选择 -->
-<div class="form-group" style="margin:0">
-<label class="form-label">调度 Google 账号 (Profile)：</label>
-<select class="form-control" id="audio-profile-select">
-<option value="auto">Auto · 自动选择</option>
-</select>
-</div>
-<!-- 提交按钮 -->
-<div style="margin-top:6px">
-<button class="btn btn-primary btn-lg" id="btn-submit-audio-task" style="width:100%;display:flex;align-items:center;justify-content:center;gap:8px;font-weight:700" type="button">创建音频任务</button>
-<div id="audio-submit-status" style="margin-top:8px;text-align:center;min-height:18px"></div>
-</div>
-</div>
-</div>
-</div>
-</form>
-</div>
-</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:11px;color:#555">
+              <div style="background:#f9fafb;padding:8px 10px;border-radius:6px;border:1px solid #eee">
+                <b>📹 任意视频上传配音：</b>点击下方“上传视频”，选择或拖拽本地视频，Gemini 深度分析后一键合成广播级配音音频。
+              </div>
+              <div style="background:#f9fafb;padding:8px 10px;border-radius:6px;border:1px solid #eee">
+                <b>💬 像网页端文字对话：</b>输入分镜剧本润色、创意设想或日常提问，保留历史气泡对话。
+              </div>
+              <div style="background:#f9fafb;padding:8px 10px;border-radius:6px;border:1px solid #eee">
+                <b>🎨 AI 绘画统一管理：</b>输入画图提示词，自动提取生成大图并归档到右侧绘画画廊，可一键发送为视频参考图。
+              </div>
+              <div style="background:#f9fafb;padding:8px 10px;border-radius:6px;border:1px solid #eee">
+                <b>👥 多账号统一调度：</b>在顶部快速切换 7 个独立 Profile，各账号资产统一归集。
+              </div>
+            </div>
+          </div>
+          <!-- 消息项由 JS 动态插入 -->
+        </div>
+
+        <!-- 底部多模态输入与控制坞 -->
+        <div class="gemini-input-dock" style="padding:14px 18px;border-top:1px solid var(--border-color);background:#fff;display:flex;flex-direction:column;gap:10px">
+          <!-- 模式切换与选项条 -->
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+            <div class="gemini-mode-pills" style="display:flex;gap:4px">
+              <button class="btn btn-secondary btn-sm gemini-mode-btn active" data-mode="chat" type="button" style="font-weight:600">
+                💬 自由对话
+              </button>
+              <button class="btn btn-secondary btn-sm gemini-mode-btn" data-mode="dubbing" type="button" style="font-weight:600">
+                🎙️ 视频解说配音
+              </button>
+              <button class="btn btn-secondary btn-sm gemini-mode-btn" data-mode="image" type="button" style="font-weight:600">
+                🎨 AI 绘画
+              </button>
+            </div>
+
+            <!-- 参数抽屉：音色选择与画幅比例 -->
+            <div style="display:flex;align-items:center;gap:8px">
+              <div id="gemini-voice-control-group" style="display:flex;align-items:center;gap:4px">
+                <span style="font-size:11px;color:var(--text-sub)">音色:</span>
+                <select id="gemini-voice-select" class="form-control" style="height:28px;padding:2px 6px;font-size:11px">
+                  <option value="zh-CN-YunxiNeural" selected>🎙️ 云希 (阳光沉稳男声 · 商业推荐)</option>
+                  <option value="zh-CN-XiaoxiaoNeural">🎙️ 晓晓 (温情亲切女声 · 故事旁白)</option>
+                  <option value="zh-CN-YunjianNeural">🎙️ 云健 (大片沉浸男声 · 纪录片)</option>
+                  <option value="zh-CN-YunyangNeural">🎙️ 云扬 (专业播音男声 · 新闻发布)</option>
+                  <option value="zh-CN-XiaoyiNeural">🎙️ 晓伊 (甜美生动女声 · 短视频)</option>
+                  <option value="gemini-audio">🌐 Gemini 网页端原生朗读</option>
+                </select>
+              </div>
+
+              <div id="gemini-aspect-control-group" style="display:none;align-items:center;gap:4px">
+                <span style="font-size:11px;color:var(--text-sub)">比例:</span>
+                <select id="gemini-aspect-select" class="form-control" style="height:28px;padding:2px 6px;font-size:11px">
+                  <option value="16:9" selected>16:9 横屏</option>
+                  <option value="9:16">9:16 竖屏</option>
+                  <option value="1:1">1:1 正方</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <!-- 已挂载的多模态附件预览栏 -->
+          <div id="gemini-attachment-bar" style="display:none;padding:8px 10px;background:#f8faf6;border:1px dashed #d1d5db;border-radius:6px;gap:8px;align-items:center;flex-wrap:wrap">
+            <span style="font-size:11px;font-weight:600;color:var(--text-sub)">📎 已挂载素材:</span>
+            <div id="gemini-video-badge" style="display:none;align-items:center;gap:6px;background:#e0f2fe;color:#0369a1;padding:3px 8px;border-radius:4px;font-size:11px">
+              <span>📹 视频:</span> <span id="gemini-video-name" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
+              <button id="btn-remove-gemini-video" type="button" style="border:0;background:transparent;color:#0369a1;cursor:pointer;font-weight:700">✕</button>
+            </div>
+            <div id="gemini-image-badge" style="display:none;align-items:center;gap:6px;background:#fef3c7;color:#92400e;padding:3px 8px;border-radius:4px;font-size:11px">
+              <span>🖼️ 图片:</span> <span id="gemini-image-name" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
+              <button id="btn-remove-gemini-image" type="button" style="border:0;background:transparent;color:#92400e;cursor:pointer;font-weight:700">✕</button>
+            </div>
+          </div>
+
+          <!-- 输入文本框 -->
+          <div style="position:relative">
+            <textarea id="gemini-chat-input" class="form-control" rows="3" placeholder="像 ChatGPT / Gemini 网页端一样输入对话内容、视频配音诉求或画图提示词... (Enter 发送, Shift+Enter 换行)" style="resize:vertical;line-height:1.6;font-size:13px;padding-right:80px"></textarea>
+            <div style="position:absolute;right:8px;bottom:8px">
+              <button id="btn-gemini-chat-send" class="btn btn-primary" type="button" style="padding:6px 14px;font-weight:700;display:flex;align-items:center;gap:4px">
+                <span>发送</span> 🚀
+              </button>
+            </div>
+          </div>
+
+          <!-- 底部工具行：上传按钮组与快捷灵感模板 -->
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+            <div style="display:flex;align-items:center;gap:6px">
+              <input type="file" id="file-gemini-video" accept="video/mp4,video/quicktime,video/webm" style="display:none">
+              <input type="file" id="file-gemini-image" accept="image/png,image/jpeg,image/webp" style="display:none">
+              
+              <button class="btn btn-secondary btn-sm" id="btn-gemini-attach-video" type="button" title="上传任意本地视频进行分析与配音">
+                📹 上传视频
+              </button>
+              <button class="btn btn-secondary btn-sm" id="btn-gemini-pick-completed" type="button" title="选用成片库中已生成的视频">
+                🎞️ 从成片库选视频
+              </button>
+              <button class="btn btn-secondary btn-sm" id="btn-gemini-attach-image" type="button" title="上传参考图进行多模态分析或图生图">
+                🖼️ 上传图片
+              </button>
+            </div>
+
+            <!-- 灵感模板 -->
+            <div style="display:flex;gap:4px;flex-wrap:wrap">
+              <button class="badge-chip btn-gemini-prompt-chip" data-text="请深度理解当前视频的画面内容与节奏，生成一段契合镜头运镜的高品质产品宣传画外音，并为我合成配音。" type="button">🎬 视频宣传配音</button>
+              <button class="badge-chip btn-gemini-prompt-chip" data-text="画一张高品质4K科技农业现代生态温室大棚插画，金黄色晨曦透过穹顶，作物葱郁繁茂，细节极其写实。" type="button">🎨 绘制农业插画</button>
+              <button class="badge-chip btn-gemini-prompt-chip" data-text="根据当前视频镜头，帮我构思接下来的3个递进分镜构图与动态变化。" type="button">📝 构思递进分镜</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 右栏：统一资产管理看板 (绘画画廊、配音音频库、视频预览) -->
+    <div class="gemini-assets-column" style="display:flex;flex-direction:column;gap:14px">
+      <div class="card" style="padding:14px 16px;height:100%;min-height:560px;display:flex;flex-direction:column">
+        <!-- 资产 Tab 切换条 -->
+        <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border-color);padding-bottom:10px;margin-bottom:12px">
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-secondary btn-sm gemini-asset-tab active" data-tab="gallery" type="button" style="font-weight:600">
+              🎨 绘画画廊 (<span id="gemini-gallery-count">0</span>)
+            </button>
+            <button class="btn btn-secondary btn-sm gemini-asset-tab" data-tab="audio" type="button" style="font-weight:600">
+              🎙️ 配音音频库 (<span id="gemini-audio-count">0</span>)
+            </button>
+            <button class="btn btn-secondary btn-sm gemini-asset-tab" data-tab="video" type="button" style="font-weight:600">
+              📹 视频画面
+            </button>
+          </div>
+          <button class="btn btn-secondary btn-sm" id="btn-refresh-gemini-assets" type="button" style="padding:2px 8px;font-size:11px">
+            🔄 刷新
+          </button>
+        </div>
+
+        <!-- Tab 内容 1: 绘画画廊 -->
+        <div id="pane-gemini-gallery" class="gemini-asset-pane active" style="flex:1;overflow-y:auto;max-height:500px">
+          <div id="gemini-gallery-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+            <!-- 动态注入图片卡片 -->
+          </div>
+          <div id="gemini-gallery-empty" class="empty-state" style="padding:30px 10px;text-align:center;color:var(--text-muted);font-size:12px">
+            暂无 Gemini 绘画资产。可在左侧输入“画一张...”体验 AI 文生图！
+          </div>
+        </div>
+
+        <!-- Tab 内容 2: 配音音频库 -->
+        <div id="pane-gemini-audio" class="gemini-asset-pane" style="display:none;flex:1;overflow-y:auto;max-height:500px">
+          <div id="gemini-audio-list" style="display:flex;flex-direction:column;gap:10px">
+            <!-- 动态注入音频项 -->
+          </div>
+          <div id="gemini-audio-empty" class="empty-state" style="padding:30px 10px;text-align:center;color:var(--text-muted);font-size:12px">
+            暂无生成的配音音频。可在左侧上传视频并选择音色生成！
+          </div>
+        </div>
+
+        <!-- Tab 内容 3: 视频画面联动预览 -->
+        <div id="pane-gemini-video" class="gemini-asset-pane" style="display:none;flex:1;flex-direction:column;gap:12px">
+          <div style="font-size:12px;color:var(--text-sub)">
+            当前挂载用于多模态理解与配音的参考视频：
+          </div>
+          <div style="background:#000;border-radius:8px;overflow:hidden;position:relative;display:flex;align-items:center;justify-content:center;min-height:220px">
+            <video id="gemini-video-viewer" controls playsinline style="width:100%;max-height:260px;display:none"></video>
+            <div id="gemini-video-placeholder" style="color:#888;font-size:12px;text-align:center;padding:40px 10px">
+              📹 尚未选择视频<br>点击左侧【上传视频】或下方选用成片
+            </div>
+          </div>
+          <div class="form-group" style="margin-top:6px">
+            <label class="form-label" style="display:flex;justify-content:space-between">
+              <span>从成片库快速选入视频：</span>
+              <button class="btn btn-secondary btn-sm" id="btn-gemini-refresh-vids" type="button" style="padding:1px 6px;font-size:10px">刷新成片</button>
+            </label>
+            <select id="gemini-quick-select-video" class="form-control" style="font-size:11px">
+              <option value="">-- 点击选择成片库视频 --</option>
+            </select>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- 向下兼容隐藏容器：保证老版本的 DOM 节点存在，不会因找不到元素抛错 -->
+  <div style="display:none" aria-hidden="true">
+    <form id="form-create-audio">
+      <select id="audio-select-completed-video"><option value=""></option></select>
+      <input type="text" id="audio-input-video-path">
+      <input type="file" id="audio-upload-video-file" accept="video/mp4,video/quicktime,video/webm,video/*">
+      <div id="audio-preview-box"><video id="audio-preview-player"></video><span id="audio-preview-filename"></span><button id="btn-audio-clear-preview"></button></div>
+      <button id="btn-refresh-audio-video-select"></button>
+      <input type="text" id="audio-ref-image-path">
+      <input type="file" id="audio-upload-ref-img" accept="image/*">
+      <textarea id="audio-prompt-input"></textarea>
+      <select id="audio-voice-select">
+        <option value="zh-CN-YunxiNeural">zh-CN-YunxiNeural</option>
+        <option value="zh-CN-XiaoxiaoNeural">zh-CN-XiaoxiaoNeural</option>
+        <option value="zh-CN-YunjianNeural">zh-CN-YunjianNeural</option>
+        <option value="zh-CN-YunyangNeural">zh-CN-YunyangNeural</option>
+        <option value="zh-CN-XiaoyiNeural">zh-CN-XiaoyiNeural</option>
+        <option value="gemini-audio">gemini-audio</option>
+      </select>
+      <select id="audio-profile-select"><option value="auto">auto</option></select>
+      <button id="btn-submit-audio-task"></button>
+      <button id="btn-audio-reset-form"></button>
+      <div id="audio-submit-status"></div>
+    </form>
+  </div>
 </section>
 <section class="view-pane active" id="view-generate"><div class="page-heading"><div><h1>把想法，变成镜头。</h1><p>定义画面与运动，让创作从这里开始。</p></div><div class="mode-switch-row">
 <div class="sub-pill-switch">
@@ -361,14 +514,24 @@
           </p>
 </div>
 <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;padding:10px 14px;border-radius:8px;margin-bottom:8px">
+<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
 <div style="display:flex;align-items:center;gap:8px">
 <label style="font-weight:600;margin-bottom:0">🎯 指定执行账号：</label>
 <select class="select-control" id="select-batch-profile" style="padding:6px 10px">
 <option value="auto">Auto · 自动选择</option>
 </select>
 </div>
+<div style="display:flex;align-items:center;gap:8px">
+<label style="font-weight:600;margin-bottom:0">🚀 生成途径/引擎：</label>
+<select class="select-control" id="select-batch-engine" style="padding:6px 10px">
+<option value="vids" selected>🎬 Google Vids 原生工作流 (docs.google.com/videos · Omni 1080p)</option>
+<option value="flow">⚡ Google Flow 首尾帧模式 (labs.google · 首尾帧约束)</option>
+<option value="gemini">🤖 Gemini 网页版</option>
+</select>
+</div>
+</div>
 <div style="display:flex;align-items:center;gap:4px">
-<span>🔒 整批分镜将固定使用选定账号排队顺次生成，中途绝不频繁换号或重复拉起浏览器。</span>
+<span>🔒 免填 engine 属性，系统直接以此选择统一执行。</span>
 </div>
 </div>
 <textarea class="batch-input-area" id="input-batch-json" placeholder='[

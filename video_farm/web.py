@@ -26,6 +26,7 @@ from pydantic import BaseModel
 
 from . import db
 from .models import Task, Profile
+from .gemini_worker import GeminiWebWorker
 from .scheduler import VideoScheduler
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -1216,10 +1217,12 @@ async def create_batch_tasks(request: Request):
 
     raw_shots = []
     top_profile_id = ""
+    top_engine = ""
     if isinstance(body, list):
         raw_shots = body
     elif isinstance(body, dict):
         top_profile_id = str(body.get("profile_id") or body.get("assigned_profile_id") or "").strip()
+        top_engine = str(body.get("engine") or "").strip().lower()
         for k in ["shots", "tasks", "items", "data", "list", "scenes", "storyboard"]:
             if k in body and isinstance(body[k], list):
                 raw_shots = body[k]
@@ -1267,8 +1270,8 @@ async def create_batch_tasks(request: Request):
                 e_path = (BASE_DIR / e_path).resolve()
             e_path_str = str(e_path)
 
-        engine = str(item.get("engine") or "flow").strip().lower()
-        if engine not in ["flow", "gemini"]:
+        engine = str(item.get("engine") or top_engine or "flow").strip().lower()
+        if engine not in ["flow", "vids", "gemini"]:
             engine = "flow"
 
         model = str(item.get("model") or "").strip()
@@ -1304,6 +1307,9 @@ async def create_batch_tasks(request: Request):
             engine = "gemini"
             if not model or model == "veo-lite":
                 model = "gemini-audio"
+        elif engine == "vids":
+            if not model:
+                model = "Omni (1080p)"
 
         t_id = f"task_{uuid.uuid4().hex[:12]}"
         task = Task(
@@ -1942,6 +1948,236 @@ def serve_arbitrary_local_file(path: str = Query(...)):
 
 from .vids_router import router as vids_router
 app.include_router(vids_router)
+
+
+# ============================================================
+# Gemini 多模态综合工作台 API (对话、视频配音、AI绘画与多账号管理)
+# ============================================================
+
+@app.get("/api/gemini/messages")
+def get_gemini_messages(session_id: str = "default", limit: int = 100):
+    msgs = db.list_gemini_messages(session_id=session_id, limit=limit, db_path=DB_PATH)
+    return {"messages": msgs}
+
+@app.delete("/api/gemini/messages")
+def delete_gemini_messages(session_id: str = "default"):
+    count = db.clear_gemini_messages(session_id=session_id, db_path=DB_PATH)
+    return {"success": True, "deleted_count": count}
+
+@app.get("/api/gemini/images")
+def get_gemini_images(limit: int = 60):
+    imgs = db.list_gemini_images(db_path=DB_PATH, limit=limit)
+    return {"images": imgs}
+
+@app.post("/api/profiles/{profile_id}/test-gemini")
+def test_gemini_profile(profile_id: str):
+    p = db.get_profile_by_id(profile_id, DB_PATH)
+    if not p:
+        raise HTTPException(status_code=404, detail="Profile未找到")
+    if check_chrome_running_for_profile(p.name):
+        return {
+            "success": False,
+            "error_code": "PROFILE_LOCKED",
+            "message": f"账号 [{p.name}] 正在被运行中的 Chrome 窗口占用。请关闭该 Chrome 窗口或在控制台点击【⏹ 释放占用】。"
+        }
+    appdata = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
+    profile_dir = Path(appdata) / "ffroliva" / "gflow-cli" / f"profile_{p.name}"
+    exists = profile_dir.exists()
+    return {
+        "success": True,
+        "profile_id": p.id,
+        "profile_name": p.name,
+        "profile_path": str(profile_dir),
+        "dir_exists": exists,
+        "message": f"账号 [{p.name}] 检测就绪，可调度发起多模态创作"
+    }
+
+@app.post("/api/gemini/chat")
+def gemini_chat_endpoint(
+    message: str = Form(""),
+    session_id: str = Form("default"),
+    profile_id: Optional[str] = Form(None),
+    mode: str = Form("chat"),
+    voice: str = Form("zh-CN-YunxiNeural"),
+    aspect_ratio: str = Form("16:9"),
+    video: Optional[UploadFile] = File(None),
+    video_path: Optional[str] = Form(None),
+    image: Optional[UploadFile] = File(None),
+    image_path: Optional[str] = Form(None)
+):
+    chat_upload_dir = UPLOADS_DIR / "gemini_chat"
+    chat_upload_dir.mkdir(parents=True, exist_ok=True)
+
+    video_dest_str = ""
+    video_url = None
+    if video and video.filename:
+        v_ext = Path(video.filename).suffix or ".mp4"
+        v_dest = chat_upload_dir / f"vid_{uuid.uuid4().hex[:8]}_{Path(video.filename).name}"
+        with open(v_dest, "wb") as f:
+            shutil.copyfileobj(video.file, f)
+        video_dest_str = str(v_dest.resolve())
+        video_url = f"/media/uploads/gemini_chat/{v_dest.name}"
+    elif video_path:
+        v_cand = video_path.strip()
+        v_resolved = None
+        if v_cand.startswith("/media/outputs/"):
+            fn = v_cand[len("/media/outputs/"):]
+            p = OUTPUTS_DIR / fn
+            if p.exists():
+                v_resolved = p
+        elif v_cand.startswith("/media/uploads/"):
+            rel = v_cand[len("/media/uploads/"):]
+            p = UPLOADS_DIR / rel
+            if p.exists():
+                v_resolved = p
+        elif Path(v_cand).exists():
+            v_resolved = Path(v_cand)
+        if v_resolved:
+            video_dest_str = str(v_resolved.resolve())
+            video_url = f"/media/file?path={video_dest_str}"
+
+    image_dest_str = ""
+    image_url = None
+    if image and image.filename:
+        i_ext = Path(image.filename).suffix or ".png"
+        i_dest = chat_upload_dir / f"img_{uuid.uuid4().hex[:8]}_{Path(image.filename).name}"
+        with open(i_dest, "wb") as f:
+            shutil.copyfileobj(image.file, f)
+        image_dest_str = str(i_dest.resolve())
+        image_url = f"/media/uploads/gemini_chat/{i_dest.name}"
+    elif image_path:
+        i_cand = image_path.strip()
+        i_resolved = None
+        if i_cand.startswith("/media/outputs/"):
+            fn = i_cand[len("/media/outputs/"):]
+            p = OUTPUTS_DIR / fn
+            if p.exists():
+                i_resolved = p
+        elif i_cand.startswith("/media/uploads/"):
+            rel = i_cand[len("/media/uploads/"):]
+            p = UPLOADS_DIR / rel
+            if p.exists():
+                i_resolved = p
+        elif Path(i_cand).exists():
+            i_resolved = Path(i_cand)
+        if i_resolved:
+            image_dest_str = str(i_resolved.resolve())
+            image_url = f"/media/file?path={image_dest_str}"
+
+    attachments = []
+    if video_dest_str:
+        attachments.append({
+            "type": "video",
+            "name": Path(video_dest_str).name,
+            "path": video_dest_str,
+            "url": video_url or f"/media/file?path={video_dest_str}"
+        })
+    if image_dest_str:
+        attachments.append({
+            "type": "image",
+            "name": Path(image_dest_str).name,
+            "path": image_dest_str,
+            "url": image_url or f"/media/file?path={image_dest_str}"
+        })
+
+    # 解析目标 Profile
+    target_profile = None
+    if profile_id and profile_id.strip() and profile_id.lower() not in ("auto", "none", "null"):
+        target_profile = db.get_profile_by_id(profile_id.strip(), DB_PATH) or db.get_profile_by_name(profile_id.strip(), DB_PATH)
+    if not target_profile:
+        target_profile = db.pick_best_profile(require_clean=False, db_path=DB_PATH)
+    if not target_profile:
+        all_profs = db.list_profiles(DB_PATH)
+        if all_profs:
+            target_profile = all_profs[0]
+
+    prof_name = target_profile.name if target_profile else "Auto"
+    prof_id = target_profile.id if target_profile else None
+
+    # 保存用户消息
+    user_msg = db.add_gemini_message({
+        "session_id": session_id,
+        "profile_id": prof_id,
+        "profile_name": prof_name,
+        "role": "user",
+        "mode": mode,
+        "content": message.strip(),
+        "attachments_json": json.dumps(attachments, ensure_ascii=False),
+        "status": "completed"
+    }, DB_PATH)
+
+    if not target_profile:
+        ai_msg = db.add_gemini_message({
+            "session_id": session_id,
+            "role": "assistant",
+            "mode": mode,
+            "content": "系统未检测到可用 Google Profile，请先在【账号管理】添加或初始化 Profile。",
+            "status": "failed"
+        }, DB_PATH)
+        return {"success": False, "user_message": user_msg, "assistant_message": ai_msg}
+
+    # 调用 Gemini 多模态工作台 Worker
+    worker = mgr.scheduler.gemini_worker if (mgr.scheduler and hasattr(mgr.scheduler, "gemini_worker")) else GeminiWebWorker(output_dir=OUTPUTS_DIR)
+    res = worker.execute_multimodal_interaction(
+        profile=target_profile,
+        prompt=message.strip(),
+        mode=mode,
+        video_path=video_dest_str,
+        image_path=image_dest_str,
+        voice=voice,
+        aspect_ratio=aspect_ratio
+    )
+
+    ai_text = res.get("text")
+    if not ai_text:
+        if not res.get("success") and res.get("error_message"):
+            ai_text = f"⚠️ {res.get('error_message')}"
+        elif res.get("audio_url") or res.get("image_urls"):
+            ai_text = "（多模态产物已生成，请在下方试听或查看）"
+        else:
+            ai_text = "Gemini 已处理完成"
+    if res.get("warning"):
+        ai_text += f"\n\n> ⚠️ {res.get('warning')}"
+
+    ai_msg = db.add_gemini_message({
+        "session_id": session_id,
+        "profile_id": target_profile.id,
+        "profile_name": target_profile.name,
+        "role": "assistant",
+        "mode": mode,
+        "content": ai_text,
+        "audio_url": res.get("audio_url"),
+        "audio_path": res.get("audio_path"),
+        "image_urls_json": json.dumps(res.get("image_urls") or [], ensure_ascii=False),
+        "status": "completed" if res.get("success") else "failed",
+        "error_message": res.get("error_message")
+    }, DB_PATH)
+
+    # 若生成了音频，同步在 tasks 登记便于成片库归档
+    if res.get("audio_path"):
+        t_id = f"task_aud_{uuid.uuid4().hex[:10]}"
+        t = Task(
+            id=t_id,
+            prompt=message.strip() or "Gemini 多模态视频配音",
+            input_video_path=video_dest_str,
+            start_image_path=image_dest_str,
+            engine="gemini",
+            task_type="audio",
+            model=voice,
+            status="completed",
+            output_audio_path=res.get("audio_path"),
+            assigned_profile_id=target_profile.id
+        )
+        db.add_task(t, DB_PATH)
+
+    return {
+        "success": res.get("success", False),
+        "user_message": user_msg,
+        "assistant_message": ai_msg,
+        "error_message": res.get("error_message"),
+        "warning": res.get("warning")
+    }
+
 
 @app.get("/vids")
 def serve_vids_page():

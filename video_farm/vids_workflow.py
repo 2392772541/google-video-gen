@@ -300,7 +300,7 @@ SAMPLE_BATCH_IMPORT_DATA = {
     ]
 }
 
-def normalize_imported_workflow_json(raw_input: Any, default_workflow: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def normalize_imported_workflow_json(raw_input: Any, default_workflow: Optional[Dict[str, Any]] = None, default_engine: Optional[str] = None) -> Dict[str, Any]:
     import json
     if isinstance(raw_input, str):
         cleaned = raw_input.strip()
@@ -325,6 +325,11 @@ def normalize_imported_workflow_json(raw_input: Any, default_workflow: Optional[
     model_name = base_wf.get('model_name') or 'Omni'
     duration_per_shot = base_wf.get('duration_per_shot') or 10
 
+    # 引擎途径判定：优先使用前端UI传入的 default_engine；否则优先读base_wf，再次默认'vids'
+    engine = (default_engine or base_wf.get('engine') or 'vids').strip().lower()
+    if engine not in ('vids', 'flow', 'gemini'):
+        engine = 'vids'
+
     raw_shots: List[Dict[str, Any]] = []
 
     if isinstance(parsed, list):
@@ -346,6 +351,10 @@ def normalize_imported_workflow_json(raw_input: Any, default_workflow: Optional[
             model_name = str(parsed['model_name']).strip()
         elif 'model' in parsed and parsed['model']:
             model_name = str(parsed['model']).strip()
+        if not default_engine and 'engine' in parsed and parsed['engine']:
+            cand_eng = str(parsed['engine']).strip().lower()
+            if cand_eng in ('vids', 'flow', 'gemini'):
+                engine = cand_eng
         if 'duration_per_shot' in parsed:
             try:
                 duration_per_shot = int(parsed['duration_per_shot'])
@@ -419,6 +428,15 @@ def normalize_imported_workflow_json(raw_input: Any, default_workflow: Optional[
         seq = s.get('sequence') or idx
         scene_idx = s.get('scene_index') or idx
 
+        # 分镜级引擎：优先 default_engine；若无，且未在UI显式锁定时允许单项engine覆盖；最后回退至全局engine
+        shot_engine = default_engine
+        if not shot_engine and s.get('engine'):
+            cand_s_eng = str(s.get('engine')).strip().lower()
+            if cand_s_eng in ('vids', 'flow', 'gemini'):
+                shot_engine = cand_s_eng
+        if not shot_engine:
+            shot_engine = engine
+
         normalized_shots.append({
             'name': name,
             'prompt': prompt,
@@ -430,7 +448,8 @@ def normalize_imported_workflow_json(raw_input: Any, default_workflow: Optional[
             'image_url': str(img_url).strip(),
             'end_image_url': str(end_img_url).strip(),
             'resolution': shot_res,
-            'model_name': shot_model
+            'model_name': shot_model,
+            'engine': shot_engine
         })
 
     return {
@@ -441,5 +460,6 @@ def normalize_imported_workflow_json(raw_input: Any, default_workflow: Optional[
         'resolution': resolution,
         'model_name': model_name,
         'duration_per_shot': duration_per_shot,
+        'engine': engine,
         'shots': normalized_shots
     }

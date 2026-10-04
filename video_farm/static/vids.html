@@ -817,6 +817,13 @@
 <option value="Veo">Veo (电影级镜头)</option>
 </select>
 </div>
+<div class="form-group" style="margin-top:8px">
+<label class="form-label">默认生成途径:</label>
+<select class="form-select" id="wf-engine">
+<option value="vids" selected>🎬 Google Vids 原生工作流</option>
+<option value="flow">⚡ Google Flow 首尾帧模式</option>
+</select>
+</div>
 </div>
 <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px">
 <span>保存后立即应用于当前工作流</span>
@@ -970,6 +977,24 @@
 </label>
 </div>
 </div>
+<div id="import-engine-selector-box" style="padding:12px 14px;border-radius:8px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);display:flex;flex-direction:column;gap:8px">
+<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
+<span style="font-weight:600;display:flex;align-items:center;gap:6px">
+<span>🎯</span> 视频生成途径 / 引擎选择:
+</span>
+<span style="font-size:12px;color:var(--text-sub, #9ca3af)">💡 免填 engine 属性，系统直接以此选择统一执行</span>
+</div>
+<div style="display:flex;align-items:center;gap:18px;flex-wrap:wrap">
+<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:600">
+<input checked="" id="import-engine-vids" name="import-engine-radio" style="accent-color:#3b82f6" type="radio" value="vids"/>
+<span>🎬 Google Vids 原生工作流 <span style="font-size:12px;font-weight:normal;color:#9ca3af">(docs.google.com/videos · Omni 1080p 超清分镜)</span></span>
+</label>
+<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:600">
+<input id="import-engine-flow" name="import-engine-radio" style="accent-color:#3b82f6" type="radio" value="flow"/>
+<span>⚡ Google Flow 首尾帧模式 <span style="font-size:12px;font-weight:normal;color:#9ca3af">(labs.google/flow · 首尾帧强插值约束)</span></span>
+</label>
+</div>
+</div>
 <div class="form-group">
 <div style="display:flex;justify-content:space-between;align-items:center">
 <label class="form-label">粘贴分镜资产 JSON 内容:</label>
@@ -1029,6 +1054,13 @@
 <option value="720p">720p 高清</option>
 </select>
 </div>
+</div>
+<div class="form-group">
+<label class="form-label">生成途径/引擎:</label>
+<select class="form-select" id="new-wf-engine">
+<option value="vids" selected>🎬 Google Vids 原生工作流 (docs.google.com/videos · Omni 1080p)</option>
+<option value="flow">⚡ Google Flow 首尾帧模式 (labs.google · 首尾帧约束)</option>
+</select>
 </div>
 </div>
 <div class="modal-panel-footer">

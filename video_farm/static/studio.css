@@ -84,3 +84,13 @@ button,input,select,textarea{font:inherit}button,a{touch-action:manipulation}but
 .shot-index-link[data-status=running]::after{background:#b88931}
 .shot-index-link[data-status=failed]::after{background:#b2594f}
 @media(max-width:650px){.shot-card .frame-capsule{flex:1 1 100%}.shot-card .frame-duo-arrow{display:none}.shot-card .shot-name-input{max-width:100%}}
+
+/* Gemini 多模态创作中心增强样式 */
+.gemini-hub-card{border-left:4px solid #10b981!important}
+.gemini-mode-btn.active{background:#10b981!important;color:#fff!important;border-color:#059669!important}
+.gemini-asset-tab.active{background:#eff6ff!important;color:#0284c7!important;border-color:#bae6fd!important}
+.gemini-msg-user div{background:#e6b64f;color:#252724}
+.gemini-msg-assistant div{background:#fff;border-color:#e5e7eb}
+@media(max-width:980px){
+  .gemini-workspace-grid{grid-template-columns:1fr!important}
+}
