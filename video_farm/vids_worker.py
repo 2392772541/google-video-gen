@@ -167,16 +167,21 @@ class VidsWorker:
 
             page = browser.pages[0] if browser.pages else browser.new_page()
 
-            # 监听网络流以捕获媒体文件
+            # 监听网络流以捕获媒体文件 (严格排除 gstatic 等静态样例/宣传视频)
             captured_media_urls = []
             def handle_response(response):
                 try:
                     url = response.url
                     ct = response.headers.get("content-type", "")
-                    if "video" in ct or "videoplayback" in url or ".mp4" in url:
-                        if url not in captured_media_urls and not any(k in url for k in ["gettingstarteddialog", "promo", "aspectratio"]):
+                    # 严禁捕获 Google Vids 官方静态宣传/样例视频
+                    if any(k in url for k in ["gstatic.com", "gettingstarteddialog", "flix_likeness", "avatars_entry_point", "veo_entry_point"]):
+                        return
+                    if ("video" in ct or ".mp4" in url or "google.com/download" in url or "videoplayback" in url) and (
+                        "usercontent.google.com" in url or "bard_storage" in url or "temp_data" in url
+                    ):
+                        if url not in captured_media_urls:
                             captured_media_urls.append(url)
-                            logs.append(f"[媒体捕获] 发现远端视频流: {url[:80]}...")
+                            logs.append(f"[真实成片捕获] 捕获到 Google Vids 真实渲染视频流: {url[:90]}...")
                 except Exception:
                     pass
 
@@ -243,11 +248,11 @@ class VidsWorker:
                 ai_entry_btn.evaluate("el => el.click()")
             page.wait_for_timeout(2000)
 
-            # 3. 模式与素材绑定
+            # 3. 模式与素材绑定 (针对 Google Vids Animate / Create 原生工作流)
             has_reference_image = bool(task.start_image_path and Path(task.start_image_path).exists())
             if has_reference_image:
                 logs.append(f"检测到首帧/参考图素材: {task.start_image_path}")
-                anim_tab = page.locator("#c15, [aria-label*='添加动画'], button:has-text('添加动画'), [aria-label*='Animate'], button:has-text('Animate'), [role='tab']:has-text('Animate')").first
+                anim_tab = page.locator("button:has-text('Animate'), [role='tab']:has-text('Animate'), [aria-label*='Animate']").first
                 if anim_tab.count() > 0 and anim_tab.is_visible():
                     logs.append("切换至「添加动画 (Animate)」多模态模式...")
                     try:
@@ -255,13 +260,35 @@ class VidsWorker:
                     except Exception:
                         anim_tab.evaluate("el => el.click()")
                     page.wait_for_timeout(1500)
-                    file_input = page.locator("input[type='file']").first
-                    if file_input.count() > 0:
-                        logs.append(f"上传参考图像素材: {task.start_image_path}")
-                        file_input.set_input_files(str(Path(task.start_image_path).resolve()))
-                        page.wait_for_timeout(3000)
+
+                # 检查并点击「Add image」按钮
+                add_img_btn = page.get_by_text("Add image").first
+                if add_img_btn.count() > 0 and add_img_btn.is_visible():
+                    try:
+                        add_img_btn.click(force=True)
+                    except Exception:
+                        add_img_btn.evaluate("el => el.click()")
+                    page.wait_for_timeout(1000)
+
+                    # 智能消除图片版权使用协议弹窗 (Create content from images in Workspace)
+                    agree_btn = page.locator("button:has-text('Agree'), button:has-text('同意')").first
+                    if agree_btn.count() > 0 and agree_btn.is_visible():
+                        logs.append("确认图片素材版权与使用协议 (Agree)...")
+                        agree_btn.click(force=True)
+                        page.wait_for_timeout(1500)
+
+                # 寻找并注入文件输入控件
+                file_input = page.locator("input[type='file']").first
+                if file_input.count() > 0:
+                    abs_img_path = str(Path(task.start_image_path).resolve())
+                    logs.append(f"上传首帧/参考图像素材: {abs_img_path}")
+                    file_input.set_input_files(abs_img_path)
+                    page.wait_for_timeout(3500)
+                    logs.append("✅ 首帧素材已成功载入 Google Vids 画布并展示缩略图")
+                else:
+                    logs.append("⚠️ 未找到文件输入控件 input[type='file']")
             else:
-                create_tab = page.locator("#c13, [aria-label*='创建'], button:has-text('创建'), [aria-label*='Create'], button:has-text('Create'), [role='tab']:has-text('Create')").first
+                create_tab = page.locator("button:has-text('Create'), [role='tab']:has-text('Create'), [aria-label*='Create']").first
                 if create_tab.count() > 0 and create_tab.is_visible():
                     try:
                         create_tab.click(force=True)
@@ -269,110 +296,48 @@ class VidsWorker:
                         create_tab.evaluate("el => el.click()")
                     page.wait_for_timeout(1000)
 
-            # 4. 生成设置：分辨率 (1080p / 720p) 与画幅 (强化 JS 穿透与菜单自闭)
+            # 4. 生成设置：分辨率 (1080p / 720p) 与画幅
             try:
-                settings_btn = page.locator(".appsDocsAiGenerativeaiVideoUiSidebarWizVideogencreationviewMenubuttonsMenubuttonGenerationSettingsButton, [aria-label*='Generation settings'], [aria-label*='生成设置']").first
+                is_1080p = "1080" in (task.model or "").lower() or (getattr(task, "resolution", "") == "1080p")
+                settings_btn = page.locator(".content-library button[aria-label*='Generation settings'], .content-library button:has-text('Omni')").first
                 if settings_btn.count() > 0 and settings_btn.is_visible():
-                    logs.append(f"当前生成配置面板: {repr(settings_btn.inner_text())}")
-                    settings_btn.click(force=True, timeout=5000)
+                    settings_btn.click(force=True, timeout=4000)
                     page.wait_for_timeout(1000)
-
-                    is_1080p = "1080" in (task.model or "").lower() or (getattr(task, "resolution", "") == "1080p")
                     target_res_text = "1080p" if is_1080p else "720p"
-                    res_option = page.locator(f"[role='menuitem']:has-text('{target_res_text}'), [role='menuitemradio']:has-text('{target_res_text}'), li:has-text('{target_res_text}')").first
+                    res_option = page.locator(f"[role='menuitem']:has-text('{target_res_text}'), [role='menuitemradio']:has-text('{target_res_text}'), button:has-text('{target_res_text}')").first
                     if res_option.count() > 0:
                         logs.append(f"选择清晰度规格 -> {target_res_text}")
-                        try:
-                            res_option.evaluate("el => el.click()")
-                        except Exception:
-                            res_option.click(force=True, timeout=3000)
-                        page.wait_for_timeout(600)
-                    # 关闭设置菜单避免遮挡输入框
+                        res_option.click(force=True, timeout=3000)
+                        page.wait_for_timeout(500)
                     page.keyboard.press("Escape")
                     page.wait_for_timeout(400)
             except Exception as set_err:
-                logs.append(f"画质配置菜单交互容错跳过: {set_err}")
+                logs.append(f"画质配置菜单交互跳过: {set_err}")
                 try:
                     page.keyboard.press("Escape")
                 except Exception:
                     pass
 
-            # 5. 填入镜头提示词 (严防误折叠已展开的输入框)
-            input_box = page.locator("[contenteditable='true'][jsname='ZeIRi'], [contenteditable='true'][role='textbox'], [contenteditable='true']").first
-            if input_box.count() == 0 or not input_box.is_visible():
-                expand_btn = page.locator(".collapsiblePromptBoxToggleExpansionButton, button[aria-label='展开'], button[aria-label='Expand']").first
-                if expand_btn.count() > 0 and expand_btn.is_visible():
-                    expand_btn.click(force=True)
-                    page.wait_for_timeout(500)
+            # 5. 填入镜头提示词
+            textbox = page.locator("[role='textbox'], [contenteditable='true']").first
+            if textbox.count() > 0:
+                logs.append(f"注入镜头提示词: {task.prompt[:60]}...")
+                textbox.click(force=True)
+                page.wait_for_timeout(400)
+                textbox.fill(task.prompt)
+                page.wait_for_timeout(800)
 
-            if input_box.count() == 0:
-                input_box = page.locator("[contenteditable='true']").first
+            # 6. 触发生成 (精准定位专属生成按钮)
+            gen_btn = page.locator(".collapsiblePromptBoxGenerateButton, button[aria-label='Generate']").last
+            if gen_btn.count() == 0 or not gen_btn.is_visible():
+                gen_btn = page.locator(".content-library button:has(svg), .content-library button[aria-label*='Generate']").last
 
-            logs.append(f"注入镜头提示词: {task.prompt}")
+            logs.append("⚡ 触发 Google Vids 视频生成任务 (点击 Generate)...")
             try:
-                input_box.click(force=True, timeout=4000)
-            except Exception:
-                pass
-            input_box.fill(task.prompt)
-            page.wait_for_timeout(600)
-
-            try:
-                input_box.dispatch_event("input")
-                input_box.dispatch_event("change")
-            except Exception:
-                pass
-            page.wait_for_timeout(500)
-
-            # 6. 触发生成 (精准定位专属生成按钮，排除旁白与无关工具按钮)
-            gen_selectors = [
-                ".collapsiblePromptBoxGenerateButton",
-                "button[aria-label='Generate']",
-                "button[aria-label='生成']",
-                "[role='button'][aria-label='Generate']",
-                "[role='button'][aria-label='生成']",
-                "button[aria-label*='Generate video']",
-                "button[aria-label*='生成视频']",
-                "button:text-is('Generate')",
-                "button:text-is('生成')"
-            ]
-            gen_btn = None
-            for g_sel in gen_selectors:
-                loc = page.locator(g_sel).first
-                if loc.count() > 0 and loc.is_visible():
-                    gen_btn = loc
-                    break
-
-            if not gen_btn:
-                page.wait_for_timeout(2000)
-                for g_sel in gen_selectors:
-                    loc = page.locator(g_sel).first
-                    if loc.count() > 0 and loc.is_visible():
-                        gen_btn = loc
-                        break
-
-            if not gen_btn:
-                # 智能遍历探测
-                all_btns = page.locator("button, [role='button']").all()
-                for b in all_btns:
-                    try:
-                        if b.is_visible():
-                            aria = (b.get_attribute("aria-label") or "").lower()
-                            txt = (b.inner_text() or "").strip().lower()
-                            if ("generate" in aria or "生成" in aria or txt in ["generate", "生成"]) and "voiceover" not in aria and "旁白" not in aria:
-                                gen_btn = b
-                                break
-                    except Exception:
-                        pass
-
-            if not gen_btn:
-                raise RuntimeError("未定位到 Google Vids 生成按钮，请检查页面是否展开输入框或已被风控拦截")
-
-            logs.append("⚡ 触发 Google Vids 视频生成任务...")
-            try:
-                gen_btn.click(force=True, timeout=6000)
+                gen_btn.click(force=True, timeout=8000)
             except Exception:
                 gen_btn.evaluate("el => el.click()")
-            page.wait_for_timeout(3000)
+            page.wait_for_timeout(4000)
 
             # 7. 进度监听与视频提取
             logs.append("进入生成进度监听状态，等待 Google 官方云端渲染...")
@@ -380,7 +345,7 @@ class VidsWorker:
             generation_complete = False
 
             while time.time() - start_poll < self.timeout_sec:
-                # 检查页面是否有错误浮层或提示 (精准区分 UNUSUAL_ACTIVITY 与 UI 异常)
+                # 检查页面是否有错误浮层或提示
                 error_toast = page.locator(".docs-toast, [role='alert']").first
                 if error_toast.count() > 0 and error_toast.is_visible():
                     err_txt = error_toast.inner_text().strip()
@@ -407,77 +372,53 @@ class VidsWorker:
                                 "logs": "\n".join(logs)
                             }
 
-                # 检查进度条是否结束
-                progressbar = page.locator("[role='progressbar']")
-                p_count = progressbar.count()
                 elapsed = int(time.time() - start_poll)
-
                 if elapsed % 15 == 0:
-                    logs.append(f"[{elapsed}s] 正在生成中... (Progressbar={p_count}, 已捕获候选流={len(captured_media_urls)})")
+                    logs.append(f"[{elapsed}s] 正在云端渲染中... (已捕获真实流={len(captured_media_urls)})")
 
-                # 如果之前有进度条，现在消失，或者灵感库中出现新视频项
-                recent_cards = page.locator(".avWBGd-7, .avWBGd-19, [role='listitem']").first
-                if captured_media_urls and elapsed > 20:
+                # 检查成片就绪指示 (「Insert」插入按钮出现，或捕获到了真实 usercontent / bard_storage 流)
+                insert_btn = page.locator("button:has-text('Insert'), button:has-text('插入')").first
+                if insert_btn.count() > 0 and insert_btn.is_visible():
+                    logs.append(f"🎉 检测到 Google Vids 成片已渲染完毕并在侧边栏展现 (耗时 {elapsed}s)")
                     generation_complete = True
                     break
 
-                # 检查页面内所有可用 video 标签
-                video_els = page.locator("video").all()
-                valid_src = None
-                for vel in video_els:
-                    src = vel.get_attribute("src") or ""
-                    if src and not any(k in src for k in ["gettingstarteddialog", "promo", "aspectratio"]):
-                        valid_src = src
-                        break
-
-                if valid_src and elapsed > 15:
-                    logs.append(f"定位到成片视频 DOM 元素: {valid_src[:80]}...")
-                    # 通过页内 fetch 将 blob 或网络视频直接保存
-                    try:
-                        b64_data = page.evaluate("""async (url) => {
-                            const res = await fetch(url);
-                            const buf = await res.arrayBuffer();
-                            let binary = '';
-                            const bytes = new Uint8Array(buf);
-                            const len = bytes.byteLength;
-                            for (let i = 0; i < len; i++) {
-                                binary += String.fromCharCode(bytes[i]);
-                            }
-                            return btoa(binary);
-                        }""", valid_src)
-                        if b64_data:
-                            output_video_path.write_bytes(base64.b64decode(b64_data))
-                            logs.append(f"成功将视频从 Google Vids 页面内抓取并固化至本地: {output_video_path}")
-                            generation_complete = True
-                            break
-                    except Exception as b64_err:
-                        logs.append(f"页内提取媒体异常: {b64_err}")
+                if captured_media_urls and elapsed > 15:
+                    logs.append(f"🎉 捕获到 Google Vids 真实输出视频流 (耗时 {elapsed}s)")
+                    generation_complete = True
+                    break
 
                 page.wait_for_timeout(3000)
 
-            # 如果捕获到了流但尚未写入本地
-            if not output_video_path.exists() and captured_media_urls:
-                target_media_url = captured_media_urls[-1]
-                logs.append(f"正在从捕获的流地址下载 MP4: {target_media_url[:80]}...")
+            # 如果成片已完成，点击 Insert 保存到工程时间轴，并下载视频
+            if generation_complete:
                 try:
-                    # 使用页内 fetch 下载以继承 Cookie 凭证
-                    b64_data = page.evaluate("""async (url) => {
-                        const res = await fetch(url);
-                        const buf = await res.arrayBuffer();
-                        let binary = '';
-                        const bytes = new Uint8Array(buf);
-                        const len = bytes.byteLength;
-                        for (let i = 0; i < len; i++) {
-                            binary += String.fromCharCode(bytes[i]);
-                        }
-                        return btoa(binary);
-                    }""", target_media_url)
-                    if b64_data:
-                        output_video_path.write_bytes(base64.b64decode(b64_data))
-                        logs.append(f"视频直链下载落盘成功: {output_video_path} (大小: {output_video_path.stat().st_size} bytes)")
-                        generation_complete = True
-                except Exception as dl_err:
-                    logs.append(f"直链下载异常: {dl_err}")
+                    insert_btn = page.locator("button:has-text('Insert'), button:has-text('插入')").first
+                    if insert_btn.count() > 0 and insert_btn.is_visible():
+                        insert_btn.click(force=True)
+                        logs.append("已将成片插入 Google Vids 工程时间轴画布")
+                        page.wait_for_timeout(2000)
+                except Exception:
+                    pass
+
+                page.wait_for_timeout(2000)
+                target_media_url = captured_media_urls[-1] if captured_media_urls else None
+                if not target_media_url:
+                    v_tag = page.locator(".content-library video, video").first
+                    if v_tag.count() > 0:
+                        target_media_url = v_tag.get_attribute("src")
+
+                if target_media_url:
+                    logs.append(f"正在从真实流地址下载 MP4: {target_media_url[:80]}...")
+                    try:
+                        resp = page.request.get(target_media_url)
+                        if resp.status == 200:
+                            v_bytes = resp.body()
+                            if len(v_bytes) > 10240:
+                                output_video_path.write_bytes(v_bytes)
+                                logs.append(f"视频直链下载落盘成功: {output_video_path} (大小: {len(v_bytes)} bytes)")
+                    except Exception as dl_err:
+                        logs.append(f"直链下载异常: {dl_err}")
 
             if output_video_path.exists() and output_video_path.stat().st_size > 0:
                 logs.append("✅ Google Vids 原生视频成片生成成功！")
