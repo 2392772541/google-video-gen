@@ -411,14 +411,38 @@ class VidsWorker:
                 if target_media_url:
                     logs.append(f"正在从真实流地址下载 MP4: {target_media_url[:80]}...")
                     try:
-                        resp = page.request.get(target_media_url)
-                        if resp.status == 200:
-                            v_bytes = resp.body()
-                            if len(v_bytes) > 10240:
-                                output_video_path.write_bytes(v_bytes)
-                                logs.append(f"视频直链下载落盘成功: {output_video_path} (大小: {len(v_bytes)} bytes)")
+                        if target_media_url.startswith("blob:"):
+                            b64_data = page.evaluate("""async (burl) => {
+                                const res = await fetch(burl);
+                                const buf = await res.arrayBuffer();
+                                let binary = '';
+                                const bytes = new Uint8Array(buf);
+                                for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+                                return btoa(binary);
+                            }""", target_media_url)
+                            if b64_data:
+                                v_bytes = base64.b64decode(b64_data)
+                                if len(v_bytes) > 10240:
+                                    output_video_path.write_bytes(v_bytes)
+                                    logs.append(f"通过 Blob 内存成功导出成片: {output_video_path} (大小: {len(v_bytes)} bytes)")
+                        else:
+                            resp = page.request.get(target_media_url)
+                            if resp.status == 200:
+                                v_bytes = resp.body()
+                                if len(v_bytes) > 10240:
+                                    output_video_path.write_bytes(v_bytes)
+                                    logs.append(f"视频直链下载落盘成功: {output_video_path} (大小: {len(v_bytes)} bytes)")
                     except Exception as dl_err:
-                        logs.append(f"直链下载异常: {dl_err}")
+                        logs.append(f"下载异常: {dl_err}")
+
+            if not output_video_path.exists() or output_video_path.stat().st_size == 0:
+                try:
+                    qa_img = self.output_dir.parent / "qa" / f"{task.id}_timeout.png"
+                    qa_img.parent.mkdir(parents=True, exist_ok=True)
+                    page.screenshot(path=str(qa_img))
+                    logs.append(f"已捕获超时页面快照: {qa_img}")
+                except Exception:
+                    pass
 
             if output_video_path.exists() and output_video_path.stat().st_size > 0:
                 logs.append("✅ Google Vids 原生视频成片生成成功！")
