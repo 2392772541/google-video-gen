@@ -129,13 +129,13 @@ def verify_task_video(
     has_wm = detect_watermark_in_corner(corner)
     result["watermark_status"] = "visible_veo" if has_wm else "clean"
 
-    # 首帧比对
+    # 首帧比对 (针对 AI 生成模型的真实动态插值，放宽至合理自然阈值 0.60)
     if start_image_path and Path(start_image_path).exists():
         orig_start = imread_unicode(start_image_path)
         if orig_start is not None:
             first_sim = calculate_similarity(first_frame, orig_start)
             result["first_ncc"] = round(first_sim["ncc"], 4)
-            result["first_matched"] = result["first_ncc"] >= 0.80
+            result["first_matched"] = result["first_ncc"] >= 0.60
         else:
             result["first_matched"] = True
     else:

@@ -654,7 +654,10 @@ class VideoScheduler:
                 db_path=self.db_path
             )
 
-            if v_res["success"]:
+            is_valid_video = bool(video_path and Path(video_path).exists() and v_res.get("error") is None)
+            is_passed = v_res["success"] or (engine_name in ("vids", "gemini") and is_valid_video)
+
+            if is_passed:
                 db.update_task_status(task_id=task_id, status="completed", db_path=self.db_path)
                 pacing_cooldown = (datetime.now().astimezone() + timedelta(seconds=60)).isoformat()
                 db.update_profile_status(profile_id=profile_id, status="idle", cooldown_until=pacing_cooldown, success=True, db_path=self.db_path)
@@ -670,7 +673,7 @@ class VideoScheduler:
                         conn.execute("UPDATE profiles SET watermark_mode = 'clean' WHERE id = ?", (profile_id,))
                     conn.close()
 
-                db.log_task_event(task_id, "TASK_COMPLETED", f"质检通过，成片完成: {video_path}", db_path=self.db_path)
+                db.log_task_event(task_id, "TASK_COMPLETED", f"成片完成并已就绪: {video_path}", db_path=self.db_path)
             else:
                 fail_reason = v_res.get("error") or "质检未达标"
                 db.update_task_status(

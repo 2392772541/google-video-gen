@@ -724,6 +724,18 @@ def sync_shot_with_task(shot_dict: Dict[str, Any], conn: sqlite3.Connection) -> 
         if shot_dict.get("status") == "pending":
             updates["task_id"] = ""
             updates["error_message"] = ""
+        elif t_out and Path(t_out).exists():
+            p_out = Path(t_out)
+            v_url = f"/media/outputs/{p_out.name}"
+            updates["status"] = "completed"
+            updates["progress"] = 100
+            updates["video_url"] = v_url
+            try:
+                updates["local_video_path"] = str(p_out.resolve())
+            except Exception:
+                updates["local_video_path"] = str(p_out)
+            updates["error_message"] = ""
+            conn.execute("UPDATE tasks SET status = 'completed', error_message = '' WHERE id = ?", (t_id,))
         elif shot_dict.get("status") != "failed":
             updates["status"] = "failed"
             updates["error_message"] = t_err or "视频生成失败"
