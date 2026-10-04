@@ -56,10 +56,35 @@ class VidsWorker:
                 logs.append(f"清理锁文件提示: {e}")
 
     def _dismiss_overlays(self, page, logs: List[str]):
-        """主动关闭 Google Vids 的新手引导浮层、条款弹窗和对话框"""
+        """主动关闭 Google Vids 的新手引导浮层、条款弹窗和对话框，强力穿透 Material 3 遮罩"""
         try:
             page.keyboard.press("Escape")
-            page.wait_for_timeout(500)
+            page.wait_for_timeout(300)
+        except Exception:
+            pass
+
+        # 深度穿透消除 Material 3 和 Google 遮罩浮层，防止 scrim 拦截 pointer events
+        try:
+            removed = page.evaluate("""() => {
+                let count = 0;
+                const btns = document.querySelectorAll(
+                    '[role="dialog"] button, .javascriptMaterialdesignGm3WizDialog-dialog button, .goog-modalpopup button'
+                );
+                for (const b of btns) {
+                    const txt = (b.innerText || b.getAttribute('aria-label') || '').trim();
+                    if (/^(关闭|跳过|知道了|好|完成|Close|Dismiss|Got it|OK|Done|Skip)$/i.test(txt)) {
+                        b.click();
+                        count++;
+                    }
+                }
+                const scrims = document.querySelectorAll(
+                    '.javascriptMaterialdesignGm3WizDialog-dialog__scrim, .goog-modalpopup-bg, .modal-backdrop'
+                );
+                scrims.forEach(s => { s.remove(); count++; });
+                return count;
+            }""")
+            if removed > 0:
+                logs.append(f"穿透清理 Google Vids 遮罩浮层 (处理 {removed} 项)")
         except Exception:
             pass
 
@@ -119,7 +144,6 @@ class VidsWorker:
         try:
             playwright_ctx = sync_playwright().start()
             launch_args = [
-                "--disable-blink-features=AutomationControlled",
                 "--no-sandbox",
                 "--disable-infobars"
             ]
@@ -218,24 +242,31 @@ class VidsWorker:
                     create_tab.click()
                     page.wait_for_timeout(500)
 
-            # 4. 生成设置：分辨率 (1080p / 720p) 与画幅
-            settings_btn = page.locator(".appsDocsAiGenerativeaiVideoUiSidebarWizVideogencreationviewMenubuttonsMenubuttonGenerationSettingsButton").first
-            if settings_btn.count() > 0 and settings_btn.is_visible():
-                logs.append(f"当前生成配置面板: {repr(settings_btn.inner_text())}")
-                settings_btn.click()
-                page.wait_for_timeout(800)
-
-                # 分辨率匹配：如果请求 1080p
-                is_1080p = "1080" in (task.model or "").lower() or (getattr(task, "resolution", "") == "1080p")
-                target_res_text = "1080p" if is_1080p else "720p"
-                res_option = page.locator(f"[role='menuitemradio']:has-text('{target_res_text}')").first
-                if res_option.count() > 0 and res_option.is_visible():
-                    logs.append(f"选择清晰度规格 -> {target_res_text}")
-                    res_option.click()
+            # 4. 生成设置：分辨率 (1080p / 720p) 与画幅 (强化防遮挡容错)
+            self._dismiss_overlays(page, logs)
+            try:
+                settings_btn = page.locator(".appsDocsAiGenerativeaiVideoUiSidebarWizVideogencreationviewMenubuttonsMenubuttonGenerationSettingsButton").first
+                if settings_btn.count() > 0 and settings_btn.is_visible():
+                    logs.append(f"当前生成配置面板: {repr(settings_btn.inner_text())}")
+                    settings_btn.click(force=True, timeout=5000)
                     page.wait_for_timeout(800)
-                else:
-                    # 点击空白处或再点一下关闭设置菜单
-                    settings_btn.click()
+
+                    # 分辨率匹配：如果请求 1080p
+                    is_1080p = "1080" in (task.model or "").lower() or (getattr(task, "resolution", "") == "1080p")
+                    target_res_text = "1080p" if is_1080p else "720p"
+                    res_option = page.locator(f"[role='menuitemradio']:has-text('{target_res_text}')").first
+                    if res_option.count() > 0 and res_option.is_visible():
+                        logs.append(f"选择清晰度规格 -> {target_res_text}")
+                        res_option.click(force=True, timeout=3000)
+                        page.wait_for_timeout(600)
+                    else:
+                        page.keyboard.press("Escape")
+            except Exception as set_err:
+                logs.append(f"画质配置菜单交互容错跳过: {set_err}")
+                try:
+                    page.keyboard.press("Escape")
+                except Exception:
+                    pass
 
             # 5. 填入镜头提示词
             # 展开富文本输入框
@@ -252,13 +283,48 @@ class VidsWorker:
             input_box.fill(task.prompt)
             page.wait_for_timeout(1000)
 
-            # 6. 触发生成
-            gen_btn = page.locator(".collapsiblePromptBoxGenerateButton, button[aria-label='生成'], button[aria-label='Generate']").first
-            if gen_btn.count() == 0 or not gen_btn.is_visible():
-                raise RuntimeError("未定位到 Google Vids 生成按钮")
+            # 6. 触发生成 (强化多模式定位与防阻塞触发)
+            self._dismiss_overlays(page, logs)
+            try:
+                input_box.dispatch_event("input")
+                input_box.dispatch_event("change")
+            except Exception:
+                pass
+            page.wait_for_timeout(500)
+
+            gen_selectors = [
+                ".collapsiblePromptBoxGenerateButton",
+                "button[aria-label*='生成']",
+                "button[aria-label*='Generate']",
+                "button[aria-label*='创建']",
+                "button:has-text('生成')",
+                "button:has-text('Generate')",
+                "[role='button']:has-text('生成')",
+                "[role='button']:has-text('Generate')"
+            ]
+            gen_btn = None
+            for g_sel in gen_selectors:
+                loc = page.locator(g_sel).first
+                if loc.count() > 0 and loc.is_visible():
+                    gen_btn = loc
+                    break
+
+            if not gen_btn:
+                page.wait_for_timeout(2000)
+                for g_sel in gen_selectors:
+                    loc = page.locator(g_sel).first
+                    if loc.count() > 0 and loc.is_visible():
+                        gen_btn = loc
+                        break
+
+            if not gen_btn:
+                raise RuntimeError("未定位到 Google Vids 生成按钮，请检查页面是否展开输入框或已被风控拦截")
 
             logs.append("⚡ 触发 Google Vids 视频生成任务...")
-            gen_btn.click()
+            try:
+                gen_btn.click(force=True, timeout=6000)
+            except Exception:
+                gen_btn.evaluate("el => el.click()")
             page.wait_for_timeout(3000)
 
             # 7. 进度监听与视频提取
@@ -267,20 +333,32 @@ class VidsWorker:
             generation_complete = False
 
             while time.time() - start_poll < self.timeout_sec:
-                # 检查页面是否有错误浮层或提示
+                # 检查页面是否有错误浮层或提示 (精准区分 UNUSUAL_ACTIVITY 与 UI 异常)
                 error_toast = page.locator(".docs-toast, [role='alert']").first
                 if error_toast.count() > 0 and error_toast.is_visible():
                     err_txt = error_toast.inner_text().strip()
-                    if err_txt and any(k in err_txt for k in ["失败", "未能", "error", "failed"]):
-                        logs.append(f"检测到 Google Vids 提示异常: {err_txt}")
-                        return {
-                            "success": False,
-                            "pid": os.getpid(),
-                            "error_code": "VIDS_UI_ERROR",
-                            "error_message": err_txt,
-                            "output_video_path": None,
-                            "logs": "\n".join(logs)
-                        }
+                    if err_txt:
+                        lower_txt = err_txt.lower()
+                        if any(w in lower_txt for w in ["unusual activity", "异常活动"]) or "we noticed some unusual activity" in lower_txt:
+                            logs.append(f"⚠️ Google 检测到异常活动风控: {err_txt}")
+                            return {
+                                "success": False,
+                                "pid": os.getpid(),
+                                "error_code": "UNUSUAL_ACTIVITY",
+                                "error_message": f"Google 检测到异常活动 ({err_txt})，已触发 Profile 冷却避让",
+                                "output_video_path": None,
+                                "logs": "\n".join(logs)
+                            }
+                        if any(k in err_txt for k in ["失败", "未能", "error", "failed"]):
+                            logs.append(f"检测到 Google Vids 提示异常: {err_txt}")
+                            return {
+                                "success": False,
+                                "pid": os.getpid(),
+                                "error_code": "VIDS_UI_ERROR",
+                                "error_message": err_txt,
+                                "output_video_path": None,
+                                "logs": "\n".join(logs)
+                            }
 
                 # 检查进度条是否结束
                 progressbar = page.locator("[role='progressbar']")

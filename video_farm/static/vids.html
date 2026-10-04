@@ -460,6 +460,15 @@
       text-align: center;
       padding: 6px;
     }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    .stage-running-box, .stage-failed-box, .stage-video-box {
+      width: 100%;
+      height: 100%;
+      box-sizing: border-box;
+    }
 
     /* 状态徽章 */
     .shot-status-badge {

@@ -92,8 +92,7 @@ class GeminiWebWorker:
         try:
             with sync_playwright() as p:
                 launch_args = [
-                    "--disable-blink-features=AutomationControlled",
-                    "--no-sandbox"
+                                        "--no-sandbox"
                 ]
                 
                 logs.append("正在拉起 Chrome 浏览器会话...")
@@ -556,8 +555,7 @@ class GeminiWebWorker:
         try:
             with sync_playwright() as p:
                 launch_args = [
-                    "--disable-blink-features=AutomationControlled",
-                    "--no-sandbox"
+                                        "--no-sandbox"
                 ]
                 logs.append("正在拉起 Chrome 浏览器会话...")
                 try:

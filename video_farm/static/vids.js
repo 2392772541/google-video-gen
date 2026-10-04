@@ -390,6 +390,75 @@ async function selectWorkflow(workflowId) {
 
 // 渲染分镜卡片
 // 渲染分镜卡片 (规整紧凑高密度布局，物理限制图片尺寸，彻底消除乱图堆叠)
+function getShotMediaPreviewHtml(shot, index, isDone, isRunning, isFailed, shotRes) {
+  const mode = shot.mode || "text2video";
+  if (isDone && shot.video_url) {
+    const localPathAttr = escapeAttr(shot.local_video_path || "");
+    const downloadName = `Scene${String(shot.scene_index || index + 1).padStart(2, "0")}_${(shot.name || "Shot").replace(/[^a-zA-Z0-9\u4e00-\u9fa5_-]/g, "_")}_${shotRes}.mp4`;
+    return `
+      <div class="stage-video-box" style="display: flex; flex-direction: column; gap: 4px; width: 100%; height: 100%; justify-content: center; position: relative;">
+        <video controls preload="metadata" style="max-width: 100%; max-height: 102px; width: 100%; object-fit: contain; border-radius: 4px; background: #000; border: 1px solid rgba(255,255,255,0.1);" src="${escapeAttr(shot.video_url)}" onerror="this.parentElement.querySelector('.shot-file-spec').innerHTML='<span style=\x22color:#ef4444\x22>⚠️ 视频加载异常，请点击下载或重新渲染</span>';"></video>
+        <div class="shot-file-spec" style="font-size: 10px; color: var(--text-sub); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">正在读取实际文件规格…</div>
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 4px; margin-top: 2px;">
+          <a href="${shot.video_url}" download="${downloadName}" target="_blank" class="btn btn-primary btn-sm" style="font-size: 10px; padding: 2px 6px; text-decoration: none;" title="下载成片到本地">
+            📥 下载
+          </a>
+          <button class="btn btn-secondary btn-sm" style="font-size: 10px; padding: 2px 6px;" onclick="copyLocalVideoPath('${shot.video_url}', this, '${localPathAttr}')" title="复制本地绝对路径，在 Google Vids 中直接粘贴使用">
+            📋 路径
+          </button>
+          <button class="btn btn-secondary btn-sm" style="font-size: 10px; padding: 2px 6px; color: #10b981;" onclick="generateSingleShot('${shot.id}')" title="重新渲染该镜头">
+            🔄 重渲
+          </button>
+        </div>
+        <div style="font-size: 9px; color: #10b981; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+          ✅ Google Vids 原生成片就绪
+        </div>
+      </div>
+    `;
+  } else if (isRunning) {
+    return `
+      <div class="stage-running-box" style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 6px; padding: 8px 12px; background: rgba(59,130,246,0.06); border-radius: 6px; border: 1px dashed rgba(59,130,246,0.3);">
+        <div class="pulse-radar-loader" style="font-size: 22px; animation: spin 2s linear infinite;">⚙️</div>
+        <div style="font-size: 12px; font-weight: 700; color: #60a5fa;">Google Vids 渲染中</div>
+        <div style="width: 100%; background: rgba(255,255,255,0.1); border-radius: 999px; height: 6px; overflow: hidden; position: relative;">
+          <div style="width: ${shot.progress || 15}%; height: 100%; background: linear-gradient(90deg, #3b82f6, #06b6d4); border-radius: 999px; transition: width 0.3s;"></div>
+        </div>
+        <div style="font-size: 10px; color: var(--text-sub); display: flex; justify-content: space-between; width: 100%;">
+          <span>进度: ${shot.progress || 10}%</span>
+          <span>云端渲染同步中</span>
+        </div>
+      </div>
+    `;
+  } else if (isFailed) {
+    const errBrief = (shot.error_message || "视频生成遇到异常").slice(0, 48);
+    return `
+      <div class="stage-failed-box" style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 4px; padding: 8px 10px; background: rgba(239,68,68,0.08); border-radius: 6px; border: 1px dashed rgba(239,68,68,0.35);">
+        <div style="font-size: 20px;">⚠️</div>
+        <div style="font-size: 11px; font-weight: 700; color: #f87171; text-align: center;">渲染未完成</div>
+        <div style="font-size: 10px; color: #fca5a5; text-align: center; line-height: 1.2; max-height: 32px; overflow: hidden; text-overflow: ellipsis;" title="${escapeAttr(shot.error_message || "")}">
+          ${escapeHtml(errBrief)}
+        </div>
+        <button class="btn btn-primary btn-sm" style="font-size: 11px; padding: 3px 12px; background: #dc2626; border-color: #ef4444; margin-top: 4px;" onclick="generateSingleShot('${shot.id}')" title="清空错误并重新下发干净任务">
+          🔄 重新生成此镜头
+        </button>
+      </div>
+    `;
+  } else {
+    return `
+      <div class="stage-waiting-box" style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 4px;">
+        <div style="font-size: 20px; opacity: 0.6;">🎬</div>
+        <div style="font-size: 12px; font-weight: 600; color: var(--text-main);">等待镜头成片</div>
+        <div style="font-size: 10px; color: var(--text-muted); line-height: 1.2;">
+          ${mode === "first_last_frame" ? "首尾帧过渡 · 1080p 原生插值" : (mode === "image2video" ? "单图参考生成" : "纯提示词渲染")}
+        </div>
+        <button class="btn btn-primary btn-sm" style="margin-top: 4px; font-size: 10px; padding: 2px 12px;" onclick="generateSingleShot('${shot.id}')">
+          ⚡ 单独渲染
+        </button>
+      </div>
+    `;
+  }
+}
+
 function renderShots(shots) {
   const container = document.getElementById('shots-cards-container');
   if (!container) return;
@@ -507,44 +576,10 @@ function renderShots(shots) {
       `;
     }
 
-    // 右列：监视器舞台 (已成片放播放器；未成片放干净等待展台，彻底清除重复大图)
-    let mediaPreview = '';
-    if (shot.video_url) {
-      const localPathAttr = escapeAttr(shot.local_video_path || '');
-      const downloadName = `Scene${String(shot.scene_index || index + 1).padStart(2, '0')}_${(shot.name || 'Shot').replace(/[^a-zA-Z0-9\u4e00-\u9fa5_-]/g, '_')}_${shotRes}.mp4`;
-      mediaPreview = `
-        <div style="display: flex; flex-direction: column; gap: 6px; width: 100%; height: 100%; justify-content: center;">
-          <video controls preload="metadata" src="${escapeAttr(shot.video_url)}"></video>
-          <div class="shot-file-spec">正在读取实际文件规格…</div>
-          <div style="display: flex; justify-content: space-between; align-items: center; gap: 4px; margin-top: 2px;">
-            <a href="${shot.video_url}" download="${downloadName}" target="_blank" class="btn btn-primary btn-sm" style="font-size: 10px; padding: 2px 8px; text-decoration: none;">
-              下载成片
-            </a>
-            <button class="btn btn-secondary btn-sm" style="font-size: 10px; padding: 2px 6px;" onclick="copyLocalVideoPath('${shot.video_url}', this, '${localPathAttr}')" title="复制本地绝对路径，在 Google Vids 场景中直接粘贴">
-              复制路径
-            </button>
-          </div>
-          <div style="font-size: 10px; color: #10b981; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-            本机成片 · 点击播放检查
-          </div>
-        </div>
-      `;
-    } else {
-      mediaPreview = `
-        <div class="stage-waiting-box">
-          <div style="font-size: 20px; opacity: 0.6;">🎬</div>
-          <div style="font-size: 12px; font-weight: 600; color: var(--text-main);">等待镜头成片</div>
-          <div style="font-size: 10px; color: var(--text-muted); line-height: 1.2;">
-            ${mode === 'first_last_frame' ? '首尾帧过渡 · 以上游结果为准' : '按提示词生成'}
-          </div>
-          <button class="btn btn-primary btn-sm" style="margin-top: 2px; font-size: 10px; padding: 2px 10px;" onclick="generateSingleShot('${shot.id}')">
-            ⚡ 单独渲染
-          </button>
-        </div>
-      `;
-    }
+    // 右列：监视器与交付舞台 (状态化原生回显)
+    const mediaPreview = getShotMediaPreviewHtml(shot, index, isDone, isRunning, isFailed, shotRes);
 
-    card.innerHTML = `
+card.innerHTML = `
       <div class="shot-card-header">
         <div class="shot-header-left">
           <span class="shot-seq-badge">#${index + 1} 场景 ${shot.scene_index || index + 1}</span>
@@ -555,6 +590,8 @@ function renderShots(shots) {
         </div>
         <div class="shot-header-actions">
           <div class="shot-status-badge-wrap">${statusBadge}</div>
+          ${isFailed ? `<button class="btn btn-secondary btn-sm" style="height: 22px; padding: 0 6px; font-size: 10px; color: #f87171; border-color: rgba(239,68,68,0.4);" onclick="generateSingleShot('${shot.id}')" title="重试该镜头">🔄 重试</button>` : ''}
+          ${isDone ? `<button class="btn btn-secondary btn-sm" style="height: 22px; padding: 0 6px; font-size: 10px; color: #10b981;" onclick="generateSingleShot('${shot.id}')" title="重新渲染该镜头">🔄 重渲</button>` : ''}
           <button class="btn btn-secondary btn-sm" style="height: 22px; padding: 0 5px;" onclick="moveShot('${shot.id}', 'up')" title="上移" aria-label="上移镜头">↑</button>
           <button class="btn btn-secondary btn-sm" style="height: 22px; padding: 0 5px;" onclick="moveShot('${shot.id}', 'down')" title="下移" aria-label="下移镜头">↓</button>
           <button class="btn btn-danger btn-sm" style="height: 22px; padding: 0 5px;" onclick="deleteShot('${shot.id}')" title="删除" aria-label="删除镜头">×</button>
@@ -1008,43 +1045,43 @@ function syncShotsDOM(shots) {
       progressText.textContent = `${shot.progress || 0}%`;
     }
 
-    // 4. 同步媒体回显（核心：视频就绪时立即原地挂载播放器与释放内存提示）
+    // 4. 同步媒体回显（统一调用 getShotMediaPreviewHtml，状态机驱动）
     const previewBox = card.querySelector(`#shot-media-preview-${shot.id}`);
     if (previewBox) {
-      const existingVideo = previewBox.querySelector('video');
-      const currentVideoSrc = existingVideo ? (existingVideo.getAttribute('src') || '') : '';
-      const targetVideoUrl = shot.video_url || '';
+      const currentBoxState = previewBox.dataset.state || "";
+      const targetState = isDone && shot.video_url ? "done" : (isRunning ? "running" : (isFailed ? "failed" : "pending"));
+      const existingVideo = previewBox.querySelector("video");
+      const currentVideoSrc = existingVideo ? (existingVideo.getAttribute("src") || "") : "";
+      const targetVideoUrl = shot.video_url || "";
 
-      if (targetVideoUrl) {
-        if (!existingVideo || currentVideoSrc !== targetVideoUrl) {
-          const localPathAttr = escapeAttr(shot.local_video_path || '');
-          previewBox.innerHTML = `
-            <div class="shot-preview-container">
-              <video controls preload="metadata" src="${escapeAttr(targetVideoUrl)}" style="width: 100%; border-radius: 8px; max-height: 240px; background: #000; box-shadow: 0 4px 12px rgba(0,0,0,0.4);"></video>
-              <div class="shot-file-spec">正在读取实际文件规格…</div>
-              <div style="margin-top: 8px; display: flex; flex-direction: column; gap: 6px;">
-                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px;">
-                  <a href="${targetVideoUrl}" target="_blank" download class="btn btn-sm btn-primary" style="font-size: 11px; padding: 4px 10px; text-decoration: none; font-weight: 600;">
-                    下载 MP4
-                  </a>
-                  <button class="btn btn-sm btn-secondary" style="font-size: 11px; padding: 4px 10px; font-weight: 600;" onclick="copyLocalVideoPath('${targetVideoUrl}', this, '${localPathAttr}')" title="复制本地绝对路径，在 Google Vids 插入/选择视频窗口中直接粘贴">
-                    复制路径
-                  </button>
-                </div>
-                <div style="font-size: 11px; color: #10b981; background: rgba(16,185,129,0.1); border: 1px solid rgba(16,185,129,0.25); border-radius: 6px; padding: 5px 8px; display: flex; align-items: center; justify-content: space-between;">
-                  <span>本机成片已就绪 · 实际规格请播放检查</span>
-                  <span style="font-size: 10px; color: var(--text-muted);">可直接拖入或粘贴至 Google Vids 场景 ${shot.scene_index || index + 1}</span>
-                </div>
-              </div>
-            </div>
-          `;
-          appendLog(`分镜 [${shot.name || shot.id}] 本机成片已就绪；规格以实际文件为准。`, 'success');
+      if (currentBoxState !== targetState || (targetState === "done" && currentVideoSrc !== targetVideoUrl)) {
+        previewBox.dataset.state = targetState;
+        previewBox.innerHTML = getShotMediaPreviewHtml(shot, index, isDone, isRunning, isFailed, shotRes);
+        if (targetState === "done") {
+          appendLog(`分镜 [${shot.name || shot.id}] 成片已就绪！`, "success");
         }
-      } else {
-        if (existingVideo) {
-          renderShots(shots);
-          return;
-        }
+      } else if (targetState === "running") {
+        const pFill = previewBox.querySelector(".stage-running-box div div");
+        if (pFill) pFill.style.width = `${shot.progress || 15}%`;
+        const pTxt = previewBox.querySelector(".stage-running-box div span:first-child");
+        if (pTxt) pTxt.textContent = `进度: ${shot.progress || 10}%`;
+      }
+    }
+
+    // 头部重试按钮同步
+    const headerActions = card.querySelector(".shot-header-actions");
+    if (headerActions) {
+      const oldRetryBtn = headerActions.querySelector(".btn-dynamic-retry");
+      if (isFailed && !oldRetryBtn) {
+        const btn = document.createElement("button");
+        btn.className = "btn btn-secondary btn-sm btn-dynamic-retry";
+        btn.style.cssText = "height: 22px; padding: 0 6px; font-size: 10px; color: #f87171; border-color: rgba(239,68,68,0.4);";
+        btn.title = "重试该镜头";
+        btn.textContent = "🔄 重试";
+        btn.onclick = () => generateSingleShot(shot.id);
+        headerActions.insertBefore(btn, headerActions.children[1] || null);
+      } else if (!isFailed && oldRetryBtn) {
+        oldRetryBtn.remove();
       }
     }
 

@@ -637,10 +637,21 @@ def _enqueue_shot_task(shot: Dict[str, Any], wf: Dict[str, Any]) -> str:
         f"Google Vids 任务下发: [{shot.get('name')}] (所属工程: {wf.get('title')}), 模型: {final_model}, 画质: {shot_res}, 时长: {duration_sec}s"
     )
     
+    old_task_id = shot.get("task_id")
+    if old_task_id:
+        try:
+            old_task = db.get_task(old_task_id)
+            if old_task and old_task.status in ("queued", "running", "retry_wait"):
+                db.update_task_status(old_task_id, status="cancelled", error_message="用户重新下发分镜生成，取消旧排队任务")
+        except Exception:
+            pass
+
     db.update_vids_shot(shot["id"], {
         "task_id": task_id,
         "status": "running",
         "progress": 5,
+        "video_url": "",
+        "local_video_path": "",
         "error_message": ""
     })
     

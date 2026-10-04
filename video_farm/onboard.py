@@ -39,8 +39,7 @@ def auto_onboard_profile(profile_name: str, create_default_project: bool = True)
     try:
         with sync_playwright() as pw:
             launch_args = [
-                "--disable-blink-features=AutomationControlled",
-                "--no-sandbox"
+                                "--no-sandbox"
             ]
             browser = pw.chromium.launch_persistent_context(
                 user_data_dir=str(profile_dir.resolve()),

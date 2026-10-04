@@ -45,7 +45,6 @@ def heal_profile_flow_ui(profile_name: str, project_id: Optional[str] = None) ->
                 user_data_dir=str(profile_dir),
                 channel="chrome",
                 headless=True,
-                args=["--disable-blink-features=AutomationControlled", "--no-sandbox"]
             )
             page = browser.pages[0] if browser.pages else browser.new_page()
             try:
