@@ -191,11 +191,23 @@ class VidsWorker:
             page.goto(target_url, timeout=45000, wait_until="domcontentloaded")
             page.wait_for_timeout(4000)
 
-            # 检查是否有权限访问该文档，如果 Access Denied，则自愈创建新文档
+            # 检查是否有权限访问该文档，如果 Access Denied / 访问遭拒，则自愈创建新文档
             page_title = page.title()
             logs.append(f"Google Vids 页面标题: {page_title}")
-            if "Access Denied" in page_title or "无法访问" in page_title or "权限" in page_title:
-                logs.append("⚠️ 当前账号无权访问指定外链工程，自动自愈创建专属 Google Vids 新工程...")
+            is_access_denied = any(kw.lower() in page_title.lower() for kw in [
+                "access denied", "无法访问", "权限", "遭拒", "拒绝", "需要访问权限", "请求访问权限", "无权访问", "error", "403"
+            ]) or any(kw in page.url.lower() for kw in ["requestaccess", "servicelogin", "accessdenied"])
+
+            if not is_access_denied:
+                try:
+                    req_btn = page.locator("button:has-text('请求访问权限'), [aria-label*='请求访问权限'], button:has-text('Request access')").first
+                    if req_btn.count() > 0 and req_btn.is_visible():
+                        is_access_denied = True
+                except Exception:
+                    pass
+
+            if is_access_denied:
+                logs.append("⚠️ 当前账号无权访问指定外链工程 (如「访问遭拒」)，自动自愈创建专属 Google Vids 新工程...")
                 page.goto("https://docs.google.com/videos/create", timeout=45000, wait_until="domcontentloaded")
                 page.wait_for_timeout(4000)
                 logs.append(f"自愈新工程就绪，URL: {page.url}")
@@ -214,7 +226,15 @@ class VidsWorker:
             ai_entry_btn = page.locator(", ".join(ai_selectors)).first
             if ai_entry_btn.count() == 0:
                 logs.append("等待 AI 视频入口元素渲染...")
-                ai_entry_btn.wait_for(state="attached", timeout=30000)
+                try:
+                    ai_entry_btn.wait_for(state="attached", timeout=12000)
+                except Exception:
+                    logs.append("⚠️ 12秒内未检测到 AI 入口，尝试自愈导航至 https://docs.google.com/videos/create ...")
+                    page.goto("https://docs.google.com/videos/create", timeout=45000, wait_until="domcontentloaded")
+                    page.wait_for_timeout(4000)
+                    self._dismiss_overlays(page, logs)
+                    ai_entry_btn = page.locator(", ".join(ai_selectors)).first
+                    ai_entry_btn.wait_for(state="attached", timeout=20000)
 
             logs.append("点击「AI 视频」工具栏按钮展开面板...")
             try:
