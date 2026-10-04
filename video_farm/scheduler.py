@@ -332,7 +332,19 @@ class VideoScheduler:
             elif engine_name == "gemini":
                 exec_res = self.gemini_worker.execute_task(task, profile)
             elif engine_name == "vids":
-                exec_res = self.vids_worker.execute_task(task, profile)
+                try:
+                    import importlib
+                    from . import vids_worker as vids_mod
+                    importlib.reload(vids_mod)
+                    worker = vids_mod.VidsWorker(
+                        output_dir=self.output_dir,
+                        timeout_sec=self.vids_worker.timeout_sec,
+                        headless=self.vids_worker.headless,
+                        mock_sample_video=self.vids_worker.mock_sample_video
+                    )
+                    exec_res = worker.execute_task(task, profile)
+                except Exception:
+                    exec_res = self.vids_worker.execute_task(task, profile)
             else:
                 exec_res = self.flow_worker.execute_task(task, profile)
 
