@@ -176,7 +176,8 @@ class TimelineSpec(BaseModel):
     @classmethod
     def from_job_spec(cls, data: Dict[str, Any]) -> TimelineSpec:
         """从声明式 Video Job Spec 反序列化还原，全面兼容简版与标准版"""
-        d = dict(data)
+        from copy import deepcopy
+        d = deepcopy(data)
         if not d.get("project_id"):
             d["project_id"] = f"proj_{int(time.time())}"
         tracks = d.get("tracks")

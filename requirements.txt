@@ -8,6 +8,7 @@ uvicorn[standard]>=0.30.0
 python-multipart>=0.0.9
 aiofiles>=24.1.0
 requests>=2.31.0
+psutil>=5.9.0
 
 # 数据验证与数据规范
 pydantic>=2.7.0

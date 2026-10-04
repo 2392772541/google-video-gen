@@ -4,6 +4,10 @@ Google Vids Workflow & Continuous Generation API Router
 """
 from __future__ import annotations
 import os
+import re
+import tempfile
+from starlette.background import BackgroundTask
+from .local_security import local_file, media_type
 import uuid
 import json
 from typing import Optional, List, Dict, Any
@@ -80,7 +84,8 @@ def build_semantic_shot_filename(shot: Dict[str, Any], wf: Optional[Dict[str, An
 
 
 
-UPLOADS_VIDS_DIR = Path("video_farm_data/uploads/vids")
+DATA_ROOT = Path(__file__).resolve().parent.parent / "video_farm_data"
+UPLOADS_VIDS_DIR = DATA_ROOT / "uploads/vids"
 UPLOADS_VIDS_DIR.mkdir(parents=True, exist_ok=True)
 
 
@@ -343,12 +348,26 @@ async def upload_asset(file: UploadFile = File(...)):
     orig_name = file.filename or "image.png"
     ext = Path(orig_name).suffix.lower()
     if ext not in (".png", ".jpg", ".jpeg", ".webp", ".gif"):
-        ext = ".png"
+        raise HTTPException(400, "仅支持 PNG/JPEG/WebP/GIF 图片")
     file_id = f"vids_{uuid.uuid4().hex[:12]}{ext}"
     dest_path = UPLOADS_VIDS_DIR / file_id
-    content = await file.read()
-    with open(dest_path, "wb") as f:
-        f.write(content)
+    size = 0
+    try:
+        with open(dest_path, "wb") as f:
+            while chunk := await file.read(1024 * 1024):
+                size += len(chunk)
+                if size > 32 * 1024 * 1024:
+                    raise HTTPException(413, "图片不能超过 32 MiB")
+                f.write(chunk)
+        from PIL import Image
+        with Image.open(dest_path) as img:
+            img.verify()
+    except Exception as exc:
+        dest_path.unlink(missing_ok=True)
+        if isinstance(exc, HTTPException): raise
+        raise HTTPException(400, "上传文件不是有效图片")
+    finally:
+        await file.close()
     
     return {
         "success": True,
@@ -363,12 +382,9 @@ def get_vids_asset(filename: str):
     """获取上传的资产图片"""
     safe_name = Path(filename).name
     p = (UPLOADS_VIDS_DIR / safe_name).resolve()
-    if not p.exists() or UPLOADS_VIDS_DIR.resolve() not in p.parents:
+    if not p.is_file() or UPLOADS_VIDS_DIR.resolve() not in p.parents:
         raise HTTPException(status_code=404, detail="资产未找到")
-    media_type = "image/png" if p.suffix.lower() in (".png",) else "image/jpeg"
-    if p.suffix.lower() == ".webp":
-        media_type = "image/webp"
-    return FileResponse(str(p), media_type=media_type)
+    return FileResponse(str(p), media_type=media_type(p))
 
 
 @router.get("/workflows")
@@ -586,29 +602,10 @@ def _enqueue_shot_task(shot: Dict[str, Any], wf: Dict[str, Any]) -> str:
     shot_model = (shot.get("model_name") or wf.get("model_name") or "Omni").strip()
     shot_res = (shot.get("resolution") or wf.get("resolution") or "1080p").strip()
     
-    # 核心映射逻辑：
-    # 1. 首尾帧插值：底层 flow 官方约束只支持 veo-quality (1080p) 与 veo-lite (720p)，标准时长为 8s
-    if is_first_last:
-        if shot_res == "720p":
-            final_model = "veo-lite"
-            duration_sec = 8
-        else:
-            final_model = "veo-quality"
-            duration_sec = 8
-    else:
-        # 单图/图生视频或文生视频
-        if shot_model.lower() in ("omni", "omni-flash"):
-            final_model = "omni-flash"
-            duration_sec = shot.get("duration") or 5
-        elif shot_res == "1080p" or shot_model.lower() in ("veo", "veo-quality"):
-            final_model = "veo-quality"
-            duration_sec = 8
-        elif shot_model.lower() in ("veo-lite", "veolite"):
-            final_model = "veo-lite"
-            duration_sec = 8
-        else:
-            final_model = "veo-lite"
-            duration_sec = 8
+    # Google Vids 原生模型与画质规格
+    # Google Vids 官方统一采用 Omni 多模态引擎，支持 1080p (超清) 与 720p (标清)
+    final_model = f"Omni ({shot_res})" if shot_res in ("1080p", "720p") else "Omni (1080p)"
+    duration_sec = shot.get("duration") or wf.get("duration") or 10
 
     aspect_ratio = wf.get("aspect_ratio") or "16:9"
     if aspect_ratio not in ("16:9", "9:16"):
@@ -621,9 +618,10 @@ def _enqueue_shot_task(shot: Dict[str, Any], wf: Dict[str, Any]) -> str:
         prompt=shot.get("prompt", "").strip(),
         start_image_path=start_path if (is_first_last or mode in ("image2video", "extend") or start_path) else "",
         end_image_path=end_path if is_first_last else "",
-        engine="flow",
+        engine="vids",
         task_type="video",
         model=final_model,
+        project_id=wf.get("doc_url", ""),
         aspect_ratio=aspect_ratio,
         duration_sec=duration_sec,
         status="queued",
@@ -765,7 +763,7 @@ def download_shot_video(shot_id: str):
         v_url = shot.get("video_url") or ""
         if "/media/outputs/" in v_url:
             fname = v_url.split("/media/outputs/")[-1].split("?")[0]
-            cand = Path("video_farm_data/outputs") / fname
+            cand = DATA_ROOT / "outputs" / Path(fname).name
             if cand.exists() and cand.is_file():
                 video_path = cand
         elif v_url.startswith("/") or ":" in v_url:
@@ -776,6 +774,7 @@ def download_shot_video(shot_id: str):
     if not video_path or not video_path.exists():
         raise HTTPException(status_code=404, detail="成片视频文件尚未生成或不存在")
         
+    video_path = local_file(str(video_path))
     filename = build_semantic_shot_filename(shot, wf, ext=video_path.suffix or ".mp4")
     quoted_filename = urllib.parse.quote(filename)
     
@@ -805,12 +804,12 @@ def package_workflow_zip(workflow_id: str):
         local_p = s.get("local_video_path")
         v_path = None
         if local_p and Path(local_p).exists() and Path(local_p).is_file():
-            v_path = Path(local_p)
+            v_path = local_file(local_p)
         elif s.get("video_url"):
             v_url = s.get("video_url")
             if "/media/outputs/" in v_url:
                 fname = v_url.split("/media/outputs/")[-1].split("?")[0]
-                cand = Path("video_farm_data/outputs") / fname
+                cand = DATA_ROOT / "outputs" / Path(fname).name
                 if cand.exists() and cand.is_file():
                     v_path = cand
         if v_path and v_path.exists():
@@ -819,67 +818,75 @@ def package_workflow_zip(workflow_id: str):
     if not completed_shots:
         raise HTTPException(status_code=400, detail="当前工程暂无可打包的已完成视频成片")
         
-    zip_buffer = io.BytesIO()
-    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-        manifest_lines = [
-            "==================================================",
-            "  Google Vids 连续生成工程剪辑素材与台词对齐表",
-            "==================================================",
-            f"工程名称: {wf.get('title', '')}",
-            f"画质规格: {wf.get('resolution', '1080p')} · {wf.get('aspect_ratio', '16:9')}",
-            f"默认模型: {wf.get('model_name', 'Omni')} / Google Veo",
-            f"导出时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-            f"包含镜头: 共 {len(completed_shots)} / {len(shots)} 段成片",
-            "--------------------------------------------------\n",
-            "【剪辑软件导入使用指南】",
-            "1. 所有视频文件已按 [01, 02...] 时间线顺序规范命名，可直接批量拖入剪映 / PR / Final Cut / Google Vids 轨道。",
-            "2. 下方清单清晰标注了每个视频对应的「场景Scene」、「旁白台词」、「提示词核心」与建议时长。",
-            "3. 剪映用户建议：将所有视频拖入视频轨，将下方台词复制到剪映「文本朗读」或直接作为字幕轨道对齐。\n",
-            "--------------------------------------------------\n"
-        ]
-        
-        csv_rows = [
-            ["序号", "分镜ID", "分镜名称", "场景号", "规范文件名", "时长(秒)", "运镜模式", "画质", "旁白台词", "画面提示词"]
-        ]
-        
-        for shot, v_path in completed_shots:
-            fn = build_semantic_shot_filename(shot, wf, ext=v_path.suffix or ".mp4")
-            zf.write(str(v_path), arcname=f"videos/{fn}")
+    export_dir = DATA_ROOT / "exports"
+    export_dir.mkdir(parents=True, exist_ok=True)
+    fd, temp_name = tempfile.mkstemp(prefix="vids_package_", suffix=".zip", dir=export_dir)
+    os.close(fd)
+    zip_path = Path(temp_name)
+    try:
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_STORED) as zf:
+            manifest_lines = [
+                "==================================================",
+                "  Google Vids 连续生成工程剪辑素材与台词对齐表",
+                "==================================================",
+                f"工程名称: {wf.get('title', '')}",
+                f"画质规格: {wf.get('resolution', '1080p')} · {wf.get('aspect_ratio', '16:9')}",
+                f"默认模型: {wf.get('model_name', 'Omni')} / Google Veo",
+                f"导出时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                f"包含镜头: 共 {len(completed_shots)} / {len(shots)} 段成片",
+                "--------------------------------------------------\n",
+                "【剪辑软件导入使用指南】",
+                "1. 所有视频文件已按 [01, 02...] 时间线顺序规范命名，可直接批量拖入剪映 / PR / Final Cut / Google Vids 轨道。",
+                "2. 下方清单清晰标注了每个视频对应的「场景Scene」、「旁白台词」、「提示词核心」与建议时长。",
+                "3. 剪映用户建议：将所有视频拖入视频轨，将下方台词复制到剪映「文本朗读」或直接作为字幕轨道对齐。\n",
+                "--------------------------------------------------\n"
+            ]
             
-            seq = shot.get("sequence", 1)
-            scene = shot.get("scene_index", seq)
-            name = shot.get("name", f"镜头 {seq}")
-            dur = shot.get("duration", 8)
-            mode = shot.get("mode", "text2video")
-            narr = shot.get("narration", "")
-            prompt = shot.get("prompt", "")
+            csv_rows = [
+                ["序号", "分镜ID", "分镜名称", "场景号", "规范文件名", "时长(秒)", "运镜模式", "画质", "旁白台词", "画面提示词"]
+            ]
             
-            manifest_lines.append(f"【镜头 {seq:02d}】{name}")
-            manifest_lines.append(f"  - 对应场景: Scene {scene}")
-            manifest_lines.append(f"  - 素材文件: videos/{fn}")
-            manifest_lines.append(f"  - 视频时长: {dur} 秒 | 运镜模式: {mode}")
-            manifest_lines.append(f"  - 旁白台词: {narr if narr else '(无台词)'}")
-            manifest_lines.append(f"  - 视觉提示: {prompt}\n")
+            for shot, v_path in completed_shots:
+                fn = build_semantic_shot_filename(shot, wf, ext=v_path.suffix or ".mp4")
+                zf.write(str(v_path), arcname=f"videos/{fn}")
+
+                seq = shot.get("sequence", 1)
+                scene = shot.get("scene_index", seq)
+                name = shot.get("name", f"镜头 {seq}")
+                dur = shot.get("duration", 8)
+                mode = shot.get("mode", "text2video")
+                narr = shot.get("narration", "")
+                prompt = shot.get("prompt", "")
+
+                manifest_lines.append(f"【镜头 {seq:02d}】{name}")
+                manifest_lines.append(f"  - 对应场景: Scene {scene}")
+                manifest_lines.append(f"  - 素材文件: videos/{fn}")
+                manifest_lines.append(f"  - 视频时长: {dur} 秒 | 运镜模式: {mode}")
+                manifest_lines.append(f"  - 旁白台词: {narr if narr else '(无台词)'}")
+                manifest_lines.append(f"  - 视觉提示: {prompt}\n")
+
+                csv_rows.append([
+                    str(seq), str(shot.get("id", "")), name, str(scene), fn, str(dur), mode, str(shot.get("resolution", "1080p")), narr, prompt
+                ])
+
+            txt_content = "\n".join(manifest_lines)
+            zf.writestr("00_剪辑分镜与台词对齐表.txt", txt_content.encode("utf-8-sig"))
             
-            csv_rows.append([
-                str(seq), str(shot.get("id", "")), name, str(scene), fn, str(dur), mode, str(shot.get("resolution", "1080p")), narr, prompt
-            ])
+            csv_buffer = io.StringIO()
+            csv_writer = csv.writer(csv_buffer)
+            # Spreadsheet text must not execute formula prefixes when opened in Excel.
+            csv_writer.writerows([["'"+v if isinstance(v,str) and v.lstrip().startswith(("=","+","-","@")) else v for v in row] for row in csv_rows])
+            zf.writestr("00_剪辑分镜与台词对齐表.csv", csv_buffer.getvalue().encode("utf-8-sig"))
             
-        txt_content = "\n".join(manifest_lines)
-        zf.writestr("00_剪辑分镜与台词对齐表.txt", txt_content.encode("utf-8-sig"))
-        
-        csv_buffer = io.StringIO()
-        csv_writer = csv.writer(csv_buffer)
-        csv_writer.writerows(csv_rows)
-        zf.writestr("00_剪辑分镜与台词对齐表.csv", csv_buffer.getvalue().encode("utf-8-sig"))
-        
-        clean_wf_backup = {k: v for k, v in wf.items() if k != "shots"}
-        clean_wf_backup["shots"] = [
-            {k: v for k, v in s.items()} for s in shots
-        ]
-        zf.writestr("project_workflow.json", json.dumps(clean_wf_backup, ensure_ascii=False, indent=2).encode("utf-8"))
-        
-    zip_buffer.seek(0)
+            clean_wf_backup = {k: v for k, v in wf.items() if k != "shots"}
+            clean_wf_backup["shots"] = [
+                {k: v for k, v in s.items()} for s in shots
+            ]
+            zf.writestr("project_workflow.json", json.dumps(clean_wf_backup, ensure_ascii=False, indent=2).encode("utf-8"))
+
+    except Exception:
+        zip_path.unlink(missing_ok=True)
+        raise
     safe_wf_title = sanitize_filename_part(wf.get("title") or "Vids_Project", 20)
     date_str = datetime.now().strftime("%Y%m%d_%H%M%S")
     zip_name = f"{safe_wf_title}_剪辑素材包_{date_str}.zip"
@@ -889,11 +896,8 @@ def package_workflow_zip(workflow_id: str):
         'Content-Disposition': f'attachment; filename="{quoted_zip_name}"; filename*=UTF-8\'\'{quoted_zip_name}',
         "Access-Control-Expose-Headers": "Content-Disposition"
     }
-    return Response(
-        content=zip_buffer.getvalue(),
-        media_type="application/zip",
-        headers=headers
-    )
+    return FileResponse(str(zip_path), media_type="application/zip", headers=headers,
+                        background=BackgroundTask(zip_path.unlink, missing_ok=True))
 
 
 @router.put("/workflows/{workflow_id}/rename")

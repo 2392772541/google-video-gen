@@ -17,6 +17,8 @@ import uuid
 import shutil
 import asyncio
 import threading
+from copy import deepcopy
+from concurrent.futures import ThreadPoolExecutor
 import subprocess
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Callable, Union
@@ -53,7 +55,7 @@ def get_media_duration(file_path: Path | str) -> float:
         file_path
     ]
     try:
-        res = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        res = _run_media_process(cmd, capture_output=True, text=True, check=True)
         return float(res.stdout.strip())
     except Exception:
         return 0.0
@@ -68,13 +70,19 @@ class PipelineJobManager:
     def create_job(self, job_type: str, params: Dict[str, Any]) -> str:
         job_id = f"job_{int(time.time())}_{uuid.uuid4().hex[:6]}"
         with self._lock:
+            output = params.get("output_path")
+            if output and any(j["status"] in ("queued", "running") and j["params"].get("output_path") and Path(j["params"]["output_path"]).resolve() == Path(output).resolve() for j in self._jobs.values()):
+                raise PipelineCapacityError("同一输出路径已有流水线作业，避免覆盖，请稍后重试")
+            terminal = sorted((j for j in self._jobs.values() if j["status"] in ("completed","failed")), key=lambda j:j["created_at"])
+            for old in terminal[:max(0, len(self._jobs)-99)]:
+                del self._jobs[old["id"]]
             self._jobs[job_id] = {
                 "id": job_id,
                 "type": job_type,
-                "status": "running",
+                "status": "queued",
                 "progress": 0,
                 "step": "初始化",
-                "message": "任务已创建，正在准备工作目录...",
+                "message": "已排队；本地流水线最多同时运行一个作业",
                 "logs": [],
                 "created_at": time.time(),
                 "completed_at": None,
@@ -91,12 +99,14 @@ class PipelineJobManager:
                 job["step"] = step
                 job["progress"] = progress
                 job["message"] = message
+                job["status"] = "running"
                 job["logs"].append({
                     "time": time.strftime("%H:%M:%S"),
                     "step": step,
                     "progress": progress,
                     "message": message
                 })
+                del job["logs"][:-200]
 
     def complete_job(self, job_id: str, output_video: str):
         with self._lock:
@@ -121,14 +131,55 @@ class PipelineJobManager:
 
     def get_job(self, job_id: str) -> Optional[Dict[str, Any]]:
         with self._lock:
-            return self._jobs.get(job_id)
+            return deepcopy(self._jobs.get(job_id))
 
     def list_jobs(self) -> List[Dict[str, Any]]:
         with self._lock:
-            return list(self._jobs.values())
+            return deepcopy(list(self._jobs.values()))
 
 
 PIPELINE_MANAGER = PipelineJobManager()
+PIPELINE_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="TimelineEngine")
+PIPELINE_SLOTS = threading.BoundedSemaphore(4)  # one running + three queued
+
+class PipelineCapacityError(RuntimeError):
+    pass
+
+class PipelineInputError(ValueError):
+    pass
+
+def validate_pipeline_spec(spec):
+    import re
+    if spec.project_id and not re.fullmatch(r"[\w-]{1,100}", spec.project_id):
+        raise PipelineInputError("项目ID仅允许字母、数字、下划线和连字符")
+    if len(spec.resolution)!=2 or any(n<32 or n>4096 or n%2 for n in spec.resolution) or math.prod(spec.resolution)>8847360:
+        raise PipelineInputError("分辨率必须为32至4096的偶数宽高，且不超过4K像素数")
+    shots=spec.tracks.video_track
+    if not 1<=len(shots)<=128 or not 1<=spec.fps<=60:
+        raise PipelineInputError("镜头数限1至128，帧率限1至60")
+    ids=set()
+    for shot in shots:
+        if not re.fullmatch(r"[\w-]{1,100}",shot.id) or shot.id in ids:
+            raise PipelineInputError("镜头ID必须唯一且不包含路径字符")
+        ids.add(shot.id)
+        if not math.isfinite(shot.duration) or not 0<shot.duration<=600:
+            raise PipelineInputError("每镜时长必须大于0且不超过600秒")
+    if sum(s.duration for s in shots)>1800:
+        raise PipelineInputError("单次流水线总时长不超过30分钟")
+    if spec.output_master_path:
+        value=spec.output_master_path
+        if value.startswith(("\\\\","//")) or "://" in value or Path(value).suffix.lower()!=".mp4":
+            raise PipelineInputError("流水线输出必须是本地MP4路径")
+
+def _run_media_process(cmd, **kwargs):
+    """Bound FFmpeg thread use and subprocess duration; never accumulate open renders."""
+    cmd = list(cmd)
+    if Path(str(cmd[0])).stem.lower() == "ffmpeg":
+        cmd[1:1] = ["-threads", "2", "-filter_threads", "2", "-filter_complex_threads", "2"]
+        cmd[-1:-1] = ["-threads", "2"]
+    kwargs.setdefault("timeout", 1200 if Path(str(cmd[0])).stem.lower() == "ffmpeg" else 30)
+    return subprocess.run(cmd, **kwargs)
+
 
 def extract_tail_anchor_frame(
     video_path: Union[str, Path],
@@ -194,13 +245,13 @@ def extract_tail_anchor_frame(
                 "-q:v", "2",
                 str(out_img_path)
             ]
-            subprocess.run(cmd, capture_output=True)
+            _run_media_process(cmd, capture_output=True)
         except Exception:
             pass
 
     if not out_img_path.exists():
         # 终极保底：第 0 帧
-        subprocess.run([
+        _run_media_process([
             "ffmpeg", "-y", "-i", str(vpath), "-vframes", "1", "-q:v", "2", str(out_img_path)
         ], capture_output=True, check=True)
 
@@ -233,6 +284,15 @@ class TimelineEngine:
             self.log("音频分支", 20, "检测到配音轨道未启用：采用无配音模式，跳过语音合成。")
             return shot_durations
 
+        if vt.source == "imported_audio":
+            if not vt.imported_audio_path or not Path(vt.imported_audio_path).is_file():
+                raise FileNotFoundError("导入配音文件不存在")
+            self.log("音频分支", 25, "使用导入配音，不调用在线TTS")
+            return shot_durations
+        if vt.source == "none":
+            return shot_durations
+        if edge_tts is None:
+            raise RuntimeError("配音已启用，但未安装edge_tts；不输出缺失配音的假成功母片")
         self.log("音频分支", 25, f"正在生成各镜头配音 (音色: {vt.voice_name}, 语速: {vt.rate})...")
         for idx, shot in enumerate(spec.tracks.video_track):
             text = (shot.voice_text or "").strip()
@@ -274,7 +334,7 @@ class TimelineEngine:
                     "-c:v", "libx264", "-pix_fmt", "yuv420p", "-an", "-preset", "ultrafast",
                     str(out_clip)
                 ]
-                subprocess.run(cmd, capture_output=True, check=True)
+                _run_media_process(cmd, capture_output=True, check=True)
                 return out_clip
 
         # 分支 2：静态高精微运镜 (Ken Burns)
@@ -355,17 +415,20 @@ class TimelineEngine:
                 "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "ultrafast",
                 str(out_clip)
             ]
-            subprocess.run(cmd, capture_output=True, check=True)
+            _run_media_process(cmd, capture_output=True, check=True)
             return out_clip
 
-        # 兜底：纯黑占位
+        # Do not label missing visual assets as a completed all-black production.
+        if shot.visual.provider != "black":
+            raise FileNotFoundError(f"镜头 {shot.id} 无可用图片或视频；纯黑画面需显式设置provider=black")
+        self.log("显式占位", 45, f"镜头 {shot.id} 使用显式纯黑占位")
         cmd = [
             "ffmpeg", "-y",
             "-f", "lavfi", "-i", f"color=c=black:s={w}x{h}:d={dur_sec:.3f}:r={fps}",
             "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "ultrafast",
             str(out_clip)
         ]
-        subprocess.run(cmd, capture_output=True, check=True)
+        _run_media_process(cmd, capture_output=True, check=True)
         return out_clip
 
     def build_ass_subtitles(self, spec: TimelineSpec, timeline: List[Dict[str, Any]], output_ass: Path):
@@ -483,7 +546,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
         # 5. 音频装配
         full_vo_file = None
-        if spec.tracks.voice_track.enabled:
+        if spec.tracks.voice_track.enabled and spec.tracks.voice_track.source == "imported_audio":
+            full_vo_file = Path(spec.tracks.voice_track.imported_audio_path)
+        if spec.tracks.voice_track.enabled and spec.tracks.voice_track.source == "edge_tts":
             vo_files = []
             for shot in spec.tracks.video_track:
                 vf = self.audio_dir / f"voice_{shot.id}.mp3"
@@ -496,7 +561,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 with open(concat_list_txt, "w", encoding="utf-8") as f:
                     for vf in vo_files:
                         f.write(f"file '{vf.resolve()}'\n")
-                subprocess.run([
+                _run_media_process([
                     "ffmpeg", "-y", "-f", "concat", "-safe", "0",
                     "-i", str(concat_list_txt),
                     "-c", "copy", str(full_vo_file)
@@ -525,17 +590,21 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
         # 场景 A：有配音 + 有背景音乐（双轨 Ducking 避让混音）
         if full_vo_file and has_bgm:
-            duck_vol = spec.tracks.bgm_track.ducking_volume
+            norm_vol = spec.tracks.bgm_track.normal_volume
+            mixing = (f"[1:a]volume=1.2,apad,asplit=2[vo][side];[2:a]volume={norm_vol}[bg];"
+                      "[bg][side]sidechaincompress=threshold=0.05:ratio=8:attack=30:release=300[duck];"
+                      f"[duck]afade=t=out:st={fade_out_start:.2f}:d={spec.tracks.bgm_track.fade_out_seconds}[bgm];"
+                      "[vo][bgm]amix=inputs=2:duration=longest:dropout_transition=2[aout]") if spec.tracks.bgm_track.ducking else (
+                      f"[1:a]volume=1.2,apad[vo];[2:a]volume={norm_vol},afade=t=out:st={fade_out_start:.2f}:d={spec.tracks.bgm_track.fade_out_seconds}[bgm];"
+                      "[vo][bgm]amix=inputs=2:duration=longest:dropout_transition=2[aout]")
             cmd = [
                 "ffmpeg", "-y",
                 "-f", "concat", "-safe", "0", "-i", str(concat_txt),
                 "-i", str(full_vo_file),
-                "-i", str(bgm_p),
+                "-stream_loop", "-1", "-i", str(bgm_p),
                 "-filter_complex",
                 (f"[0:v]ass='{ass_esc}'[v];" if ass_esc else "[0:v]copy[v];") +
-                f"[1:a]volume=1.2[vo];"
-                f"[2:a]volume={duck_vol},afade=t=out:st={fade_out_start:.2f}:d={spec.tracks.bgm_track.fade_out_seconds}[bgm];"
-                f"[vo][bgm]amix=inputs=2:duration=first:dropout_transition=2[aout]",
+                mixing,
                 "-map", "[v]", "-map", "[aout]",
                 "-c:v", "libx264", "-pix_fmt", "yuv420p", "-b:v", "9000k", "-preset", "fast",
                 "-c:a", "aac", "-b:a", "320k", "-ar", "48000",
@@ -548,7 +617,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             cmd = [
                 "ffmpeg", "-y",
                 "-f", "concat", "-safe", "0", "-i", str(concat_txt),
-                "-i", str(bgm_p),
+                "-stream_loop", "-1", "-i", str(bgm_p),
                 "-filter_complex",
                 (f"[0:v]ass='{ass_esc}'[v];" if ass_esc else "[0:v]copy[v];") +
                 f"[1:a]volume={norm_vol},afade=t=out:st={fade_out_start:.2f}:d={spec.tracks.bgm_track.fade_out_seconds}[aout]",
@@ -566,7 +635,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 "-i", str(full_vo_file),
                 "-filter_complex",
                 f"[0:v]ass='{ass_esc}'[vout]" if ass_esc else "[0:v]copy[vout]",
-                "-map", "[vout]", "-map", "1:a",
+                "-map", "[vout]", "-map", "1:a", "-af", "apad",
                 "-c:v", "libx264", "-pix_fmt", "yuv420p", "-b:v", "9000k", "-preset", "fast",
                 "-c:a", "aac", "-b:a", "320k", "-ar", "48000",
                 "-t", f"{total_duration:.3f}",
@@ -586,7 +655,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 str(output_file)
             ]
 
-        subprocess.run(cmd, capture_output=True, check=True)
+        _run_media_process(cmd, capture_output=True, check=True)
         elapsed = time.time() - t0
         self.log("母片完成", 100, f"成片就绪: {output_file.name} (耗时 {elapsed:.1f} 秒)")
         return output_file
@@ -599,20 +668,34 @@ def start_timeline_pipeline_async(
     work_dir: str | Path
 ) -> str:
     """以 TimelineSpec 启动后台通用流水线作业，返回 job_id"""
-    job_id = PIPELINE_MANAGER.create_job("timeline", {
+    validate_pipeline_spec(spec)
+    import psutil
+    if psutil.virtual_memory().available < 2 * 1024**3:
+        raise PipelineCapacityError("可用内存不足 2 GiB，请稍后提交")
+    if not PIPELINE_SLOTS.acquire(blocking=False):
+        raise PipelineCapacityError("流水线队列已满（最多 4 个作业），请稍后提交")
+    try:
+        spec = deepcopy(spec)
+        job_id = PIPELINE_MANAGER.create_job("timeline", {
         "project_name": spec.project_name,
         "num_shots": len(spec.tracks.video_track),
         "has_voice": spec.tracks.voice_track.enabled,
         "has_bgm": spec.tracks.bgm_track.enabled,
         "has_subtitles": spec.tracks.subtitle_track.enabled,
-        "output_path": str(spec.output_master_path or "")
-    })
+            "output_path": str(spec.output_master_path or "")
+        })
+    except Exception:
+        PIPELINE_SLOTS.release()
+        raise
 
     def _worker():
         try:
             def _cb(step, pct, msg):
                 PIPELINE_MANAGER.update_job(job_id, step, pct, msg)
 
+            if psutil.virtual_memory().available < 2 * 1024**3:
+                raise PipelineCapacityError("执行前可用内存不足，作业已安全终止；请释放内存后重试")
+            _cb("准备", 0, "开始执行；FFmpeg 限制为 2 个线程")
             engine = TimelineEngine(work_dir, progress_callback=_cb)
             out_file = engine.execute(spec)
             PIPELINE_MANAGER.complete_job(job_id, str(out_file))
@@ -621,8 +704,15 @@ def start_timeline_pipeline_async(
             err = f"{e}\n{traceback.format_exc()}"
             PIPELINE_MANAGER.fail_job(job_id, err)
 
-    t = threading.Thread(target=_worker, daemon=True, name=f"TimelineEngine-{job_id}")
-    t.start()
+        finally:
+            PIPELINE_SLOTS.release()
+
+    try:
+        PIPELINE_EXECUTOR.submit(_worker)
+    except Exception as e:
+        PIPELINE_MANAGER.fail_job(job_id, str(e))
+        PIPELINE_SLOTS.release()
+        raise
     return job_id
 
 

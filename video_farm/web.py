@@ -19,9 +19,9 @@ from typing import Optional, List, Dict, Any
 
 import uvicorn
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query, Body, Request
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response as FastAPIResponse
+from .local_security import LocalBrowserBoundary, local_file, media_type
 from pydantic import BaseModel
 
 from . import db
@@ -154,13 +154,17 @@ mgr = SchedulerManager()
 
 app = FastAPI(title="Video Farm Control Studio", version="1.0.0")
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app.add_middleware(LocalBrowserBoundary)
+
+from .pipeline import PipelineCapacityError, PipelineInputError, validate_pipeline_spec
+
+@app.exception_handler(PipelineInputError)
+async def pipeline_input_error(request, exc):
+    return JSONResponse(status_code=422, content={"detail": str(exc)})
+
+@app.exception_handler(PipelineCapacityError)
+async def pipeline_capacity_error(request, exc):
+    return JSONResponse(status_code=429, content={"detail":str(exc)})
 
 @app.on_event("startup")
 def on_startup():
@@ -175,7 +179,7 @@ def on_shutdown():
 @app.get("/api/overview")
 def get_overview():
     profiles = db.list_profiles(DB_PATH)
-    tasks = db.list_tasks(limit=500, db_path=DB_PATH)
+    task_stats = db.task_statistics(DB_PATH)
     
     prof_stats = {
         "total": len(profiles),
@@ -186,15 +190,6 @@ def get_overview():
         "restricted": sum(1 for p in profiles if p.status == "restricted"),
         "forced_visible_count": sum(1 for p in profiles if p.watermark_mode == "forced_visible"),
         "clean_count": sum(1 for p in profiles if p.watermark_mode == "clean")
-    }
-    
-    task_stats = {
-        "total": len(tasks),
-        "queued": sum(1 for t in tasks if t.status in ("queued", "retry_wait")),
-        "running": sum(1 for t in tasks if t.status in ("dispatching", "running", "verifying")),
-        "completed": sum(1 for t in tasks if t.status == "completed"),
-        "failed": sum(1 for t in tasks if t.status == "failed"),
-        "cancelled": sum(1 for t in tasks if t.status == "cancelled")
     }
     
     fleet_cooldown_sec = 0
@@ -615,8 +610,9 @@ def _resolve_image_url(path_str: str, task_id: str, kind: str) -> Optional[str]:
 
 
 @app.get("/api/tasks")
-def get_tasks(status: Optional[str] = None, limit: int = 100):
-    tasks = db.list_tasks(status=status, limit=limit, db_path=DB_PATH)
+def get_tasks(response: FastAPIResponse, status: Optional[str] = None, limit: int = Query(100, ge=1, le=500), offset: int = Query(0, ge=0)):
+    tasks = db.list_tasks(status=status, limit=limit, db_path=DB_PATH, offset=offset)
+    response.headers["X-Total-Count"] = str(db.task_statistics(DB_PATH, status)["total"])
     res = []
     for t in tasks:
         # Human status mapping
@@ -674,6 +670,7 @@ def get_tasks(status: Optional[str] = None, limit: int = 100):
             "start_time": t.start_time,
             "finish_time": t.finish_time,
             "has_video": has_video,
+            "output_video_path": t.output_video_path,
             "video_url": f"/media/outputs/{video_filename}" if video_filename else None,
             "first_frame_url": first_frame_url,
             "last_frame_url": last_frame_url,
@@ -696,7 +693,12 @@ class BatchTasksReq(BaseModel):
 
 @app.delete("/api/tasks/{task_id}")
 def delete_single_task(task_id: str):
-    res = db.delete_task(task_id, delete_files=True, db_path=DB_PATH)
+    try:
+        res = db.delete_task(task_id, delete_files=True, db_path=DB_PATH)
+    except db.TaskOperationConflict as e:
+        raise HTTPException(409, str(e))
+    except OSError as e:
+        raise HTTPException(409, "产物隔离失败，任务保留: " + str(e))
     if not res.get("deleted"):
         raise HTTPException(status_code=404, detail="Task未找到或已删除")
     return res
@@ -843,6 +845,8 @@ def download_single_task(task_id: str):
     if not file_path or not file_path.is_file():
         raise HTTPException(status_code=404, detail="该任务尚未生成完成或产物文件不存在")
         
+    file_path = local_file(str(file_path))
+    media_type = __import__("mimetypes").guess_type(str(file_path))[0] or "application/octet-stream"
     filename = format_ordered_filename(t, ext=ext)
     encoded_filename = urllib.parse.quote(filename)
     
@@ -891,7 +895,7 @@ def batch_download_tasks_zip(req: Optional[BatchTasksReq] = None, task_ids: Opti
             except Exception:
                 pass
         if p and p.is_file():
-            tasks_to_pack.append((t, p))
+            tasks_to_pack.append((t, local_file(str(p))))
             
     if not tasks_to_pack:
         raise HTTPException(status_code=400, detail="选中的任务中没有已完成可下载的媒体成片")
@@ -904,7 +908,7 @@ def batch_download_tasks_zip(req: Optional[BatchTasksReq] = None, task_ids: Opti
     temp_zip.close()
     
     try:
-        with zipfile.ZipFile(temp_zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        with zipfile.ZipFile(temp_zip_path, "w", zipfile.ZIP_STORED) as zf:
             for idx, (t, p) in enumerate(tasks_to_pack, 1):
                 arc_name = format_ordered_filename(t, index=idx, ext=p.suffix)
                 zf.write(p, arcname=arc_name)
@@ -1335,40 +1339,21 @@ async def create_batch_tasks(request: Request):
 
 @app.post("/api/tasks/{task_id}/retry")
 def retry_task(task_id: str):
-    t = db.get_task(task_id, DB_PATH)
-    if not t:
-        raise HTTPException(status_code=404, detail="Task未找到")
-    
-    conn = db.get_db_connection(DB_PATH)
     try:
-        with conn:
-            conn.execute("""
-            UPDATE tasks
-            SET status = 'queued', retry_count = 0, error_code = NULL, error_message = NULL, updated_at = ?
-            WHERE id = ?
-            """, (time.strftime("%Y-%m-%dT%H:%M:%S%z"), task_id))
-    finally:
-        conn.close()
-        
-    db.log_task_event(task_id, "MANUAL_RETRY", "用户通过Web控制台手动触发重试", db_path=DB_PATH)
-    return {"id": task_id, "status": "queued"}
+        return db.transition_task(task_id, "retry", DB_PATH)
+    except KeyError:
+        raise HTTPException(404, "Task未找到")
+    except db.TaskOperationConflict as e:
+        raise HTTPException(409, str(e))
 
 @app.post("/api/tasks/{task_id}/cancel")
 def cancel_task(task_id: str):
-    t = db.get_task(task_id, DB_PATH)
-    if not t:
-        raise HTTPException(status_code=404, detail="Task未找到")
-    
-    conn = db.get_db_connection(DB_PATH)
     try:
-        with conn:
-            conn.execute("UPDATE tasks SET status = 'cancelled', updated_at = ? WHERE id = ?",
-                         (time.strftime("%Y-%m-%dT%H:%M:%S%z"), task_id))
-    finally:
-        conn.close()
-        
-    db.log_task_event(task_id, "MANUAL_CANCEL", "用户通过Web控制台手动取消任务", db_path=DB_PATH)
-    return {"id": task_id, "status": "cancelled"}
+        return db.transition_task(task_id, "cancel", DB_PATH)
+    except KeyError:
+        raise HTTPException(404, "Task未找到")
+    except db.TaskOperationConflict as e:
+        raise HTTPException(409, str(e))
 
 
 class OpenFolderReq(BaseModel):
@@ -1377,6 +1362,8 @@ class OpenFolderReq(BaseModel):
 
 @app.post("/api/system/open-folder")
 def open_system_folder(req: OpenFolderReq):
+    if req.task_id and (Path(req.task_id).name != req.task_id or any(c in req.task_id for c in "/\\:") or req.task_id in (".","..")):
+        raise HTTPException(400, "非法任务ID")
     target_path = OUTPUTS_DIR
     if req.target == "qa":
         target_path = QA_DIR
@@ -1866,7 +1853,10 @@ def api_pipeline_job_spec_export(req: SmartPipelineReq):
 
 @app.post("/api/pipeline/timeline/run")
 def api_pipeline_timeline_run(spec: TimelineSpec):
-    work_dir = DATA_DIR / f"pipeline_{spec.project_id}"
+    validate_pipeline_spec(spec)
+    if not spec.project_id:
+        spec.project_id = "proj_" + uuid.uuid4().hex[:12]
+    work_dir = DATA_DIR / f"pipeline_{spec.project_id}_{uuid.uuid4().hex[:8]}"
     work_dir.mkdir(parents=True, exist_ok=True)
     if not spec.output_master_path:
         out_dir = OUTPUTS_DIR / "pipeline_masters"
@@ -1900,14 +1890,14 @@ def api_pipeline_download(job_id: Optional[str] = None, path: Optional[str] = No
             target_path = Path(job["output_video"]).resolve()
             filename = target_path.name
     elif path:
-        p = Path(path).resolve()
-        if p.exists() and p.is_file():
+        p = local_file(path, downloads=True, managed_root=DATA_DIR)
+        if p.is_file():
             target_path = p
             filename = target_path.name
 
-    if not target_path or not target_path.exists():
+    if not target_path or not target_path.is_file():
         raise HTTPException(status_code=404, detail="下载文件不存在")
-    return FileResponse(str(target_path), filename=filename, media_type="application/octet-stream")
+    return FileResponse(str(target_path), filename=filename, media_type=media_type(target_path))
 
 @app.get("/api/pipeline/video/{job_id}")
 def api_serve_pipeline_video(job_id: str):
@@ -1922,85 +1912,34 @@ def api_serve_pipeline_video(job_id: str):
 @app.get("/media/outputs/{filename}")
 def serve_output_file(filename: str):
     p = (OUTPUTS_DIR / filename).resolve()
-    if not p.exists() or OUTPUTS_DIR not in p.parents:
+    if not p.is_file() or OUTPUTS_DIR.resolve() not in p.parents:
         raise HTTPException(status_code=404, detail="文件未找到")
-    if p.suffix.lower() == ".mp4":
-        return FileResponse(str(p), media_type="video/mp4")
-    elif p.suffix.lower() in (".png", ".jpg", ".jpeg", ".webp"):
-        return FileResponse(str(p), media_type="image/png")
-    return FileResponse(str(p), media_type="application/octet-stream")
+    return FileResponse(str(p), media_type=media_type(p))
 
 @app.get("/media/qa/{task_id}/{filename}")
 def serve_qa_file(task_id: str, filename: str):
     p = (QA_DIR / task_id / filename).resolve()
-    if not p.exists() or QA_DIR not in p.parents:
+    if not p.is_file() or QA_DIR.resolve() not in p.parents:
         raise HTTPException(status_code=404, detail="质检切片未找到")
-    media_type = "image/png" if p.suffix == ".png" else "application/octet-stream"
-    return FileResponse(str(p), media_type=media_type)
+    return FileResponse(str(p), media_type=media_type(p))
 
 @app.get("/media/uploads/{task_id}/{filename}")
 def serve_upload_file(task_id: str, filename: str):
     p = (UPLOADS_DIR / task_id / filename).resolve()
-    if not p.exists() or UPLOADS_DIR not in p.parents:
+    if not p.is_file() or UPLOADS_DIR.resolve() not in p.parents:
         raise HTTPException(status_code=404, detail="上传素材未找到")
-    media_type = "image/png" if p.suffix in (".png", ".jpg", ".jpeg", ".webp") else "application/octet-stream"
-    return FileResponse(str(p), media_type=media_type)
+    return FileResponse(str(p), media_type=media_type(p))
 
 @app.get("/api/pipeline/file-preview")
 def api_pipeline_file_preview(path: str = Query(...)):
-    p = Path(path).resolve()
-    if not p.exists() or not p.is_file():
-        raise HTTPException(status_code=404, detail="文件不存在")
-    ext = p.suffix.lower()
-    allowed = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".mp4", ".mp3", ".wav"}
-    if ext not in allowed:
-        raise HTTPException(status_code=400, detail="不支持此类型文件回显预览")
-    media_type = "image/png"
-    if ext in (".jpg", ".jpeg"):
-        media_type = "image/jpeg"
-    elif ext == ".webp":
-        media_type = "image/webp"
-    elif ext == ".gif":
-        media_type = "image/gif"
-    elif ext == ".mp4":
-        media_type = "video/mp4"
-    elif ext in (".mp3", ".wav"):
-        media_type = "audio/mpeg"
-    return FileResponse(str(p), media_type=media_type)
+    p = local_file(path)
+    return FileResponse(str(p), media_type=media_type(p))
 
 @app.get("/media/file")
 def serve_arbitrary_local_file(path: str = Query(...)):
-    import urllib.parse
-    cleaned = urllib.parse.unquote(path).strip().strip('"\'')
-    if cleaned.startswith("file:///"):
-        cleaned = cleaned[8:]
-    elif cleaned.startswith("file://"):
-        cleaned = cleaned[7:]
-    
-    p = Path(cleaned).resolve()
-    if not p.exists() or not p.is_file():
-        # 尝试原样解析
-        p_raw = Path(path).resolve()
-        if p_raw.exists() and p_raw.is_file():
-            p = p_raw
-        else:
-            raise HTTPException(status_code=404, detail=f"文件不存在: {cleaned}")
-            
-    ext = p.suffix.lower()
-    allowed = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".mp4", ".mp3", ".wav"}
-    if ext not in allowed:
-        if not (BASE_DIR in p.parents or p == BASE_DIR or DATA_DIR in p.parents):
-            raise HTTPException(status_code=403, detail="禁止跨工作区访问未受控文件")
-    media_type = "application/octet-stream"
-    if ext in (".png", ".webp", ".bmp"):
-        media_type = "image/png"
-    elif ext in (".jpg", ".jpeg"):
-        media_type = "image/jpeg"
-    elif ext == ".mp4":
-        media_type = "video/mp4"
-    elif ext == ".gif":
-        media_type = "image/gif"
-    return FileResponse(str(p), media_type=media_type)
+    p = local_file(path)
+    return FileResponse(str(p), media_type=media_type(p))
+
 
 from .vids_router import router as vids_router
 app.include_router(vids_router)

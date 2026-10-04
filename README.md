@@ -173,6 +173,28 @@ python -m video_farm.web --port 8088
 ## 🛡️ 安全与风控合规守则
 
 1. **独立用户目录**：每个账号拥有完全独立的 Profile 路径，绝对不共用本地缓存，不与用户日常主力 Chrome 冲突。
-2. **物理单并发限制**：同一个 Chrome Profile 同时仅允许执行一个生成任务，防止并发导致 Google 封号。
+2. **物理单并发限制**：同一个 Chrome Profile 同时仅允许执行一个生成任务，避免同一 Profile 的并发操作冲突；不保证账号不会被上游限制。
 3. **不触碰灰色机制**：不做代理池 IP 伪造、不做指纹虚标欺骗，遵循真实浏览器正常交互逻辑。
 4. **Git 敏感资产保护**：`.gitignore` 默认已排除全部运行时数据目录 `video_farm_data/`、数据库 `*.db`、生成视频 `*.mp4` 以及任何可能包含 Session 的 `*profile*` 目录。
+
+
+## 2026-10-02 本地维护与验收补充
+
+- 服务保持单入口 `http://127.0.0.1:8088/`。Host/同源校验用于降低浏览器跨站请求和 DNS rebinding 风险，**不是完整的用户身份鉴权**；不要把此服务直接暴露到公网或不可信局域网，不要绕过校验反向代理发布。
+- 主任务列表使用 `limit` / `offset` 分页，`limit` 最大 500；响应仍为数组，总数见 `X-Total-Count`。概览是全库统计，分类与批量勾选仅限当前页。
+- 正在执行的任务不允许删除。普通删除会隔离未共享的管理目录产物并保存恢复清单，保留输入素材、外部文件和共享产物；不要自行清空 `video_farm_data/trash/`。
+- 只读巡检（在项目根目录运行）：
+  ```powershell
+  & 'E:\app\Miniconda\python.exe' -m video_farm.maintenance --output '.\qa_output\maintenance-latest.json'
+  ```
+- 隔离恢复先预览，再决定是否应用；将下例路径替换成真实删除清单路径，不要凭空创建清单：
+  ```powershell
+  & 'E:\app\Miniconda\python.exe' -m video_farm.maintenance --restore '<真实 manifest.json 的绝对路径>'
+  # 阅读预览，确认没有覆盖和路径冲突后，才使用：
+  & 'E:\app\Miniconda\python.exe' -m video_farm.maintenance --restore '<真实 manifest.json 的绝对路径>' --apply
+  ```
+  恢复不会覆盖现有任务/文件；等待中的任务恢复为取消状态，需明确重试才会继续生成。建议先暂停提交新任务并确认没有执行中的任务。
+- Timeline/Pipeline 本地合成使用 1 个 worker，最多接收 4 个未完成作业（含执行中作业），检查至少 2GiB 可用内存，FFmpeg 解码/滤镜/输出各限制为 2 线程。**这些不是整个系统所有 Chrome/FFmpeg 任务的全局资源限额**；大规模生产仍需观察内存、磁盘和其他任务。
+- 缺少素材、外部 TTS 依赖或不可兼容的上游请求应明确报错，不能把黑屏文件或可点击按钮作为成功证据。模型、账号登录、额度、上游网页/API 是否可用，必须通过相应真实任务验收。
+- 不要因为根目录出现空数据库文件就删除数据库；当前任务库路径可由只读巡检输出核实。不要用旧备份直接覆盖新数据。
+- 本轮完整审查、验收证据及回滚说明见 `qa_output/system-audit-20261002-205008/`。历史快照中的数量和运行 PID 不代表未来状态。

@@ -5,7 +5,7 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime
 from .models import Task, Profile
 
-DEFAULT_DB_PATH = Path("video_farm_data/tasks.db")
+DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent / "video_farm_data/tasks.db"
 
 def get_db_connection(db_path: Path = DEFAULT_DB_PATH) -> sqlite3.Connection:
     conn = sqlite3.connect(str(db_path), timeout=30.0)
@@ -453,19 +453,19 @@ def get_task_by_id(task_id: str, db_path: Path = DEFAULT_DB_PATH) -> Optional[Ta
     finally:
         conn.close()
 
-def list_tasks(status: Optional[str] = None, limit: int = 100, db_path: Path = DEFAULT_DB_PATH) -> List[Task]:
+def list_tasks(status: Optional[str] = None, limit: int = 100, db_path: Path = DEFAULT_DB_PATH, offset: int = 0) -> List[Task]:
     conn = get_db_connection(db_path)
     try:
         with conn:
             if status:
                 rows = conn.execute(
-                    "SELECT * FROM tasks WHERE status = ? ORDER BY submit_time DESC LIMIT ?",
-                    (status, limit)
+                    "SELECT * FROM tasks WHERE status = ? ORDER BY submit_time DESC, id DESC LIMIT ? OFFSET ?",
+                    (status, limit, offset)
                 ).fetchall()
             else:
                 rows = conn.execute(
-                    "SELECT * FROM tasks ORDER BY submit_time DESC LIMIT ?",
-                    (limit,)
+                    "SELECT * FROM tasks ORDER BY submit_time DESC, id DESC LIMIT ? OFFSET ?",
+                    (limit, offset)
                 ).fetchall()
             return [row_to_task(r) for r in rows]
     finally:
@@ -868,88 +868,146 @@ def delete_vids_shot(shot_id: str, db_path: Path = DEFAULT_DB_PATH):
 
 
 def delete_task(task_id: str, delete_files: bool = True, db_path: Path = DEFAULT_DB_PATH) -> Dict[str, Any]:
-    import json
-    import shutil
+    """Remove a terminal/queued record; quarantine only unshared managed outputs.
+
+    Original inputs and external files are never deleted. A manifest contains the
+    full record and events. File failures roll back both moves and SQL changes.
+    """
+    import json, shutil, uuid
+    if not task_id or Path(task_id).name != task_id or task_id in (".", "..") or any(c in task_id for c in "/\\:"):
+        raise TaskOperationConflict("非法任务ID")
+    root = Path(db_path).resolve().parent
     conn = get_db_connection(db_path)
-    removed_files: List[str] = []
-    task = None
+    moved, skipped = [], []
+    trash = root / "trash" / (task_id + "_" + uuid.uuid4().hex[:12])
+    committed = False
     try:
         with conn:
-            row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
-            if row:
-                task = row_to_task(row)
-                
-            if task and delete_files:
-                # 1. 关联成片视频文件
-                if task.output_video_path:
-                    try:
-                        v_p = Path(task.output_video_path)
-                        if v_p.is_file():
-                            v_p.unlink(missing_ok=True)
-                            removed_files.append(str(v_p))
-                    except Exception:
-                        pass
-                        
-                # 2. 关联生图产物
-                if getattr(task, "output_image_paths", None):
-                    try:
-                        imgs = json.loads(task.output_image_paths) if isinstance(task.output_image_paths, str) else task.output_image_paths
-                        if isinstance(imgs, list):
-                            for img in imgs:
-                                ip = Path(img)
-                                if ip.is_file():
-                                    ip.unlink(missing_ok=True)
-                                    removed_files.append(str(ip))
-                    except Exception:
-                        pass
-                        
-                # 3. 关联质检切片目录 (qa/{task_id})
-                base_dir = db_path.parent.parent
-                qa_dir = base_dir / "video_farm_data" / "qa" / task_id
-                if qa_dir.is_dir():
-                    try:
-                        shutil.rmtree(qa_dir, ignore_errors=True)
-                        removed_files.append(str(qa_dir))
-                    except Exception:
-                        pass
-                        
-                # 4. 关联上传素材目录 (uploads/{task_id})
-                uploads_dir = base_dir / "video_farm_data" / "uploads" / task_id
-                if uploads_dir.is_dir():
-                    try:
-                        shutil.rmtree(uploads_dir, ignore_errors=True)
-                        removed_files.append(str(uploads_dir))
-                    except Exception:
-                        pass
-
-            # 数据库记录清除与解绑
-            conn.execute("DELETE FROM task_events WHERE task_id = ?", (task_id,))
-            conn.execute("UPDATE vids_shots SET task_id = NULL, status = 'planned' WHERE task_id = ?", (task_id,))
-            conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
-            
-        return {
-            "id": task_id,
-            "deleted": bool(task),
-            "removed_files": removed_files
-        }
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute("SELECT * FROM tasks WHERE id=?", (task_id,)).fetchone()
+            if row is None:
+                return {"id":task_id, "deleted":False, "removed_files":[]}
+            if row["status"] in ("dispatching", "running", "verifying"):
+                raise TaskOperationConflict("运行中任务不能删除，请等待生成与质检结束")
+            record = dict(row)
+            others = [dict(r) for r in conn.execute("SELECT * FROM tasks WHERE id<>?", (task_id,))]
+            shots = [dict(r) for r in conn.execute("SELECT * FROM vids_shots")]
+            # Conservative matching also protects workflow URLs and image references.
+            reference_text = json.dumps(others + shots, ensure_ascii=False).replace("\\\\", "/").lower()
+            candidates = []
+            for field in ("output_video_path", "output_audio_path"):
+                if record.get(field): candidates.append(Path(record[field]).resolve())
+            if record.get("output_image_paths"):
+                try:
+                    images = json.loads(record["output_image_paths"])
+                    if isinstance(images, list): candidates.extend(Path(i).resolve() for i in images if isinstance(i,str))
+                except (ValueError, TypeError):
+                    skipped.append({"path":record["output_image_paths"], "reason":"invalid image list; retained"})
+            qa = (root / "qa" / task_id).resolve()
+            if qa.is_relative_to(root / "qa") and qa.is_dir():
+                candidates.extend(f.resolve() for f in qa.rglob("*") if f.is_file())
+            if delete_files:
+                for source in dict.fromkeys(candidates):
+                    if not source.is_file(): continue
+                    managed = any(source.is_relative_to((root / d).resolve()) for d in ("outputs", "qa"))
+                    if not managed:
+                        skipped.append({"path":str(source), "reason":"external/original file retained"}); continue
+                    if source.as_posix().lower() in reference_text or source.name.lower() in reference_text:
+                        skipped.append({"path":str(source), "reason":"referenced by another task/workflow; retained"}); continue
+                    target = trash / "files" / source.relative_to(root)
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.move(str(source), str(target))
+                    moved.append({"source":str(source), "target":str(target)})
+            events = [dict(r) for r in conn.execute("SELECT * FROM task_events WHERE task_id=?",(task_id,))]
+            trash.mkdir(parents=True, exist_ok=True)
+            manifest = {"task":record,"events":events,"linked_shots":[r for r in shots if r.get("task_id")==task_id], "moved_files":moved,"skipped_files":skipped,"original_uploads_retained":True}
+            (trash / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+            conn.execute("DELETE FROM task_events WHERE task_id=?", (task_id,))
+            conn.execute("UPDATE vids_shots SET task_id=NULL, status='planned' WHERE task_id=?", (task_id,))
+            conn.execute("DELETE FROM tasks WHERE id=?", (task_id,))
+        committed = True
+        return {"id":task_id,"deleted":True,"removed_files":[m["source"] for m in moved],"skipped_files":skipped,"trash_path":str(trash),"recoverable":True}
     finally:
         conn.close()
+        if not committed:
+            for item in reversed(moved):
+                if Path(item["target"]).exists():
+                    Path(item["source"]).parent.mkdir(parents=True, exist_ok=True)
+                    shutil.move(item["target"],item["source"])
+            if trash.is_dir():
+                # This unique directory was created by this operation only.
+                if trash.resolve().is_relative_to((root / "trash").resolve()): shutil.rmtree(trash)
 
 
 def batch_delete_tasks(task_ids: List[str], delete_files: bool = True, db_path: Path = DEFAULT_DB_PATH) -> Dict[str, Any]:
     results = []
     deleted_count = 0
     all_removed = []
-    for tid in task_ids:
-        r = delete_task(tid, delete_files=delete_files, db_path=db_path)
+    for tid in dict.fromkeys(task_ids):
+        try:
+            r = delete_task(tid, delete_files=delete_files, db_path=db_path)
+        except (TaskOperationConflict, OSError) as e:
+            r = {"id":tid, "deleted":False, "error":str(e)}
         if r.get("deleted"):
             deleted_count += 1
             all_removed.extend(r.get("removed_files", []))
         results.append(r)
     return {
-        "success": True,
-        "requested_count": len(task_ids),
+        "success": all(r.get("deleted") for r in results),
+        "requested_count": len(set(task_ids)),
         "deleted_count": deleted_count,
         "removed_files_count": len(all_removed),
         "results": results
     }
+
+class TaskOperationConflict(ValueError):
+    """The worker or a terminal task must not be overwritten by a UI action."""
+
+def task_statistics(db_path: Path = DEFAULT_DB_PATH, status=None) -> Dict[str, int]:
+    conn = get_db_connection(db_path)
+    try:
+        rows = conn.execute('SELECT status, COUNT(*) AS n FROM tasks' + (' WHERE status=?' if status else '') + ' GROUP BY status', (status,) if status else ()).fetchall()
+        counts = {r['status']: r['n'] for r in rows}
+        return {'total':sum(counts.values()), 'queued':counts.get('queued',0)+counts.get('retry_wait',0), 'running':sum(counts.get(s,0) for s in ('running','dispatching','verifying')), **{s:counts.get(s,0) for s in ('completed','failed','cancelled')}}
+    finally:
+        conn.close()
+
+def claim_task(task_id: str, profile_id: str, db_path: Path = DEFAULT_DB_PATH) -> bool:
+    conn = get_db_connection(db_path)
+    now = datetime.now().astimezone().isoformat()
+    try:
+        with conn:
+            return conn.execute("UPDATE tasks SET status='running', assigned_profile_id=?, start_time=?, finish_time=NULL, updated_at=? WHERE id=? AND status='queued'", (profile_id,now,now,task_id)).rowcount == 1
+    finally:
+        conn.close()
+
+def transition_task(task_id: str, action: str, db_path: Path = DEFAULT_DB_PATH):
+    conn = get_db_connection(db_path)
+    now = datetime.now().astimezone().isoformat()
+    try:
+        with conn:
+            conn.execute('BEGIN IMMEDIATE')
+            row = conn.execute('SELECT * FROM tasks WHERE id=?',(task_id,)).fetchone()
+            if row is None:
+                raise KeyError(task_id)
+            if action == 'retry':
+                if row['status'] not in ('failed','cancelled','retry_wait'):
+                    raise TaskOperationConflict('仅失败、已取消或等待重试的任务可重新排队；运行中任务不能重置')
+                if row['error_code'] in ('WIRE_FORMAT_MISMATCH','UNSUPPORTED_FEATURE'):
+                    raise TaskOperationConflict('模型或请求参数不兼容，请修正参数后创建新任务；换号不能解决此问题')
+                # Preserve explicit profile binding; never silently switch a pinned account.
+                conn.execute("UPDATE tasks SET status='queued', retry_count=0, error_code=NULL, error_message=NULL, start_time=NULL, finish_time=NULL, updated_at=? WHERE id=?",(now,task_id))
+                status='queued'
+            elif action == 'cancel':
+                if row['status'] == 'cancelled':
+                    return {'id':task_id,'status':'cancelled'}
+                if row['status'] not in ('queued','retry_wait'):
+                    raise TaskOperationConflict('只能取消尚未执行的任务；运行中不能安全强制中断，请等待完成')
+                conn.execute("UPDATE tasks SET status='cancelled', finish_time=?, updated_at=? WHERE id=?",(now,now,task_id))
+                status='cancelled'
+            else:
+                raise ValueError('Unknown task action')
+            conn.execute('INSERT INTO task_events(task_id,event_type,detail,created_at,message,timestamp) VALUES(?,?,?,?,?,?)',(task_id,'MANUAL_'+action.upper(),'Web状态转换',now,'Web状态转换',now))
+        return {'id':task_id,'status':status}
+    finally:
+        conn.close()

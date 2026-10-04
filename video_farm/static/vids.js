@@ -15,8 +15,8 @@ let state = {
 };
 
 // 元素兼容获取辅助函数
-function getEl(id1, id2) {
-  return document.getElementById(id1) || (id2 ? document.getElementById(id2) : null);
+function getEl(...ids) {
+  return ids.map(id => document.getElementById(id)).find(Boolean) || null;
 }
 
 // 工具函数：网络请求
@@ -92,7 +92,7 @@ function appendLog(msg, type = 'info') {
     highlight: 'var(--blue-primary)'
   };
   line.style.color = colorMap[type] || 'var(--text-sub)';
-  line.innerHTML = `<span style="opacity: 0.6; font-size: 11px;">[${getTimestamp()}]</span> ${msg}`;
+  line.innerHTML = `<span style="opacity: 0.6; font-size: 11px;">[${getTimestamp()}]</span> ${escapeHtml(msg)}`;
   logBox.appendChild(line);
   logBox.scrollTop = logBox.scrollHeight;
 }
@@ -157,7 +157,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     await loadPresets();
     await loadInitialWorkflow();
     startAutoRefresh();
-    appendLog('系统初始化完毕，1080p画质、首尾帧多模态与极简流水线工作台已就绪。', 'success');
+    appendLog('工作台初始化完成。可配置目标画质与首尾帧模式；实际成片规格以输出文件为准。', 'success');
   } catch (err) {
     console.error('初始化失败:', err);
     appendLog('初始化失败: ' + err.message, 'error');
@@ -208,7 +208,7 @@ function renderPresetChips() {
     const icon = p.icon || iconMap[p.id] || '🎨';
     const chip = document.createElement('div');
     chip.className = 'preset-chip' + (state.selectedPresetKey === key ? ' selected' : '');
-    chip.innerHTML = `<span>${icon}</span> <span>${title}</span>`;
+    chip.innerHTML = `<span>${escapeHtml(icon)}</span> <span>${escapeHtml(title)}</span>`;
     chip.onclick = () => selectPreset(p);
     container.appendChild(chip);
   });
@@ -394,6 +394,7 @@ function renderShots(shots) {
   const container = document.getElementById('shots-cards-container');
   if (!container) return;
   container.innerHTML = '';
+  renderShotIndex(shots);
 
   if (shots.length === 0) {
     container.innerHTML = `
@@ -421,9 +422,9 @@ function renderShots(shots) {
     const isFailed = shot.status === 'failed';
 
     let statusBadge = '<span class="shot-status-badge status-pending">待生成</span>';
-    if (isRunning) statusBadge = `<span class="shot-status-badge status-running">⏳ 生成中 ${shot.progress || 0}%</span>`;
-    if (isDone) statusBadge = '<span class="shot-status-badge status-completed">✅ 已成片</span>';
-    if (isFailed) statusBadge = '<span class="shot-status-badge status-failed">❌ 失败</span>';
+    if (isRunning) statusBadge = `<span class="shot-status-badge status-running">生成中 ${shot.progress || 0}%</span>`;
+    if (isDone) statusBadge = '<span class="shot-status-badge status-completed">已成片</span>';
+    if (isFailed) statusBadge = '<span class="shot-status-badge status-failed">失败</span>';
 
     const mode = shot.mode || 'text2video';
     const shotRes = shot.resolution || defaultRes;
@@ -438,15 +439,15 @@ function renderShots(shots) {
       frameAssetHtml = `
         <div class="frame-duo-strip">
           <div class="frame-capsule">
-            <span class="frame-capsule-tag">🖼️ 首帧</span>
+            <span class="frame-capsule-tag">首帧</span>
             <div class="frame-capsule-thumb" onclick="${hasStartImg ? `openLightbox('${getAssetDisplayUrl(shot.image_url)}', '分镜 #${index + 1} 起始首帧')` : `document.getElementById('file-upload-${shot.id}-start').click()`}" title="${hasStartImg ? '点击全屏高清查看' : '点击上传本地图片'}">
               ${hasStartImg ? `
-                <img src="${getAssetDisplayUrl(shot.image_url)}" onerror="this.onerror=null; this.src=BROKEN_IMG_SVG;" />
+                <img loading="lazy" decoding="async" src="${getAssetDisplayUrl(shot.image_url)}" onerror="this.onerror=null; this.src=BROKEN_IMG_SVG;" />
               ` : `
                 <div class="frame-capsule-empty">+首帧</div>
               `}
             </div>
-            <input type="text" class="frame-capsule-input" value="${escapeAttr(shot.image_url || '')}" placeholder="首帧绝对路径或URL" onchange="updateShotField('${shot.id}', 'image_url', this.value)" />
+            <input type="text" class="frame-capsule-input" aria-label="参考画面路径" value="${escapeAttr(shot.image_url || '')}" placeholder="首帧绝对路径或URL" onchange="updateShotField('${shot.id}', 'image_url', this.value)" />
             <label class="btn btn-secondary btn-sm" style="height: 22px; padding: 0 5px; font-size: 10px; cursor: pointer; margin: 0;" title="选择本地文件">
               📁<input type="file" id="file-upload-${shot.id}-start" accept="image/*" style="display: none;" onchange="handleAssetUpload(this, '${shot.id}', 'image_url')" />
             </label>
@@ -458,15 +459,15 @@ function renderShots(shots) {
           <div class="frame-duo-arrow" title="平滑镜头过渡">➔</div>
 
           <div class="frame-capsule">
-            <span class="frame-capsule-tag">🎞️ 尾帧</span>
+            <span class="frame-capsule-tag">尾帧</span>
             <div class="frame-capsule-thumb" onclick="${hasEndImg ? `openLightbox('${getAssetDisplayUrl(shot.end_image_url)}', '分镜 #${index + 1} 目标尾帧')` : `document.getElementById('file-upload-${shot.id}-end').click()`}" title="${hasEndImg ? '点击全屏高清查看' : '点击上传本地图片'}">
               ${hasEndImg ? `
-                <img src="${getAssetDisplayUrl(shot.end_image_url)}" onerror="this.onerror=null; this.src=BROKEN_IMG_SVG;" />
+                <img loading="lazy" decoding="async" src="${getAssetDisplayUrl(shot.end_image_url)}" onerror="this.onerror=null; this.src=BROKEN_IMG_SVG;" />
               ` : `
                 <div class="frame-capsule-empty">+尾帧</div>
               `}
             </div>
-            <input type="text" class="frame-capsule-input" value="${escapeAttr(shot.end_image_url || '')}" placeholder="尾帧绝对路径或URL" onchange="updateShotField('${shot.id}', 'end_image_url', this.value)" />
+            <input type="text" class="frame-capsule-input" aria-label="参考画面路径" value="${escapeAttr(shot.end_image_url || '')}" placeholder="尾帧绝对路径或URL" onchange="updateShotField('${shot.id}', 'end_image_url', this.value)" />
             <label class="btn btn-secondary btn-sm" style="height: 22px; padding: 0 5px; font-size: 10px; cursor: pointer; margin: 0;" title="选择本地文件">
               📁<input type="file" id="file-upload-${shot.id}-end" accept="image/*" style="display: none;" onchange="handleAssetUpload(this, '${shot.id}', 'end_image_url')" />
             </label>
@@ -480,15 +481,15 @@ function renderShots(shots) {
       frameAssetHtml = `
         <div class="frame-duo-strip">
           <div class="frame-capsule" style="flex: 1;">
-            <span class="frame-capsule-tag">🖼️ 参考图</span>
+            <span class="frame-capsule-tag">参考图</span>
             <div class="frame-capsule-thumb" onclick="${hasStartImg ? `openLightbox('${getAssetDisplayUrl(shot.image_url)}', '分镜 #${index + 1} 参考图')` : `document.getElementById('file-upload-${shot.id}-start').click()`}" title="${hasStartImg ? '点击全屏高清查看' : '点击上传本地图片'}">
               ${hasStartImg ? `
-                <img src="${getAssetDisplayUrl(shot.image_url)}" onerror="this.onerror=null; this.src=BROKEN_IMG_SVG;" />
+                <img loading="lazy" decoding="async" src="${getAssetDisplayUrl(shot.image_url)}" onerror="this.onerror=null; this.src=BROKEN_IMG_SVG;" />
               ` : `
                 <div class="frame-capsule-empty">+选图</div>
               `}
             </div>
-            <input type="text" class="frame-capsule-input" value="${escapeAttr(shot.image_url || '')}" placeholder="参考图绝对路径或URL" onchange="updateShotField('${shot.id}', 'image_url', this.value)" />
+            <input type="text" class="frame-capsule-input" aria-label="参考画面路径" value="${escapeAttr(shot.image_url || '')}" placeholder="参考图绝对路径或URL" onchange="updateShotField('${shot.id}', 'image_url', this.value)" />
             <label class="btn btn-secondary btn-sm" style="height: 22px; padding: 0 5px; font-size: 10px; cursor: pointer; margin: 0;">
               📁 上传<input type="file" id="file-upload-${shot.id}-start" accept="image/*" style="display: none;" onchange="handleAssetUpload(this, '${shot.id}', 'image_url')" />
             </label>
@@ -513,17 +514,18 @@ function renderShots(shots) {
       const downloadName = `Scene${String(shot.scene_index || index + 1).padStart(2, '0')}_${(shot.name || 'Shot').replace(/[^a-zA-Z0-9\u4e00-\u9fa5_-]/g, '_')}_${shotRes}.mp4`;
       mediaPreview = `
         <div style="display: flex; flex-direction: column; gap: 6px; width: 100%; height: 100%; justify-content: center;">
-          <video controls autoplay muted loop src="${shot.video_url}"></video>
+          <video controls preload="metadata" src="${escapeAttr(shot.video_url)}"></video>
+          <div class="shot-file-spec">正在读取实际文件规格…</div>
           <div style="display: flex; justify-content: space-between; align-items: center; gap: 4px; margin-top: 2px;">
             <a href="${shot.video_url}" download="${downloadName}" target="_blank" class="btn btn-primary btn-sm" style="font-size: 10px; padding: 2px 8px; text-decoration: none;">
-              ⬇️ 下载成片
+              下载成片
             </a>
             <button class="btn btn-secondary btn-sm" style="font-size: 10px; padding: 2px 6px;" onclick="copyLocalVideoPath('${shot.video_url}', this, '${localPathAttr}')" title="复制本地绝对路径，在 Google Vids 场景中直接粘贴">
-              📋 复制路径
+              复制路径
             </button>
           </div>
           <div style="font-size: 10px; color: #10b981; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-            💡 已就绪 · 关窗释放内存
+            本机成片 · 点击播放检查
           </div>
         </div>
       `;
@@ -531,9 +533,9 @@ function renderShots(shots) {
       mediaPreview = `
         <div class="stage-waiting-box">
           <div style="font-size: 20px; opacity: 0.6;">🎬</div>
-          <div style="font-size: 12px; font-weight: 600; color: var(--text-main);">等待生成 1080p 成片</div>
+          <div style="font-size: 12px; font-weight: 600; color: var(--text-main);">等待镜头成片</div>
           <div style="font-size: 10px; color: var(--text-muted); line-height: 1.2;">
-            ${mode === 'first_last_frame' ? '首尾帧平滑插值' : '按提示词生成'}
+            ${mode === 'first_last_frame' ? '首尾帧过渡 · 以上游结果为准' : '按提示词生成'}
           </div>
           <button class="btn btn-primary btn-sm" style="margin-top: 2px; font-size: 10px; padding: 2px 10px;" onclick="generateSingleShot('${shot.id}')">
             ⚡ 单独渲染
@@ -546,23 +548,23 @@ function renderShots(shots) {
       <div class="shot-card-header">
         <div class="shot-header-left">
           <span class="shot-seq-badge">#${index + 1} 场景 ${shot.scene_index || index + 1}</span>
-          <input type="text" class="form-input" style="padding: 1px 6px; height: 24px; font-weight: 600; width: 140px; font-size: 11px;" value="${escapeAttr(shot.name || '')}" onchange="updateShotField('${shot.id}', 'name', this.value)" />
-          <span class="badge" style="font-size: 10px; padding: 1px 5px;">⏱️ ${shot.duration || 8}s</span>
-          <span class="${shotRes === '1080p' ? 'badge-1080p' : 'badge-720p'}">${shotRes}</span>
+          <input type="text" class="form-input shot-name-input" aria-label="镜头名称" style="padding: 1px 6px; height: 24px; font-weight: 600; width: 140px; font-size: 11px;" value="${escapeAttr(shot.name || '')}" onchange="updateShotField('${shot.id}', 'name', this.value)" />
+          <span class="badge" style="font-size: 10px; padding: 1px 5px;">请求 ${shot.duration || 8}s</span>
+          <span class="${shotRes === '1080p' ? 'badge-1080p' : 'badge-720p'}">请求 ${shotRes}</span>
           <span class="badge" style="background: rgba(59,130,246,0.15); color: var(--blue-primary); font-size: 10px; padding: 1px 5px;">${shotModel}</span>
         </div>
         <div class="shot-header-actions">
           <div class="shot-status-badge-wrap">${statusBadge}</div>
-          <button class="btn btn-secondary btn-sm" style="height: 22px; padding: 0 5px;" onclick="moveShot('${shot.id}', 'up')" title="上移">⬆️</button>
-          <button class="btn btn-secondary btn-sm" style="height: 22px; padding: 0 5px;" onclick="moveShot('${shot.id}', 'down')" title="下移">⬇️</button>
-          <button class="btn btn-danger btn-sm" style="height: 22px; padding: 0 5px;" onclick="deleteShot('${shot.id}')" title="删除">🗑️</button>
+          <button class="btn btn-secondary btn-sm" style="height: 22px; padding: 0 5px;" onclick="moveShot('${shot.id}', 'up')" title="上移" aria-label="上移镜头">↑</button>
+          <button class="btn btn-secondary btn-sm" style="height: 22px; padding: 0 5px;" onclick="moveShot('${shot.id}', 'down')" title="下移" aria-label="下移镜头">↓</button>
+          <button class="btn btn-danger btn-sm" style="height: 22px; padding: 0 5px;" onclick="deleteShot('${shot.id}')" title="删除" aria-label="删除镜头">×</button>
         </div>
       </div>
 
       <div class="shot-body-layout">
         <!-- 左列：模式选择、资产条带、提示词与旁白 -->
         <div class="shot-params-col">
-          <div style="display: flex; align-items: center; gap: 6px; background: rgba(0,0,0,0.25); padding: 3px 6px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.05); flex-wrap: wrap;">
+          <div class="shot-config-row" style="display: flex; align-items: center; gap: 6px; background: rgba(0,0,0,0.25); padding: 3px 6px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.05); flex-wrap: wrap;">
             <span style="font-size: 10px; color: var(--text-sub); font-weight: 600;">模式:</span>
             <select class="form-select" style="width: 125px; padding: 1px 4px; font-size: 10px; height: 22px; font-weight: 600;" onchange="updateShotMode('${shot.id}', this.value)">
               <option value="first_last_frame" ${mode === 'first_last_frame' ? 'selected' : ''}>🎞️ 首尾帧过渡</option>
@@ -593,13 +595,13 @@ function renderShots(shots) {
           </div>
 
           <div>
-            <textarea class="form-textarea" rows="2" style="font-size: 11px; padding: 4px 6px; width: 100%; height: 46px;" placeholder="镜头英文/中文提示词..." onchange="updateShotField('${shot.id}', 'prompt', this.value)">${escapeHtml(shot.prompt || '')}</textarea>
+            <textarea aria-label="镜头提示词" class="form-textarea" rows="2" style="font-size: 11px; padding: 4px 6px; width: 100%; height: 46px;" placeholder="镜头英文/中文提示词..." onchange="updateShotField('${shot.id}', 'prompt', this.value)">${escapeHtml(shot.prompt || '')}</textarea>
           </div>
 
           ${shot.narration ? `
           <div style="display: flex; align-items: center; gap: 6px;">
             <input type="text" class="form-input" style="font-size: 11px; padding: 2px 6px; height: 24px; flex: 1; color: var(--text-sub);" value="${escapeAttr(shot.narration)}" placeholder="剪辑旁白/台词" onchange="updateShotField('${shot.id}', 'narration', this.value)" />
-            <button class="btn btn-secondary btn-sm" style="height: 22px; padding: 0 6px; font-size: 10px;" onclick="copyNarrationText('${shot.id}', this)" title="复制台词">📋 旁白</button>
+            <button class="btn btn-secondary btn-sm" style="height: 22px; padding: 0 6px; font-size: 10px;" onclick="copyNarrationText('${shot.id}', this)" title="复制台词">复制台词</button>
           </div>
           ` : ''}
         </div>
@@ -613,8 +615,53 @@ function renderShots(shots) {
 
     container.appendChild(card);
   });
+  bindShotMedia(container);
 }
 
+
+// Presentation-only shot directory: source IDs and content remain in the existing cards.
+function renderShotIndex(shots) {
+  const host = document.getElementById('shot-index-items');
+  const count = document.getElementById('shot-index-count');
+  if (!host) return;
+  const signature = JSON.stringify(shots.map(s => [s.id, s.name, s.title, s.status]));
+  if (host.dataset.signature === signature) return;
+  host.dataset.signature = signature;
+  const selected = host.querySelector('[aria-current="true"]')?.dataset.shotId;
+  host.replaceChildren();
+  if (count) count.textContent = String(shots.length);
+  const statuses = {completed:'已成片',running:'生成中',failed:'失败',pending:'待生成'};
+  shots.forEach((shot, i) => {
+    const link = document.createElement('a');
+    link.className = 'shot-index-link';link.href = '#shot-card-' + shot.id;link.dataset.shotId = shot.id;
+    link.dataset.status = shot.status || 'pending';
+    if (shot.id === selected) { link.classList.add('active'); link.setAttribute('aria-current','true'); }
+    const number = document.createElement('i');number.textContent = String(i + 1).padStart(2, '0');
+    const title = document.createElement('span');title.textContent = shot.name || shot.title || ('镜头 ' + (i + 1));
+    link.title = title.textContent + ' · ' + (statuses[shot.status] || '待检查');link.append(number, title);
+    link.setAttribute('aria-label',link.title);
+    link.addEventListener('click', event => {
+      event.preventDefault();
+      document.getElementById('shot-card-' + shot.id)?.scrollIntoView({block: 'start', behavior: 'auto'});
+      host.querySelectorAll('a').forEach(a => {a.classList.toggle('active', a === link); if(a === link) a.setAttribute('aria-current','true'); else a.removeAttribute('aria-current');});
+    });
+    host.append(link);
+  });
+}
+
+function bindShotMedia(container) {
+  container.querySelectorAll('video').forEach(video => {
+    if (video.dataset.metadataBound) return;
+    video.dataset.metadataBound = 'true';
+    const label = video.parentElement.querySelector('.shot-file-spec');
+    const showSpecs = () => {
+      if (label) label.textContent = `实际 ${video.videoWidth} × ${video.videoHeight} · ${Number.isFinite(video.duration) ? video.duration.toFixed(1) + ' 秒' : '时长未知'}`;
+    };
+    video.addEventListener('loadedmetadata', showSpecs);
+    video.addEventListener('error', () => { if (label) label.textContent = '文件预览失败，请检查原片'; });
+    if (video.readyState >= 1) showSpecs();
+  });
+}
 
 // 保存工作流资产全局配置 (包含1080p画质、模型等)
 async function saveWorkflowSettings() {
@@ -909,6 +956,7 @@ function copyLocalVideoPath(videoUrl, btnEl, localPath) {
 
 // 增量细粒度 DOM 状态同步（不全量刷新 DOM，保护正在输入的焦点并原地挂载视频回显）
 function syncShotsDOM(shots) {
+  renderShotIndex(shots);
   const container = document.getElementById('shots-cards-container');
   if (!container) return;
 
@@ -941,9 +989,9 @@ function syncShotsDOM(shots) {
 
     // 2. 同步状态 Badge
     let statusBadge = '<span class="shot-status-badge status-pending">待生成</span>';
-    if (isRunning) statusBadge = `<span class="shot-status-badge status-running">⏳ 生成中 ${shot.progress || 0}%</span>`;
-    if (isDone) statusBadge = '<span class="shot-status-badge status-completed">✅ 已生成置入</span>';
-    if (isFailed) statusBadge = '<span class="shot-status-badge status-failed">❌ 失败</span>';
+    if (isRunning) statusBadge = `<span class="shot-status-badge status-running">生成中 ${shot.progress || 0}%</span>`;
+    if (isDone) statusBadge = '<span class="shot-status-badge status-completed">已成片</span>';
+    if (isFailed) statusBadge = '<span class="shot-status-badge status-failed">失败</span>';
 
     const badgeContainer = card.querySelector('.shot-status-badge-wrap');
     if (badgeContainer && badgeContainer.innerHTML !== statusBadge) {
@@ -972,24 +1020,25 @@ function syncShotsDOM(shots) {
           const localPathAttr = escapeAttr(shot.local_video_path || '');
           previewBox.innerHTML = `
             <div class="shot-preview-container">
-              <video controls autoplay muted loop src="${targetVideoUrl}" style="width: 100%; border-radius: 8px; max-height: 240px; background: #000; box-shadow: 0 4px 12px rgba(0,0,0,0.4);"></video>
+              <video controls preload="metadata" src="${escapeAttr(targetVideoUrl)}" style="width: 100%; border-radius: 8px; max-height: 240px; background: #000; box-shadow: 0 4px 12px rgba(0,0,0,0.4);"></video>
+              <div class="shot-file-spec">正在读取实际文件规格…</div>
               <div style="margin-top: 8px; display: flex; flex-direction: column; gap: 6px;">
                 <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px;">
                   <a href="${targetVideoUrl}" target="_blank" download class="btn btn-sm btn-primary" style="font-size: 11px; padding: 4px 10px; text-decoration: none; font-weight: 600;">
-                    ⬇️ 下载 1080p MP4 原片
+                    下载 MP4
                   </a>
                   <button class="btn btn-sm btn-secondary" style="font-size: 11px; padding: 4px 10px; font-weight: 600;" onclick="copyLocalVideoPath('${targetVideoUrl}', this, '${localPathAttr}')" title="复制本地绝对路径，在 Google Vids 插入/选择视频窗口中直接粘贴">
-                    📋 复制本地绝对路径 (Google Vids直接粘贴)
+                    复制路径
                   </button>
                 </div>
                 <div style="font-size: 11px; color: #10b981; background: rgba(16,185,129,0.1); border: 1px solid rgba(16,185,129,0.25); border-radius: 6px; padding: 5px 8px; display: flex; align-items: center; justify-content: space-between;">
-                  <span>💡 已完成生成并下载 · 自动化窗口已安全退出以释放 ~800MB 内存</span>
+                  <span>本机成片已就绪 · 实际规格请播放检查</span>
                   <span style="font-size: 10px; color: var(--text-muted);">可直接拖入或粘贴至 Google Vids 场景 ${shot.scene_index || index + 1}</span>
                 </div>
               </div>
             </div>
           `;
-          appendLog(`分镜 [${shot.name || shot.id}] 1080p 视频成片已回显就绪！`, 'success');
+          appendLog(`分镜 [${shot.name || shot.id}] 本机成片已就绪；规格以实际文件为准。`, 'success');
         }
       } else {
         if (existingVideo) {
@@ -1010,24 +1059,34 @@ function syncShotsDOM(shots) {
       }
     }
   });
+  bindShotMedia(container);
 }
 
 // 定时自动同步最新状态（移除 isEditing 阻断，采用细粒度 DOM 增量同步）
+let autoRefreshInFlight = false;
 function startAutoRefresh() {
   if (state.autoRefreshTimer) clearInterval(state.autoRefreshTimer);
   state.autoRefreshTimer = setInterval(async () => {
-    if (state.currentWorkflowId) {
-      try {
-        const wf = await api(`/workflows/${state.currentWorkflowId}`);
-        state.workflow = wf;
-        syncShotsDOM(wf.shots || []);
-        updateOverallProgress(wf.shots || []);
-      } catch (e) {
-        // 静默刷新
-      }
-    }
+    if (document.hidden || autoRefreshInFlight || !state.currentWorkflowId) return;
+    const workflowId = state.currentWorkflowId;
+    autoRefreshInFlight = true;
+    try {
+      const wf = await api(`/workflows/${workflowId}`);
+      if (workflowId !== state.currentWorkflowId) return;
+      state.workflow = wf;
+      syncShotsDOM(wf.shots || []);
+      updateOverallProgress(wf.shots || []);
+    } catch (e) {
+      // Foreground operations still report errors; background refresh preserves the current editor.
+    } finally { autoRefreshInFlight = false; }
   }, 3000);
 }
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) document.querySelectorAll('#shots-cards-container video').forEach(v => v.pause());
+});
+document.addEventListener('play', event => {
+  if (event.target.tagName === 'VIDEO') document.querySelectorAll('#shots-cards-container video').forEach(v => {if (v !== event.target) v.pause();});
+}, true);
 
 // 切换工作流弹窗
 async function loadWorkflowList() {
@@ -1128,7 +1187,7 @@ function switchJsonTab(tab) {
 async function fillSampleImportJson() {
   try {
     const sample = await api('/sample_import_json');
-    const textarea = document.getElementById('batch-import-textarea');
+    const textarea = getEl('json-import-textarea', 'batch-import-textarea');
     if (textarea) {
       textarea.value = JSON.stringify(sample, null, 2);
       appendLog('已载入 1080p、Omni、首尾帧过渡及图生视频标准示范数据！', 'info');
@@ -1140,7 +1199,7 @@ async function fillSampleImportJson() {
 
 // 清空导入输入框
 function clearImportTextarea() {
-  const textarea = document.getElementById('batch-import-textarea');
+  const textarea = getEl('json-import-textarea', 'batch-import-textarea');
   if (textarea) textarea.value = '';
   const msgBox = document.getElementById('import-msg-box');
   if (msgBox) msgBox.style.display = 'none';
@@ -1152,7 +1211,7 @@ function loadJsonFileToTextarea(inputEl) {
   if (!file) return;
   const reader = new FileReader();
   reader.onload = (e) => {
-    const textarea = document.getElementById('batch-import-textarea');
+    const textarea = getEl('json-import-textarea', 'batch-import-textarea');
     if (textarea) {
       textarea.value = e.target.result;
       appendLog(`已成功从本地读取文件: ${file.name}`, 'info');
@@ -1163,7 +1222,7 @@ function loadJsonFileToTextarea(inputEl) {
 
 // 执行批量导入
 async function executeBatchImport() {
-  const textarea = document.getElementById('batch-import-textarea');
+  const textarea = getEl('json-import-textarea', 'batch-import-textarea');
   const msgBox = document.getElementById('import-msg-box');
   const rawText = textarea?.value?.trim();
 
@@ -1198,6 +1257,7 @@ async function executeBatchImport() {
   }
 
   const btn = document.getElementById('btn-submit-import');
+  const originalButtonText = btn?.textContent;
   if (btn) {
     btn.disabled = true;
     btn.textContent = '⏳ 正在解析并入库...';
@@ -1248,7 +1308,7 @@ async function executeBatchImport() {
   } finally {
     if (btn) {
       btn.disabled = false;
-      btn.textContent = '🚀 立即解析并批量导入';
+      btn.textContent = originalButtonText;
     }
   }
 }
@@ -1256,7 +1316,7 @@ async function executeBatchImport() {
 // 导出当前工程为标准化 JSON
 async function loadWorkflowExportJson() {
   if (!state.currentWorkflowId) return;
-  const textarea = getEl('batch-export-textarea', 'export-json-textarea');
+  const textarea = getEl('json-export-textarea', 'batch-export-textarea', 'export-json-textarea');
   if (textarea) textarea.value = '正在拉取工程标准化资产数据...';
 
   try {
@@ -1273,7 +1333,7 @@ async function loadWorkflowExportJson() {
 
 // 复制导出的 JSON
 function copyExportJson() {
-  const textarea = getEl('batch-export-textarea', 'export-json-textarea');
+  const textarea = getEl('json-export-textarea', 'batch-export-textarea', 'export-json-textarea');
   if (!textarea || !textarea.value) return;
   navigator.clipboard.writeText(textarea.value).then(() => {
     alert('已复制当前工程完整 JSON 至剪贴板！');
@@ -1287,7 +1347,7 @@ function copyExportJson() {
 
 // 下载导出的 JSON 文件
 function downloadExportJson() {
-  const textarea = getEl('batch-export-textarea', 'export-json-textarea');
+  const textarea = getEl('json-export-textarea', 'batch-export-textarea', 'export-json-textarea');
   if (!textarea || !textarea.value) return;
   const title = (state.workflow?.title || 'google_vids_workflow').replace(/[\\/:*?"<>|\s]+/g, '_');
   const blob = new Blob([textarea.value], { type: 'application/json;charset=utf-8' });

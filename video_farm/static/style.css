@@ -3258,3 +3258,45 @@ body {
   accent-color: var(--blue-primary);
   border-radius: 4px;
 }
+
+/* Audit maintenance: consistent, readable audio workbench controls. */
+#form-create-audio .form-control {
+  box-sizing:border-box; width:100%; min-width:0; color:#e2e8f0;
+  background:#111827; border:1px solid #475569; border-radius:8px;
+  padding:10px 12px; font:inherit; line-height:1.5; color-scheme:dark;
+}
+#form-create-audio textarea.form-control { min-height:160px; resize:vertical; }
+#form-create-audio .form-label { display:block; margin-bottom:8px; }
+#form-create-audio .form-control:focus { outline:2px solid #38bdf8; outline-offset:2px; }
+.audit-task-pagination { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin:12px 0; }
+.task-page-info { font-size:12px; color:var(--text-sub); }
+[hidden] { display:none !important; }
+@media(max-width:850px) { #form-create-audio .audio-workbench-grid { grid-template-columns:1fr !important; } }
+
+.audit-task-warning { margin-top:8px; padding:10px; border-left:3px solid #f59e0b; background:#422006; color:#fde68a; font-size:12px; }
+
+/* Grid min-content sizing must not let long video prompts widen the page. */
+#form-create-audio .audio-workbench-grid { grid-template-columns:minmax(0,1fr) minmax(0,1fr) !important; }
+#form-create-audio .audio-workbench-grid > div { min-width:0; }
+#form-create-audio .form-label { flex-wrap:wrap; gap:8px; }
+#form-create-audio .form-hint { color:#94a3b8 !important; }
+#form-create-audio .btn { white-space:normal; max-width:100%; }
+@media(max-width:850px) { #form-create-audio .audio-workbench-grid { grid-template-columns:minmax(0,1fr) !important; } }
+
+/* Narrow-window layout, scoped to the main console to preserve Vids layout. */
+@media(max-width:1100px) {
+ .farm-console .navbar { flex-wrap:wrap; gap:12px; }
+ .farm-console .nav-brand { min-width:0; }
+ .farm-console .brand-badge { flex-shrink:0; }
+ .farm-console .nav-center { flex-wrap:wrap; gap:10px; min-width:0; }
+ .farm-console .nav-stats { flex-wrap:wrap; }
+}
+@media(max-width:700px) {
+ .farm-console .navbar { position:relative; padding:12px; }
+ .farm-console .main-wrapper { padding:12px; }
+ .farm-console .tabs-bar { align-items:stretch; flex-direction:column; gap:8px; }
+ .farm-console .tabs-nav { flex-wrap:wrap; min-width:0; }
+ .farm-console .tab-button { padding:8px 10px; white-space:nowrap; font-size:12px; }
+ .farm-console .nav-actions { flex-wrap:wrap; }
+ .farm-console .brand-info { min-width:0; }
+}

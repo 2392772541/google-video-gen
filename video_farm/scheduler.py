@@ -12,6 +12,7 @@ from .models import Task, Profile
 from . import db
 from .worker import VideoWorker
 from .gemini_worker import GeminiWebWorker
+from .vids_worker import VidsWorker
 from .verify import verify_task_video
 
 def classify_failure(err_code: str, err_msg: str, logs: str) -> tuple[str, str, int, bool]:
@@ -212,6 +213,12 @@ class VideoScheduler:
             timeout_sec=worker_timeout_sec,
             headless=True
         )
+        self.vids_worker = VidsWorker(
+            output_dir=output_dir,
+            timeout_sec=worker_timeout_sec,
+            headless=True,
+            mock_sample_video=mock_sample_video
+        )
         
         self.max_workers = max_workers
         self.active_tasks: Dict[str, threading.Event] = {}
@@ -304,7 +311,12 @@ class VideoScheduler:
         engine_name = getattr(task, "engine", "flow")
         
         try:
-            engine_label = "Google Flow (首尾帧模式)" if engine_name == "flow" else "Gemini 网页版"
+            if engine_name == "vids":
+                engine_label = "Google Vids (官方多模态原生工作流)"
+            elif engine_name == "flow":
+                engine_label = "Google Flow (首尾帧模式)"
+            else:
+                engine_label = "Gemini 网页版" 
             db.log_task_event(
                 task_id, "WORKER_START",
                 f"[{thread_name}] 任务分配至 Profile [{profile.name}]，采用引擎: {engine_label}",
@@ -319,6 +331,8 @@ class VideoScheduler:
                 exec_res = self.gemini_worker.execute_audio_task(task, profile)
             elif engine_name == "gemini":
                 exec_res = self.gemini_worker.execute_task(task, profile)
+            elif engine_name == "vids":
+                exec_res = self.vids_worker.execute_task(task, profile)
             else:
                 exec_res = self.flow_worker.execute_task(task, profile)
 
@@ -702,12 +716,9 @@ class VideoScheduler:
                 continue
 
             # 标记任务进入 running 状态
-            db.update_task_status(
-                task_id=task.id,
-                status="running",
-                assigned_profile_id=profile.id,
-                db_path=self.db_path
-            )
+            if not db.claim_task(task.id, profile.id, self.db_path):
+                db.update_profile_status(profile.id, "idle", db_path=self.db_path)
+                continue
 
             with self.lock:
                 evt = threading.Event()

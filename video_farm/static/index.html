@@ -1,468 +1,377 @@
 <!DOCTYPE html>
+
 <html lang="zh-CN">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Video Farm · 首尾帧视频工坊控制台</title>
-  <link rel="stylesheet" href="/static/style.css?v=20261001_v5">
-</head>
-<body>
-  <!-- 顶部常驻导航栏 -->
-  <header class="navbar">
-    <div class="nav-brand">
-      <div class="brand-badge">🎬</div>
-      <div class="brand-info">
-        <h1>Video Farm · 视频工坊</h1>
-        <p>Google Flow 9:16 首尾帧约束视频生成与分布式调度台</p>
-      </div>
-    </div>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Video Farm · 创作工作台</title>
+<link href="/static/style.css?v=studio20261003-10" rel="stylesheet"/>
+<link href="/static/studio.css?v=studio20261003-10" rel="stylesheet"/></head>
+<body class="farm-console"><div class="studio-shell"><aside aria-label="主导航" class="studio-sidebar" id="studio-sidebar"><a class="studio-brand" href="/"><span class="studio-mark">VF</span><span class="brand-caption">Video Farm</span></a><nav aria-label="工作空间" class="studio-navigation"><button class="tab-button active" data-target="view-generate" title="视频创作"><span aria-hidden="true" class="ui-icon icon-clapperboard"></span><span>视频创作</span></button><button class="tab-button" data-target="view-audio" title="配音音频"><span aria-hidden="true" class="ui-icon icon-audio-lines"></span><span>配音音频</span></button><button class="tab-button" data-target="view-images" title="图像素材"><span aria-hidden="true" class="ui-icon icon-images"></span><span>图像素材</span></button><button class="tab-button" data-target="view-tasks" title="任务成片"><span aria-hidden="true" class="ui-icon icon-list-video"></span><span>任务成片</span><span class="pill-count" id="badge-total-tasks">0</span></button><button class="tab-button" data-target="view-profiles" title="账号管理"><span aria-hidden="true" class="ui-icon icon-users-round"></span><span>账号管理</span><span class="pill-count" id="badge-total-profiles">0</span></button><a class="tab-button" href="/vids" title="连续分镜工程"><span aria-hidden="true" class="ui-icon icon-panels-top-left"></span><span>连续分镜</span></a></nav><div class="sidebar-foot"><span class="sidebar-dot"></span> 本机工作室</div></aside><div class="studio-main"><header class="navbar">
+<div class="workspace-location"><span>工作空间 / <b id="workspace-title">视频创作</b></span></div>
+<div class="nav-center">
+<div class="scheduler-status-pill" id="scheduler-pill" title="点击切换调度器状态">
+<span class="status-dot" id="scheduler-dot"></span>
+<span id="scheduler-status-text">检查中...</span>
+<button class="btn btn-secondary btn-sm" id="btn-toggle-scheduler" style="margin-left:6px;padding:2px 8px">暂停</button>
+</div>
+</div>
+<div class="nav-actions">
+<button class="btn btn-secondary btn-sm" id="btn-open-outputs"><span aria-hidden="true" class="ui-icon icon-folder-open"></span>成片目录</button>
+<button class="btn btn-secondary btn-sm" id="btn-open-sysinfo"><span aria-hidden="true" class="ui-icon icon-activity"></span>系统信息</button>
+</div>
+</header><div class="fleet-cooldown-banner" id="fleet-cooldown-banner" style="display:none">
+<div class="banner-content">
+<div class="banner-icon">🛡️</div>
+<div class="banner-text">
+<strong>Google 出口 IP 临时受限保护中（安全避让剩余 <span id="fleet-cooldown-countdown">0</span> 秒）</strong>
+<p>Google Flow 拦截了异常活动检测 (Unusual Activity)。系统已自动开启整池避让保护，降低继续触发限制的风险（不能保证账号安全）。<br/>
+        💡 <strong>快速解决建议</strong>：请先暂停生成，检查账号登录、额度及上游提示，遵守平台限制；确认限制解除后再恢复，不要连续重试或频繁切换出口。</p>
+</div>
+<div class="banner-actions">
+<button class="btn btn-warning btn-sm" id="btn-fleet-resume">⚡ 已确认限制解除，恢复调度</button>
+</div>
+</div>
+</div><main class="main-wrapper">
+<!-- 主导航 Tabs -->
 
-    <div class="nav-center">
-      <div class="scheduler-status-pill" id="scheduler-pill" title="点击切换调度器状态">
-        <span class="status-dot" id="scheduler-dot"></span>
-        <span id="scheduler-status-text">检查中...</span>
-        <button class="btn btn-secondary btn-sm" id="btn-toggle-scheduler" style="margin-left:6px; padding:2px 8px;">暂停</button>
-      </div>
-
-      <div class="nav-stats">
-        <div class="stat-chip">空闲账号 <b id="stat-idle-prof">0</b></div>
-        <div class="stat-chip">进行中 <b id="stat-running-task" style="color:var(--blue-primary);">0</b></div>
-        <div class="stat-chip">等待中 <b id="stat-queued-task" style="color:var(--orange-warn);">0</b></div>
-        <div class="stat-chip">已完成 <b id="stat-completed-task" style="color:var(--green-ok);">0</b></div>
-      </div>
-    </div>
-
-    <div class="nav-actions">
-      <button class="btn btn-secondary btn-sm" id="btn-open-outputs">
-        📂 成片目录
-      </button>
-      <button class="btn btn-secondary btn-sm" id="btn-open-sysinfo">
-        ⚙️ 系统信息
-      </button>
-    </div>
-  </header>
-
-  <!-- Google WAF / Fleet Cooldown 避让提醒大横幅 -->
-  <div id="fleet-cooldown-banner" class="fleet-cooldown-banner" style="display:none;">
-    <div class="banner-content">
-      <div class="banner-icon">🛡️</div>
-      <div class="banner-text">
-        <strong>Google 出口 IP 临时受限保护中（安全避让剩余 <span id="fleet-cooldown-countdown">0</span> 秒）</strong>
-        <p>Google Flow 拦截了异常活动检测 (Unusual Activity)。系统已自动开启整池避让保护，防止所有账号被连带封禁。<br>
-        💡 <strong>快速解决建议</strong>：请在你的代理/科学上网软件（如 Clash）中<strong>切换一个节点（更换出口 IP）</strong>，然后点击右侧按钮立即恢复生成。</p>
-      </div>
-      <div class="banner-actions">
-        <button id="btn-fleet-resume" class="btn btn-warning btn-sm">⚡ 我已换 IP，立即恢复生成</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- 主体工作区 -->
-  <main class="main-wrapper">
-    <!-- 主导航 Tabs -->
-    <div class="tabs-bar">
-      <div class="tabs-nav">
-        <button class="tab-button active" data-target="view-generate">
-          <span>🎬 视频生成</span>
-        </button>
-        <button class="tab-button" data-target="view-audio">
-          <span>🎙️ 智能配音与音频</span>
-        </button>
-        <button class="tab-button" data-target="view-images">
-          <span>🖼️ 图像生成 (Google Flow)</span>
-        </button>
-        <button class="tab-button" data-target="view-tasks">
-          <span>📊 任务与成片</span>
-          <span class="pill-count" id="badge-total-tasks">0</span>
-        </button>
-        <button class="tab-button" data-target="view-profiles">
-          <span>👥 账号管理</span>
-          <span class="pill-count" id="badge-total-profiles">0</span>
-        </button>
-      </div>
-      <div>
-        <span id="last-refresh-time" style="font-size:12px; color:var(--text-muted);">自动更新中</span>
-      </div>
-    </div>
-
-    <!-- ================= 视图 1: 生成视频 ================= -->
-        <!-- ================= 视图 0: 一键全自动成片 (Pipeline) ================= -->
-        <!-- ================= 视图: Gemini 智能配音与多模态音频工作台 ================= -->
-    <section class="view-pane" id="view-audio">
-      <div class="card" style="margin-bottom: 24px; border: 1px solid rgba(217, 70, 239, 0.35); background: linear-gradient(180deg, rgba(88, 28, 135, 0.18) 0%, rgba(15, 23, 42, 0.75) 100%); box-shadow: 0 10px 30px rgba(0,0,0,0.35);">
-        <div class="card-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
-          <div>
-            <h2 class="card-title" style="display:flex; align-items:center; gap:8px; font-size:18px;">
-              <span>🎙️ Gemini 智能配音与多模态音频工作台</span>
-              <span class="badge" style="background:rgba(217, 70, 239, 0.25); color:#f0abfc; border:1px solid rgba(217, 70, 239, 0.5); font-size:11px; padding:2px 8px; border-radius:12px;">多模态理解 + 广播级音色</span>
-            </h2>
-            <p style="margin:4px 0 0 0; font-size:13px; color:var(--text-muted);">
+<!-- ================= 视图 1: 生成视频 ================= -->
+<!-- ================= 视图 0: 一键全自动成片 (Pipeline) ================= -->
+<!-- ================= 视图: Gemini 智能配音与多模态音频工作台 ================= -->
+<section class="view-pane" id="view-audio"><div class="page-heading"><div><h1>配音与音频</h1><p>先写台词，再选择音色；画面参考可选。</p></div></div>
+<div class="card audio-studio-card" style="margin-bottom:24px">
+<div class="card-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
+<div>
+<h2 class="card-title" style="display:flex;align-items:center;gap:8px">声音创作</h2>
+<p style="margin:4px 0 0 0">
               可上传/选择已生成的视频作为画面参考，输入解说台词或提示词，一键生成高质量宣传片解说、音效或旁白音频。
             </p>
-          </div>
-          <div style="display:flex; gap:8px;">
-            <button class="btn btn-secondary btn-sm" id="btn-audio-reset-form" title="清空并重置输入表单">🧹 清空重置</button>
-          </div>
-        </div>
-
-        <div class="card-body">
-          <form id="form-create-audio" onsubmit="return false;">
-            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:24px;" class="audio-workbench-grid">
-              
-              <!-- 左栏：多模态参考视频与素材选择 -->
-              <div style="display:flex; flex-direction:column; gap:16px;">
-                <div style="background:rgba(15,23,42,0.6); border:1px solid var(--border-color); border-radius:8px; padding:16px;">
-                  <h3 style="font-size:14px; margin:0 0 12px 0; color:#e2e8f0; display:flex; align-items:center; gap:6px;">
-                    <span>📹 视频素材与多模态参考（可选）</span>
-                  </h3>
-
-                  <!-- 方式 1: 从已完成成片选择 -->
-                  <div class="form-group" style="margin-bottom:14px;">
-                    <label class="form-label" style="display:flex; justify-content:space-between;">
-                      <span>从成片库快速选用已有视频：</span>
-                      <span style="font-size:11px; color:#38bdf8; cursor:pointer;" id="btn-refresh-audio-video-select">🔄 刷新成片</span>
-                    </label>
-                    <select class="form-control" id="audio-select-completed-video">
-                      <option value="">-- 点击下拉选择已生成的视频成片 --</option>
-                    </select>
-                    <div class="form-hint" style="font-size:11px; color:var(--text-muted); margin-top:4px;">
+</div>
+<div style="display:flex;gap:8px">
+<button class="btn btn-secondary btn-sm" id="btn-audio-reset-form" title="清空并重置输入表单">🧹 清空重置</button>
+</div>
+</div>
+<div class="card-body">
+<form id="form-create-audio" onsubmit="return false;">
+<div class="audio-workbench-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:24px">
+<!-- 左栏：多模态参考视频与素材选择 -->
+<div class="audio-column audio-column-1" style="display:flex;flex-direction:column;gap:16px">
+<div class="audio-section" style="border-radius:8px;padding:16px">
+<h3 style="margin:0 0 12px 0;display:flex;align-items:center;gap:6px">
+<span>📹 视频素材与多模态参考（可选）</span>
+</h3>
+<!-- 方式 1: 从已完成成片选择 -->
+<div class="form-group" style="margin-bottom:14px">
+<label class="form-label" style="display:flex;justify-content:space-between"><span>从成片库快速选用已有视频：</span><button class="btn btn-secondary btn-sm" id="btn-refresh-audio-video-select" type="button">刷新成片</button></label>
+<select class="form-control" id="audio-select-completed-video">
+<option value="">-- 点击下拉选择已生成的视频成片 --</option>
+</select>
+<div class="form-hint" style="margin-top:4px">
                       选中后将自动带入视频路径并在下方窗口中预览播放。
                     </div>
-                  </div>
-
-                  <!-- 方式 2: 本地路径输入 -->
-                  <div class="form-group" style="margin-bottom:14px;">
-                    <label class="form-label">或输入本地视频绝对路径：</label>
-                    <input type="text" class="form-control" id="audio-input-video-path" placeholder="例如: E:/公司素材/01_output.mp4 或成片输出路径">
-                  </div>
-
-                  <!-- 方式 3: 文件上传 -->
-                  <div class="form-group" style="margin-bottom:14px;">
-                    <label class="form-label">或直接上传视频文件：</label>
-                    <input type="file" class="form-control" id="audio-upload-video-file" accept="video/mp4,video/quicktime,video/webm,video/*">
-                  </div>
-
-                  <!-- 可选参考图 -->
-                  <div class="form-group" style="margin-bottom:14px;">
-                    <label class="form-label">附加视觉参考图（可选）：</label>
-                    <div style="display:flex; gap:8px;">
-                      <input type="text" class="form-control" id="audio-ref-image-path" placeholder="参考图本地绝对路径 (可选)" style="flex:1;">
-                      <label class="btn btn-secondary btn-sm" style="display:inline-flex; align-items:center; cursor:pointer; margin:0;">
+</div>
+<!-- 方式 2: 本地路径输入 -->
+<div class="form-group" style="margin-bottom:14px">
+<label class="form-label">或输入本地视频绝对路径：</label>
+<input class="form-control" id="audio-input-video-path" placeholder="例如: E:/公司素材/01_output.mp4 或成片输出路径" type="text"/>
+</div>
+<!-- 方式 3: 文件上传 -->
+<div class="form-group" style="margin-bottom:14px">
+<label class="form-label">或直接上传视频文件：</label>
+<input accept="video/mp4,video/quicktime,video/webm,video/*" class="form-control" id="audio-upload-video-file" type="file"/>
+</div>
+<!-- 可选参考图 -->
+<div class="form-group" style="margin-bottom:14px">
+<label class="form-label">附加视觉参考图（可选）：</label>
+<div style="display:flex;gap:8px">
+<input class="form-control" id="audio-ref-image-path" placeholder="参考图本地绝对路径 (可选)" style="flex:1" type="text"/>
+<label class="btn btn-secondary btn-sm" style="display:inline-flex;align-items:center;cursor:pointer;margin:0">
                         📁 上传
-                        <input type="file" id="audio-upload-ref-img" accept="image/*" style="display:none;">
-                      </label>
-                    </div>
-                  </div>
+                        <input accept="image/*" id="audio-upload-ref-img" style="display:none" type="file"/>
+</label>
+</div>
+</div>
+<!-- 实时视频预览窗口 -->
+<div id="audio-preview-box" style="margin-top:10px;display:none;border-radius:8px;overflow:hidden">
+<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 10px">
+<span id="audio-preview-filename" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:80%">预览画面</span>
+<button class="btn btn-secondary btn-sm" id="btn-audio-clear-preview" style="padding:2px 6px" type="button">✖ 移除</button>
+</div>
+<video controls="" id="audio-preview-player" playsinline="" style="width:100%;max-height:220px;display:block;outline:none"></video>
+</div>
+</div>
+</div>
+<!-- 右栏：配音文案与音色调度 -->
+<div class="audio-column audio-column-2" style="display:flex;flex-direction:column;gap:16px">
+<div class="audio-section" style="border-radius:8px;padding:16px;display:flex;flex-direction:column;gap:14px">
+<h3 style="margin:0;display:flex;align-items:center;gap:6px">
+<span>🎙️ 配音文案与音色设置</span>
+</h3>
+<!-- 配音文案/提示词大输入框 -->
+<div class="form-group" style="margin:0">
+<label class="form-label" style="display:flex;justify-content:space-between"><span><b>配音台词 / 提示词：</b><span>*</span></span><span>直接输入文案或多模态指令</span></label>
+<textarea class="form-control" id="audio-prompt-input" placeholder="在此输入需要生成的视频解说词、宣传片旁白，或者给 Gemini 的分析提炼指令...
+例如：『本品富含高活性寡糖成分，高效激发作物细胞免疫，显著促进根系萌发与长势稳健，为高产丰收筑牢根基。』" rows="6" style="resize:vertical;line-height:1.6"></textarea>
+</div>
+<!-- 快捷灵感预设标签 -->
+<div>
+<label class="form-label" style="margin-bottom:6px">快捷灵感模板（点击一键填入）：</label>
+<div style="display:flex;flex-wrap:wrap;gap:6px">
+<button class="badge-chip btn-audio-preset" data-text="本段展现产品活性成分迅速渗透，根深叶茂，促进长势稳健，为高产丰收筑牢根基。" type="button">🌾 商业农化高产</button>
+<button class="badge-chip btn-audio-preset" data-text="画面聚焦分子层级的靶向识别，酶解微孔高效螯合，显著激发植物自身抗逆防护机制。" type="button">🔬 微观机理解读</button>
+<button class="badge-chip btn-audio-preset" data-text="科技赋能现代农业，以精准配方打破传统壁垒，见证生命力爆发的震撼蜕变。" type="button">🎬 科技大片旁白</button>
+<button class="badge-chip btn-audio-preset" data-text="请深度理解当前参考视频的画面内容与节奏，生成一段契合镜头运镜与展示主题的高品质产品宣传画外音。" type="button">💬 视频多模态提炼</button>
+</div>
+</div>
+<!-- 音色选择 -->
+<div class="form-group" style="margin:0">
+<label class="form-label"><b>解说音色选择：</b></label>
+<select class="form-control" id="audio-voice-select">
+<option selected="" value="zh-CN-YunxiNeural">🎙️ 云希 (阳光沉稳男声 · 推荐商业/农化/宣传片)</option>
+<option value="zh-CN-XiaoxiaoNeural">🎙️ 晓晓 (温柔亲切女声 · 推荐温情解说/故事叙述)</option>
+<option value="zh-CN-YunjianNeural">🎙️ 云健 (沉浸影视男声 · 推荐大片旁白/纪录片)</option>
+<option value="zh-CN-YunyangNeural">🎙️ 云扬 (专业播音男声 · 推荐发布会/新闻播报)</option>
+<option value="zh-CN-XiaoyiNeural">🎙️ 晓伊 (甜美生动女声 · 推荐科普/短视频/微课)</option>
+<option value="gemini-audio">🌐 Gemini 网页端原生对话朗读</option>
+</select>
+</div>
+<!-- 调度账号选择 -->
+<div class="form-group" style="margin:0">
+<label class="form-label">调度 Google 账号 (Profile)：</label>
+<select class="form-control" id="audio-profile-select">
+<option value="auto">Auto · 自动选择</option>
+</select>
+</div>
+<!-- 提交按钮 -->
+<div style="margin-top:6px">
+<button class="btn btn-primary btn-lg" id="btn-submit-audio-task" style="width:100%;display:flex;align-items:center;justify-content:center;gap:8px;font-weight:700" type="button">创建音频任务</button>
+<div id="audio-submit-status" style="margin-top:8px;text-align:center;min-height:18px"></div>
+</div>
+</div>
+</div>
+</div>
+</form>
+</div>
+</div>
+</section>
+<section class="view-pane active" id="view-generate"><div class="page-heading"><div><h1>把想法，变成镜头。</h1><p>定义画面与运动，让创作从这里开始。</p></div><div class="mode-switch-row">
+<div class="sub-pill-switch">
+<button class="sub-pill-btn active" id="btn-mode-single">单镜头</button>
+<button class="sub-pill-btn" id="btn-mode-batch">批量导入</button>
+</div>
+</div></div>
+<!-- 双生成引擎选择 -->
 
-                  <!-- 实时视频预览窗口 -->
-                  <div id="audio-preview-box" style="margin-top:10px; display:none; background:#000; border-radius:8px; overflow:hidden; border:1px solid rgba(255,255,255,0.1);">
-                    <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 10px; background:rgba(30,41,59,0.8); font-size:12px; color:#cbd5e1;">
-                      <span id="audio-preview-filename" style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:80%;">预览画面</span>
-                      <button type="button" class="btn btn-secondary btn-sm" id="btn-audio-clear-preview" style="padding:2px 6px; font-size:11px;">✖ 移除</button>
-                    </div>
-                    <video id="audio-preview-player" controls playsinline style="width:100%; max-height:220px; display:block; outline:none;"></video>
-                  </div>
-                </div>
-              </div>
 
-              <!-- 右栏：配音文案与音色调度 -->
-              <div style="display:flex; flex-direction:column; gap:16px;">
-                <div style="background:rgba(15,23,42,0.6); border:1px solid var(--border-color); border-radius:8px; padding:16px; display:flex; flex-direction:column; gap:14px;">
-                  <h3 style="font-size:14px; margin:0; color:#e2e8f0; display:flex; align-items:center; gap:6px;">
-                    <span>🎙️ 配音文案与音色设置</span>
-                  </h3>
+<!-- 单镜头模式 -->
+<div class="studio-grid" id="single-shot-panel">
+<!-- 首尾帧工作台 -->
 
-                  <!-- 配音文案/提示词大输入框 -->
-                  <div class="form-group" style="margin:0;">
-                    <label class="form-label" style="display:flex; justify-content:space-between;">
-                      <span><b>配音台词 / 提示词：</b><span style="color:var(--red-err);">*</span></span>
-                      <span style="font-size:11px; color:var(--text-muted);">直接输入文案或多模态指令</span>
-                    </label>
-                    <textarea class="form-control" id="audio-prompt-input" rows="6" placeholder="在此输入需要生成的视频解说词、宣传片旁白，或者给 Gemini 的分析提炼指令...&#10;例如：『本品富含高活性寡糖成分，高效激发作物细胞免疫，显著促进根系萌发与长势稳健，为高产丰收筑牢根基。』" style="resize:vertical; line-height:1.6; font-size:13px;"></textarea>
-                  </div>
+<!-- 提示词与参数面板 -->
 
-                  <!-- 快捷灵感预设标签 -->
-                  <div>
-                    <label class="form-label" style="font-size:11px; color:var(--text-muted); margin-bottom:6px;">💡 快捷灵感模板（点击一键填入）：</label>
-                    <div style="display:flex; flex-wrap:wrap; gap:6px;">
-                      <button type="button" class="badge-chip btn-audio-preset" data-text="本段展现产品活性成分迅速渗透，根深叶茂，促进长势稳健，为高产丰收筑牢根基。">🌾 商业农化高产</button>
-                      <button type="button" class="badge-chip btn-audio-preset" data-text="画面聚焦分子层级的靶向识别，酶解微孔高效螯合，显著激发植物自身抗逆防护机制。">🔬 微观机理解读</button>
-                      <button type="button" class="badge-chip btn-audio-preset" data-text="科技赋能现代农业，以精准配方打破传统壁垒，见证生命力爆发的震撼蜕变。">🎬 科技大片旁白</button>
-                      <button type="button" class="badge-chip btn-audio-preset" data-text="请深度理解当前参考视频的画面内容与节奏，生成一段契合镜头运镜与展示主题的高品质产品宣传画外音。">💬 视频多模态提炼</button>
-                    </div>
-                  </div>
+<div class="creation-editor"><div class="editor-heading"><h2>创作设置</h2><span>新镜头</span></div><div class="engine-switch-group">
+<button class="engine-btn active" data-engine="flow" id="btn-engine-flow">
 
-                  <!-- 音色选择 -->
-                  <div class="form-group" style="margin:0;">
-                    <label class="form-label"><b>解说音色选择：</b></label>
-                    <select class="form-control" id="audio-voice-select">
-                      <option value="zh-CN-YunxiNeural" selected>🎙️ 云希 (阳光沉稳男声 · 推荐商业/农化/宣传片)</option>
-                      <option value="zh-CN-XiaoxiaoNeural">🎙️ 晓晓 (温柔亲切女声 · 推荐温情解说/故事叙述)</option>
-                      <option value="zh-CN-YunjianNeural">🎙️ 云健 (沉浸影视男声 · 推荐大片旁白/纪录片)</option>
-                      <option value="zh-CN-YunyangNeural">🎙️ 云扬 (专业播音男声 · 推荐发布会/新闻播报)</option>
-                      <option value="zh-CN-XiaoyiNeural">🎙️ 晓伊 (甜美生动女声 · 推荐科普/短视频/微课)</option>
-                      <option value="gemini-audio">🌐 Gemini 网页端原生对话朗读</option>
-                    </select>
-                  </div>
+<div>
+<div class="engine-title">Google Flow</div>
+<div class="engine-sub">首尾帧约束 · 保持画面连续</div>
+</div>
+</button>
+<button class="engine-btn" data-engine="gemini" id="btn-engine-gemini">
 
-                  <!-- 调度账号选择 -->
-                  <div class="form-group" style="margin:0;">
-                    <label class="form-label">调度 Google 账号 (Profile)：</label>
-                    <select class="form-control" id="audio-profile-select">
-                      <option value="auto">⚡ 自动负载均衡 (自动分配最空闲账号)</option>
-                    </select>
-                  </div>
-
-                  <!-- 提交按钮 -->
-                  <div style="margin-top:6px;">
-                    <button type="button" class="btn btn-primary btn-lg" id="btn-submit-audio-task" style="width:100%; display:flex; align-items:center; justify-content:center; gap:8px; font-weight:700; background:linear-gradient(135deg, #a855f7 0%, #ec4899 100%); border:none; box-shadow:0 4px 14px rgba(168,85,247,0.35);">
-                      <span>🚀 一键生成智能配音与音频</span>
-                    </button>
-                    <div id="audio-submit-status" style="margin-top:8px; font-size:12px; text-align:center; min-height:18px;"></div>
-                  </div>
-
-                </div>
-              </div>
-
-            </div>
-          </form>
-        </div>
-      </div>
-    </section>
-
-<section class="view-pane active" id="view-generate">
-      <!-- 双生成引擎选择 -->
-      <div class="engine-switch-group">
-        <button class="engine-btn active" id="btn-engine-flow" data-engine="flow">
-          <span class="engine-icon">🎬</span>
-          <div>
-            <div class="engine-title">Google Flow (首尾帧插值)</div>
-            <div class="engine-sub">首帧 + 尾帧刚性约束 · 9:16 物理平滑运镜收束</div>
+<div>
+<div class="engine-title">Gemini 视频</div>
+<div class="engine-sub">单图参考 / 文字生成</div>
+</div>
+</button>
+</div><div class="stage-panel reference-stage">
+<div class="stage-title">
+<span id="stage-panel-title">🖼️ 首尾帧插值舞台 (16:9 横屏)</span>
+<span>拖入或选择图片</span>
+</div>
+<div class="frames-stage-row">
+<!-- 首帧上传卡片 -->
+<div aria-label="选择首帧图片" class="drop-card aspect-16-9" id="drop-start-frame" role="button" tabindex="0">
+<span class="frame-role-tag">首帧</span>
+<span class="aspect-check-tag" id="aspect-tag-start">16:9 ✓</span>
+<div class="drop-placeholder" id="placeholder-start">
+<span aria-hidden="true" class="ui-icon icon-image-plus"></span>
+<span class="drop-text">上传首帧图片</span>
+<span class="drop-subtext">推荐 16:9 (如 1280x720)</span>
+</div>
+<img alt="首帧预览" class="preview-img" id="img-preview-start" style="display:none"/>
+<input accept="image/*" id="file-input-start" style="display:none" type="file"/>
+</div>
+<!-- 交换首尾帧按钮 -->
+<button aria-label="交换首尾帧" class="swap-button-circle" id="btn-swap-frames" title="⇄ 一键交换首尾帧"><span aria-hidden="true" class="ui-icon icon-arrow-left-right"></span></button>
+<!-- 尾帧上传卡片 -->
+<div aria-label="选择尾帧图片" class="drop-card aspect-16-9" id="drop-end-frame" role="button" tabindex="0">
+<span class="frame-role-tag">尾帧</span>
+<span class="aspect-check-tag" id="aspect-tag-end">16:9 ✓</span>
+<div class="drop-placeholder" id="placeholder-end">
+<span aria-hidden="true" class="ui-icon icon-image-plus"></span>
+<span class="drop-text">上传尾帧图片</span>
+<span class="drop-subtext">推荐 16:9 (如 1280x720)</span>
+</div>
+<img alt="尾帧预览" class="preview-img" id="img-preview-end" style="display:none"/>
+<input accept="image/*" id="file-input-end" style="display:none" type="file"/>
+</div>
+</div>
+<div id="stage-hint-text" style="text-align:center;margin-top:4px">
+            用两张画面定义起点与终点，具体效果以生成结果为准。
           </div>
-        </button>
-        <button class="engine-btn" id="btn-engine-gemini" data-engine="gemini">
-          <span class="engine-icon">🌐</span>
-          <div>
-            <div class="engine-title">Gemini 网页版 (对话框视频生成)</div>
-            <div class="engine-sub">官方 gemini.google.com 驱动 · 单图/文生视频 · 额度自动切换</div>
-          </div>
-        </button>
-      </div>
+</div><div class="config-panel">
+<div class="prompt-group">
+<div class="prompt-header">
+<label for="input-prompt">镜头描述</label>
+<button class="btn btn-secondary btn-sm" id="btn-use-default-prompt">默认提示词</button>
+</div>
+<textarea class="prompt-area" id="input-prompt" placeholder="描述画面如何从首帧稳定、自然、符合物理规律地过渡收束到尾帧..." spellcheck="false"></textarea>
+<div class="quick-prompts-bar">
 
-      <div class="mode-switch-row">
-        <div class="sub-pill-switch">
-          <button class="sub-pill-btn active" id="btn-mode-single">单镜头创作</button>
-          <button class="sub-pill-btn" id="btn-mode-batch">批量分镜导入</button>
-        </div>
-      </div>
+<button class="chip-btn" data-text="保持主体身份、形状、材质和环境一致。镜头自然稳定地从首帧状态过渡到尾帧状态。中间动作符合真实物理逻辑，不突然变形，不增加无关物体。最终准确收束到提供的尾帧构图。">稳定过渡</button>
+<button class="chip-btn" data-text="镜头缓慢前推，主体材质由透明渐变向深色凝固，动态平稳流畅，无突变跳跃。">缓慢推进</button>
+<button class="chip-btn" data-text="微风吹拂，环境光影自然流转，动作柔和连续，画面精准过渡并最终停留在尾帧。">柔和光影</button>
+</div>
+</div>
+<!-- 核心生成参数工具栏（一级直观展示） -->
+<div class="core-params-section">
+<div class="core-params-row">
+<!-- 1. 画幅比例选择器 -->
+<div class="param-card">
+<div class="param-header">
+<label class="param-label"> 画幅比例</label>
+<span class="param-badge" id="badge-aspect-info">16:9 横屏宽幅</span>
+</div>
+<div class="aspect-pill-group" id="aspect-pill-group">
+<button class="aspect-pill-btn active" data-aspect="16:9" title="16:9 横屏，适合宣传片、展厅、宽屏展示" type="button">
+<span class="aspect-icon-rect aspect-16-9"></span>
+<span class="aspect-name">16:9 横屏</span>
 
-      <!-- 单镜头模式 -->
-      <div id="single-shot-panel" class="studio-grid">
-        <!-- 首尾帧工作台 -->
-        <div class="stage-panel">
-          <div class="stage-title">
-            <span id="stage-panel-title">🖼️ 首尾帧插值舞台 (16:9 横屏)</span>
-            <span style="font-size:12px; color:var(--text-muted);">拖入图片或点击选择</span>
-          </div>
+</button>
+<button class="aspect-pill-btn" data-aspect="9:16" title="9:16 竖屏，适合抖音、小红书、手机短视频" type="button">
+<span class="aspect-icon-rect aspect-9-16"></span>
+<span class="aspect-name">9:16 竖屏</span>
 
-          <div class="frames-stage-row">
-            <!-- 首帧上传卡片 -->
-            <div class="drop-card aspect-16-9" id="drop-start-frame">
-              <span class="frame-role-tag">首帧 (Start)</span>
-              <span class="aspect-check-tag" id="aspect-tag-start">16:9 ✓</span>
-              <div class="drop-placeholder" id="placeholder-start">
-                <span class="drop-icon">➕</span>
-                <span class="drop-text">上传首帧图片</span>
-                <span class="drop-subtext">推荐 16:9 (如 1280x720)</span>
-              </div>
-              <img class="preview-img" id="img-preview-start" style="display:none;" alt="首帧预览">
-              <input type="file" id="file-input-start" accept="image/*" style="display:none;">
-            </div>
+</button>
+<button class="aspect-pill-btn" data-aspect="1:1" title="1:1 方形，适合产品细节与电商特写" type="button">
+<span class="aspect-icon-rect aspect-1-1"></span>
+<span class="aspect-name">1:1 方形</span>
 
-            <!-- 交换首尾帧按钮 -->
-            <button class="swap-button-circle" id="btn-swap-frames" title="⇄ 一键交换首尾帧">
-              ⇄
-            </button>
-
-            <!-- 尾帧上传卡片 -->
-            <div class="drop-card aspect-16-9" id="drop-end-frame">
-              <span class="frame-role-tag">尾帧 (End)</span>
-              <span class="aspect-check-tag" id="aspect-tag-end">16:9 ✓</span>
-              <div class="drop-placeholder" id="placeholder-end">
-                <span class="drop-icon">➕</span>
-                <span class="drop-text">上传尾帧图片</span>
-                <span class="drop-subtext">推荐 16:9 (如 1280x720)</span>
-              </div>
-              <img class="preview-img" id="img-preview-end" style="display:none;" alt="尾帧预览">
-              <input type="file" id="file-input-end" accept="image/*" style="display:none;">
-            </div>
-          </div>
-
-          <div style="font-size:11px; color:var(--text-muted); text-align:center; margin-top:4px;" id="stage-hint-text">
-            💡 Google Flow 模式：尾帧将作为刚性约束送入模型，视频将在最后一刻精准收束于该画面。
-          </div>
-        </div>
-
-        <!-- 提示词与参数面板 -->
-        <div class="config-panel">
-          <div class="prompt-group">
-            <div class="prompt-header">
-              <label for="input-prompt">🎬 动态运镜与物理过渡提示词</label>
-              <button class="btn btn-secondary btn-sm" id="btn-use-default-prompt">填入默认提示词</button>
-            </div>
-            <textarea class="prompt-area" id="input-prompt" placeholder="描述画面如何从首帧稳定、自然、符合物理规律地过渡收束到尾帧..."></textarea>
-            
-            <div class="quick-prompts-bar">
-              <span style="font-size:11px; color:var(--text-muted); align-self:center;">常用预设:</span>
-              <button class="chip-btn" data-text="保持主体身份、形状、材质和环境一致。镜头自然稳定地从首帧状态过渡到尾帧状态。中间动作符合真实物理逻辑，不突然变形，不增加无关物体。最终准确收束到提供的尾帧构图。">稳定物理收束</button>
-              <button class="chip-btn" data-text="镜头缓慢前推，主体材质由透明渐变向深色凝固，动态平稳流畅，无突变跳跃。">缓慢平滑推进</button>
-              <button class="chip-btn" data-text="微风吹拂，环境光影自然流转，动作柔和连续，画面精准过渡并最终停留在尾帧。">柔和光影流转</button>
-            </div>
-          </div>
-
-          <!-- 核心生成参数工具栏（一级直观展示） -->
-          <div class="core-params-section">
-            <div class="core-params-row">
-              <!-- 1. 画幅比例选择器 -->
-              <div class="param-card">
-                <div class="param-header">
-                  <label class="param-label"><span class="icon">📐</span> 画幅比例</label>
-                  <span class="param-badge" id="badge-aspect-info">16:9 横屏宽幅</span>
-                </div>
-                <div class="aspect-pill-group" id="aspect-pill-group">
-                  <button type="button" class="aspect-pill-btn active" data-aspect="16:9" title="16:9 横屏，适合宣传片、展厅、宽屏展示">
-                    <span class="aspect-icon-rect aspect-16-9"></span>
-                    <span class="aspect-name">16:9 横屏</span>
-                    <span class="aspect-desc">宣传片宽幅</span>
-                  </button>
-                  <button type="button" class="aspect-pill-btn" data-aspect="9:16" title="9:16 竖屏，适合抖音、小红书、手机短视频">
-                    <span class="aspect-icon-rect aspect-9-16"></span>
-                    <span class="aspect-name">9:16 竖屏</span>
-                    <span class="aspect-desc">短视频/手机</span>
-                  </button>
-                  <button type="button" class="aspect-pill-btn" data-aspect="1:1" title="1:1 方形，适合产品细节与电商特写">
-                    <span class="aspect-icon-rect aspect-1-1"></span>
-                    <span class="aspect-name">1:1 方形</span>
-                    <span class="aspect-desc">产品特写</span>
-                  </button>
-                </div>
-                <!-- 隐藏的 select 控件保证最大兼容 -->
-                <select class="select-control" id="select-aspect" style="display:none;">
-                  <option value="16:9" selected>16:9 (横屏宽幅 · 宣传片标准)</option>
-                  <option value="9:16">9:16 (竖屏短视频)</option>
-                  <option value="1:1">1:1 (方形特写)</option>
-                </select>
-              </div>
-
-              <!-- 2. 视频时长选择 -->
-              <div class="param-card">
-                <div class="param-header">
-                  <label class="param-label"><span class="icon">⏱️</span> 生成时长</label>
-                  <span class="param-badge" id="badge-duration-info">8 秒 (推荐)</span>
-                </div>
-                <div class="duration-pill-group" id="duration-pill-group">
-                  <button type="button" class="duration-pill-btn" data-sec="4">4s</button>
-                  <button type="button" class="duration-pill-btn" data-sec="6">6s</button>
-                  <button type="button" class="duration-pill-btn active" data-sec="8">8s (推荐)</button>
-                  <button type="button" class="duration-pill-btn" data-sec="10">10s</button>
-                </div>
-                <!-- 隐藏的 select 控件保证最大兼容 -->
-                <select class="select-control" id="select-duration" style="display:none;">
-                  <option value="4">4 秒</option>
-                  <option value="6">6 秒</option>
-                  <option value="8" selected>8 秒 (标准推荐)</option>
-                  <option value="10">10 秒</option>
-                </select>
-              </div>
-            </div>
-
-            <!-- 3. AI 生成模型选择（双引擎动态联动） -->
-            <div class="param-card" style="margin-top:2px;">
-              <div class="param-header">
-                <label class="param-label" id="label-model-title"><span class="icon">🤖</span> AI 视频模型</label>
-                <span class="param-badge" id="badge-model-tag" style="background:rgba(59,130,246,0.15); color:#60a5fa;">Google Flow</span>
-              </div>
-              <select class="highlight-select" id="select-video-model">
-                <option value="veo-lite" selected>Veo 3.1 Lite (推荐 · 经济稳定 · 默认)</option>
-                <option value="veo-quality">Veo 3.1 Quality (高精画质 · 商业旗舰)</option>
-                <option value="veo-fast">Veo 3.1 Fast (快速响应模式)</option>
-                <option value="omni-flash">Omni Flash (支持首尾帧 · 解锁10秒)</option>
-                <option value="veo-lite-lp">Veo 3.1 Lite LP (低功耗备份)</option>
-                <option value="custom">🛠️ 自定义模型代码 (手动指定)...</option>
-              </select>
-              <input type="text" id="input-custom-model" class="input-text" placeholder="输入自定义模型代码 (如: gemini-3.8-flash / gemini-3.8-pro)" style="display:none; margin-top:8px; font-size:12px; padding:7px 10px; border-radius:6px; border:1px solid #3b82f6; background:rgba(15, 23, 42, 0.9); color:#fff; width:100%; box-sizing:border-box;">
-              <div class="model-hint-text" id="model-desc-hint" style="font-size:11px; color:var(--text-muted); margin-top:2px;">
+</button>
+</div>
+<!-- 隐藏的 select 控件保证最大兼容 -->
+<select class="select-control" id="select-aspect" style="display:none">
+<option selected="" value="16:9">16:9 (横屏宽幅 · 宣传片标准)</option>
+<option value="9:16">9:16 (竖屏短视频)</option>
+<option value="1:1">1:1 (方形特写)</option>
+</select>
+</div>
+<!-- 2. 视频时长选择 -->
+<div class="param-card">
+<div class="param-header">
+<label class="param-label"> 生成时长</label>
+<span class="param-badge" id="badge-duration-info">8 秒 (推荐)</span>
+</div>
+<div class="duration-pill-group" id="duration-pill-group">
+<button class="duration-pill-btn" data-sec="4" type="button">4s</button>
+<button class="duration-pill-btn" data-sec="6" type="button">6s</button>
+<button class="duration-pill-btn active" data-sec="8" type="button">8s (推荐)</button>
+<button class="duration-pill-btn" data-sec="10" type="button">10s</button>
+</div>
+<!-- 隐藏的 select 控件保证最大兼容 -->
+<select class="select-control" id="select-duration" style="display:none">
+<option value="4">4 秒</option>
+<option value="6">6 秒</option>
+<option selected="" value="8">8 秒 (标准推荐)</option>
+<option value="10">10 秒</option>
+</select>
+</div>
+</div>
+<!-- 3. AI 生成模型选择（双引擎动态联动） -->
+</div>
+<!-- 折叠高级设置 -->
+<div class="advanced-accordion" style="margin-top:8px">
+<div class="accordion-title" id="accordion-toggle-adv" role="button" tabindex="0">
+<span>模型、账号与高级设置</span>
+<span id="adv-arrow">▼</span>
+</div>
+<div class="accordion-body" id="accordion-body-adv"><div class="param-card" style="margin-top:2px">
+<div class="param-header">
+<label class="param-label" id="label-model-title"> AI 视频模型</label>
+<span class="param-badge" id="badge-model-tag">Google Flow</span>
+</div>
+<select class="highlight-select" id="select-video-model">
+<option selected="" value="veo-lite">Veo 3.1 Lite · 默认配置</option>
+<option value="veo-quality">Veo 3.1 Quality · 质量请求</option>
+<option value="veo-fast">Veo 3.1 Fast · 速度请求</option>
+<option value="omni-flash">Omni Flash · 本地配置</option>
+<option value="veo-lite-lp">Veo 3.1 Lite LP · 备用配置</option>
+<option value="custom">自定义模型代码…</option>
+</select>
+<input class="input-text" id="input-custom-model" placeholder="输入自定义模型代码 (如: gemini-3.8-flash / gemini-3.8-pro)" style="display:none;margin-top:8px;padding:7px 10px;border-radius:6px;width:100%;box-sizing:border-box" type="text"/>
+<div class="model-hint-text" id="model-desc-hint" style="margin-top:2px">
                 ⚡ Google Flow 模式：采用 Veo 3.1 物理模拟运镜，支持首尾帧硬约束收束
               </div>
-            </div>
-          </div>
-
-          <!-- 折叠高级设置 -->
-          <div class="advanced-accordion" style="margin-top:8px;">
-            <div class="accordion-title" id="accordion-toggle-adv">
-              <span>⚙️ 更多高级策略 (调度优先级、指定账号、去水印要求)</span>
-              <span id="adv-arrow">▼</span>
-            </div>
-            <div class="accordion-body" id="accordion-body-adv" style="display:none;">
-              <div class="field-group">
-                <label>任务优先级</label>
-                <select class="select-control" id="select-priority">
-                  <option value="10" selected>正常优先级 (10)</option>
-                  <option value="20">高优先级 (20 - 插队生成)</option>
-                  <option value="5">低优先级 (5 - 后台排队)</option>
-                </select>
-              </div>
-
-              <div class="field-group">
-                <label>指定执行账号 (可选)</label>
-                <select class="select-control" id="select-assigned-profile">
-                  <option value="">自动轮询空闲账号 (推荐)</option>
-                </select>
-              </div>
-
-              <div class="field-group" style="grid-column: span 2;">
-                <label class="checkbox-label">
-                  <input type="checkbox" id="check-require-clean">
-                  <span>强制要求无水印账号 (若无无水印账号，将在队列中等待，不落入带水印账号)</span>
-                </label>
-              </div>
-            </div>
-          </div>
-
-          <!-- 提交动作按钮 -->
-          <div style="margin-top:auto; display:flex; gap:12px;">
-            <button class="btn btn-primary btn-lg" id="btn-submit-task" style="flex:1;">
-              🚀 提交到生成队列
-            </button>
-            <button class="btn btn-secondary btn-lg" id="btn-reset-form">
+</div>
+<div class="field-group">
+<label>任务优先级</label>
+<select class="select-control" id="select-priority">
+<option selected="" value="10">正常优先级 (10)</option>
+<option value="20">高优先级 (20 - 插队生成)</option>
+<option value="5">低优先级 (5 - 后台排队)</option>
+</select>
+</div>
+<div class="field-group">
+<label>指定执行账号 (可选)</label>
+<select class="select-control" id="select-assigned-profile">
+<option value="">自动轮询空闲账号 (推荐)</option>
+</select>
+</div>
+<div class="field-group" style="grid-column:span 2">
+<label class="checkbox-label">
+<input id="check-require-clean" type="checkbox"/>
+<span>强制要求无水印账号 (若无无水印账号，将在队列中等待，不落入带水印账号)</span>
+</label>
+</div>
+</div>
+</div>
+<!-- 提交动作按钮 -->
+<div class="creation-actions" style="margin-top:auto;display:flex;gap:12px">
+<button class="btn btn-primary btn-lg" id="btn-submit-task" style="flex:1">创建视频任务</button>
+<button class="btn btn-secondary btn-lg" id="btn-reset-form">
               重置
             </button>
-          </div>
-        </div>
-      </div>
-
-      <!-- 批量分镜导入面板 (默认隐藏) -->
-      <div id="batch-shot-panel" class="batch-studio-panel" style="display:none;">
-        <div>
-          <h3>📋 批量分镜 JSON 投递</h3>
-          <p style="font-size:12px; color:var(--text-muted); margin-top:4px;">
+</div>
+<p class="creation-footnote">按所选账号额度生成 · 实际规格以成片为准</p></div></div><section aria-label="成片预览" class="output-workspace">
+<div class="output-header"><div><span class="subtle-label">成片预览</span><h2 id="workbench-output-title">你的下一支作品，从这里开始</h2></div><span class="output-state" id="workbench-state">等待成片</span></div>
+<div class="output-stage" id="workbench-stage">
+<video aria-label="所选成片播放器" controls="" hidden="" id="workbench-video" playsinline="" preload="metadata"></video>
+<div class="output-empty" id="workbench-empty"><span aria-hidden="true" class="ui-icon icon-film"></span><h3>为想法留一块银幕</h3><p>上传参考画面并描述运动方式，<br/>完成的视频会出现在这里。</p></div>
+</div>
+<div class="output-detail"><div class="output-meta"><span id="workbench-measured">尚无可预览成片</span><span id="workbench-task-id"></span></div><p id="workbench-prompt">这里展示真实任务的成片，而不是演示素材。</p><div class="output-actions"><a class="btn btn-secondary" download="" hidden="" id="workbench-download"><span aria-hidden="true" class="ui-icon icon-download"></span>下载成片</a><button class="btn btn-secondary" id="workbench-go-tasks" type="button">查看任务与质检<span aria-hidden="true" class="ui-icon icon-arrow-up-right"></span></button><span class="output-hint" id="workbench-requested"></span></div></div>
+<div class="recent-heading"><h3>最近完成</h3><span>仅展示有文件的已完成视频</span></div><div aria-label="选择最近完成的视频" class="recent-outputs" id="workbench-recents"></div>
+</section></div>
+<!-- 批量分镜导入面板 (默认隐藏) -->
+<div class="batch-studio-panel" id="batch-shot-panel" style="display:none">
+<div>
+<h3>📋 批量分镜 JSON 投递</h3>
+<p style="margin-top:4px">
             支持直接粘贴分镜数组或加载 JSON 文件。自动校验首尾帧本地路径是否存在。
           </p>
-        </div>
-
-        <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); padding:10px 14px; border-radius:8px; margin-bottom:8px;">
-          <div style="display:flex; align-items:center; gap:8px;">
-            <label style="font-size:13px; font-weight:600; color:var(--text-main); margin-bottom:0;">🎯 指定执行账号：</label>
-            <select class="select-control" id="select-batch-profile" style="min-width:280px; padding:6px 10px; font-size:13px;">
-              <option value="auto">🌟 自动锁定最优空闲账号（推荐，整批不切号）</option>
-            </select>
-          </div>
-          <div style="font-size:12px; color:var(--accent-info, #60a5fa); display:flex; align-items:center; gap:4px;">
-            <span>🔒 整批分镜将固定使用选定账号排队顺次生成，中途绝不频繁换号或重复拉起浏览器。</span>
-          </div>
-        </div>
-
-        <textarea class="batch-input-area" id="input-batch-json" placeholder='[
+</div>
+<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;padding:10px 14px;border-radius:8px;margin-bottom:8px">
+<div style="display:flex;align-items:center;gap:8px">
+<label style="font-weight:600;margin-bottom:0">🎯 指定执行账号：</label>
+<select class="select-control" id="select-batch-profile" style="padding:6px 10px">
+<option value="auto">Auto · 自动选择</option>
+</select>
+</div>
+<div style="display:flex;align-items:center;gap:4px">
+<span>🔒 整批分镜将固定使用选定账号排队顺次生成，中途绝不频繁换号或重复拉起浏览器。</span>
+</div>
+</div>
+<textarea class="batch-input-area" id="input-batch-json" placeholder='[
   {
     "prompt": "镜头1：由全景缓慢切近...",
     "start_image_path": "D:/素材/shot1_start.png",
@@ -470,457 +379,428 @@
     "duration_sec": 8
   }
 ]'></textarea>
-
-        <div style="display:flex; gap:10px;">
-          <button class="btn btn-secondary btn-sm" id="btn-load-sample-batch">加载示例分镜</button>
-          <button class="btn btn-primary btn-sm" id="btn-submit-batch">解析并批量加入队列</button>
-        </div>
-      </div>
-    </section>
-
-
-    <!-- ================= 视图 2: 生成图片 (Imagen 3.5 / Nano) ================= -->
-    <section class="view-pane" id="view-images">
-      <div class="studio-grid" style="grid-template-columns: 420px 1fr; gap: 20px;">
-        <!-- 左侧：图像生成配置 -->
-        <div class="config-panel" style="background:var(--bg-surface); border:1px solid rgba(255,255,255,0.08); border-radius:12px; padding:20px; display:flex; flex-direction:column; gap:14px;">
-          <div style="display:flex; justify-content:space-between; align-items:flex-start;">
-            <div>
-              <h3 style="font-size:16px; font-weight:600; color:var(--text-main); display:flex; align-items:center; gap:6px;">
-                <span>🖼️ Google Flow 图像生成工坊</span>
-              </h3>
-              <p style="font-size:12px; color:var(--text-muted); margin-top:3px;">基于官方 Nano Banana Pro / Imagen 模型 · 支持文生图与垫图图生图</p>
-            </div>
-            <span class="badge" style="background:rgba(16,185,129,0.15); color:#34d399; border:1px solid rgba(16,185,129,0.3); padding:4px 8px; border-radius:6px; font-size:11px; white-space:nowrap;">
+<div style="display:flex;gap:10px">
+<button class="btn btn-secondary btn-sm" id="btn-load-sample-batch">加载示例分镜</button>
+<button class="btn btn-primary btn-sm" id="btn-submit-batch">导入并创建任务</button>
+</div>
+</div>
+</section>
+<!-- ================= 视图 2: 生成图片 (Imagen 3.5 / Nano) ================= -->
+<section class="view-pane" id="view-images"><div class="page-heading"><div><h1>图像与素材</h1><p>生成新的画面，或用参考图延续视觉风格。</p></div></div>
+<div class="studio-grid image-studio-grid">
+<!-- 左侧：图像生成配置 -->
+<div class="config-panel" style="border-radius:12px;padding:20px;display:flex;flex-direction:column;gap:14px">
+<div class="image-config-heading" style="display:flex;justify-content:space-between;align-items:flex-start">
+<div>
+<h3 style="font-weight:600;display:flex;align-items:center;gap:6px">
+<span>🖼️ Google Flow 图像生成工坊</span>
+</h3>
+<p style="margin-top:3px">使用本地配置的图像路由 · 可用模型与生成效果以当前账号和上游结果为准</p>
+</div>
+<span class="badge" style="padding:4px 8px;border-radius:6px;white-space:nowrap">
               ⚡ 生成后可一键设为首尾帧
             </span>
-          </div>
-
-          <!-- 提示词输入 -->
-          <div class="prompt-group">
-            <div class="prompt-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-              <label for="input-image-prompt" style="font-size:13px; font-weight:500;">🎨 画面描述提示词 (Prompt)</label>
-              <div style="display:flex; gap:6px;">
-                <button class="btn btn-secondary btn-sm" id="btn-image-example-start" style="padding:2px 8px; font-size:11px;">填入首帧样本</button>
-                <button class="btn btn-secondary btn-sm" id="btn-image-example-end" style="padding:2px 8px; font-size:11px;">填入尾帧样本</button>
-              </div>
-            </div>
-            <textarea class="prompt-area" id="input-image-prompt" style="height:115px;" placeholder="详细描述想生成的画面细节、光影、主体姿态与构图，例如：电影特写微距镜头，一颗透明的水滴悬挂在翠绿的叶尖，晨光透过水滴折射出彩虹光晕，超高清8K，虚化背景..."></textarea>
-          </div>
-
-          <!-- 模型与画幅控制 -->
-          <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
-            <div class="field-group">
-              <label for="select-image-model">🎨 图像生成模型</label>
-              <select class="select-control" id="select-image-model">
-                <option value="nano-pro" selected>Nano Banana Pro (nano-pro · 推荐 · 深度适配 flow.google.com)</option>
-                <option value="nano2">Nano Banana 2 (nano2 · 极速出图)</option>
-                <option value="imagen4">Imagen 3.5 (imagen4 · 仅限未迁移的旧版账号)</option>
-              </select>
-            </div>
-
-            <div class="field-group">
-              <label for="select-image-aspect">📐 画面长宽比 (Aspect Ratio)</label>
-              <select class="select-control" id="select-image-aspect">
-                <option value="9:16" selected>9:16 (竖屏短视频 · 最适首尾帧)</option>
-                <option value="16:9">16:9 (横屏宽幅)</option>
-                <option value="1:1">1:1 (正方形社交贴图)</option>
-                <option value="4:3">4:3 (标准横幅)</option>
-                <option value="3:4">3:4 (标准立式)</option>
-              </select>
-            </div>
-          </div>
-
-          <!-- 垫图上传 (可选图生图) -->
-          <div class="field-group">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-              <label style="font-size:13px;">📷 参考垫图 (可选，上传后自动切换为图生图 i2i)</label>
-              <button class="btn btn-secondary btn-sm" id="btn-clear-image-ref" style="display:none; padding:1px 6px; font-size:11px;">清除垫图</button>
-            </div>
-            <div class="drop-card" id="drop-image-ref" style="height:85px; margin-top:2px; cursor:pointer; display:flex; align-items:center; justify-content:center; border:1px dashed rgba(255,255,255,0.15); border-radius:8px;">
-              <div class="drop-placeholder" id="placeholder-image-ref" style="text-align:center;">
-                <span class="drop-icon" style="font-size:18px;">🖼️</span>
-                <span class="drop-text" style="font-size:12px; margin-top:2px;">点击或拖入参考垫图（可选）</span>
-                <span class="drop-subtext" style="font-size:11px; color:var(--text-muted);">留空则为纯文生图 (t2i)</span>
-              </div>
-              <img class="preview-img" id="img-preview-ref" style="display:none; max-height:75px; object-fit:contain;" alt="参考图预览">
-              <input type="file" id="file-input-image-ref" accept="image/*" style="display:none;">
-            </div>
-          </div>
-
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-top:10px;">
-            <div class="field-group" style="margin-bottom:0; width:180px;">
-              <select class="select-control" id="select-image-profile">
-                <option value="">自动轮询空闲账号</option>
-              </select>
-            </div>
-            <button class="btn btn-primary" id="btn-submit-image-task" style="padding:10px 22px; font-weight:600; font-size:14px;">
-              🚀 立即生成图片
-            </button>
-          </div>
-        </div>
-
-        <!-- 右侧：生成图片画廊与联动操作 -->
-        <div class="stage-panel" style="background:var(--bg-surface); border:1px solid rgba(255,255,255,0.08); border-radius:12px; padding:20px; display:flex; flex-direction:column;">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-            <div class="stage-title" style="margin-bottom:0; font-size:15px;">
-              <span>🖼️ 已生成图片成果库</span>
-              <span id="gallery-count" style="font-size:12px; color:var(--text-muted); margin-left:8px;">(0 张图片)</span>
-            </div>
-            <button class="btn btn-secondary btn-sm" id="btn-refresh-images">🔄 刷新成果</button>
-          </div>
-
-          <div style="font-size:12px; line-height:1.6; color:var(--text-sub); background:var(--bg-card); padding:10px 14px; border-radius:8px; border:1px solid rgba(255,255,255,0.06); margin-bottom:14px;">
+</div>
+<!-- 提示词输入 -->
+<div class="prompt-group">
+<div class="prompt-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+<label for="input-image-prompt" style="font-weight:500">🎨 画面描述提示词 (Prompt)</label>
+<div style="display:flex;gap:6px">
+<button class="btn btn-secondary btn-sm" id="btn-image-example-start" style="padding:2px 8px">填入首帧样本</button>
+<button class="btn btn-secondary btn-sm" id="btn-image-example-end" style="padding:2px 8px">填入尾帧样本</button>
+</div>
+</div>
+<textarea class="prompt-area" id="input-image-prompt" placeholder="详细描述想生成的画面细节、光影、主体姿态与构图，例如：电影特写微距镜头，一颗透明的水滴悬挂在翠绿的叶尖，晨光透过水滴折射出彩虹光晕，超高清8K，虚化背景..."></textarea>
+</div>
+<!-- 模型与画幅控制 -->
+<div class="image-options-grid">
+<div class="field-group">
+<label for="select-image-model">🎨 图像生成模型</label>
+<select class="select-control" id="select-image-model">
+<option selected="" value="nano-pro">Nano Banana Pro（nano-pro 本地路由）</option>
+<option value="nano2">Nano Banana 2（nano2 本地路由）</option>
+<option value="imagen4">Imagen · imagen4 本地路由（账号可用性需确认）</option>
+</select>
+</div>
+<div class="field-group">
+<label for="select-image-aspect">📐 画面长宽比 (Aspect Ratio)</label>
+<select class="select-control" id="select-image-aspect">
+<option selected="" value="9:16">9:16 (竖屏短视频 · 最适首尾帧)</option>
+<option value="16:9">16:9 (横屏宽幅)</option>
+<option value="1:1">1:1 (正方形社交贴图)</option>
+<option value="4:3">4:3 (标准横幅)</option>
+<option value="3:4">3:4 (标准立式)</option>
+</select>
+</div>
+</div>
+<!-- 垫图上传 (可选图生图) -->
+<div class="field-group">
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+<label>📷 参考垫图 (可选，上传后自动切换为图生图 i2i)</label>
+<button class="btn btn-secondary btn-sm" id="btn-clear-image-ref" style="display:none;padding:1px 6px">清除垫图</button>
+</div>
+<div aria-label="选择图像参考素材" class="drop-card" id="drop-image-ref" role="button" style="height:85px;margin-top:2px;cursor:pointer;display:flex;align-items:center;justify-content:center;border-radius:8px" tabindex="0">
+<div class="drop-placeholder" id="placeholder-image-ref" style="text-align:center">
+<span class="drop-icon">🖼️</span>
+<span class="drop-text" style="margin-top:2px">点击或拖入参考垫图（可选）</span>
+<span class="drop-subtext">留空则为纯文生图 (t2i)</span>
+</div>
+<img alt="参考图预览" class="preview-img" id="img-preview-ref" style="display:none;max-height:75px;object-fit:contain"/>
+<input accept="image/*" id="file-input-image-ref" style="display:none" type="file"/>
+</div>
+</div>
+<div class="image-submit-row" style="display:flex;justify-content:space-between;align-items:center;margin-top:10px">
+<div class="field-group" style="margin-bottom:0;width:180px">
+<select class="select-control" id="select-image-profile">
+<option value="">自动轮询空闲账号</option>
+</select>
+</div>
+<button class="btn btn-primary" id="btn-submit-image-task" style="padding:10px 22px;font-weight:600">创建图像任务</button>
+</div>
+</div>
+<!-- 右侧：生成图片画廊与联动操作 -->
+<div class="stage-panel" style="border-radius:12px;padding:20px;display:flex;flex-direction:column">
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+<div class="stage-title" style="margin-bottom:0">
+<span>🖼️ 已生成图片成果库</span>
+<span id="gallery-count" style="margin-left:8px">(0 张图片)</span>
+</div>
+<button class="btn btn-secondary btn-sm" id="btn-refresh-images">🔄 刷新成果</button>
+</div>
+<div style="line-height:1.6;padding:10px 14px;border-radius:8px;margin-bottom:14px">
             💡 <b>无缝联动生视频闭环</b>：点击任意图片卡片下方的<b>【📌 设为首帧】</b>或<b>【📌 设为尾帧】</b>，系统将自动将该图填入“生成视频”工作台，无需手动保存再重新上传！
           </div>
-
-          <!-- 图像网格容器 -->
-          <div class="image-gallery-grid" id="image-gallery-list">
-            <div style="grid-column: 1 / -1; text-align:center; padding:50px 0; color:var(--text-muted); font-size:13px;">
+<div class="audit-task-pagination"><button class="btn btn-secondary btn-sm btn-task-prev" type="button">上一页</button><span aria-live="polite" class="task-page-info">正在读取历史任务…</span><button class="btn btn-secondary btn-sm btn-task-next" type="button">下一页</button></div>
+<!-- 图像网格容器 -->
+<div class="image-gallery-grid" id="image-gallery-list">
+<div style="grid-column:1 / -1;text-align:center;padding:50px 0">
               暂无已生成的图片，请在左侧输入提示词点击【立即生成图片】
             </div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-        <!-- ================= 视图 2: 任务与成片 ================= -->
-    <section class="view-pane" id="view-tasks">
-      <div class="tasks-toolbar">
-        <div class="filter-group">
-          <button class="filter-btn active" data-filter="all">全部 <span id="count-all">0</span></button>
-          <button class="filter-btn" data-filter="video">🎬 视频 <span id="count-video">0</span></button>
-          <button class="filter-btn" data-filter="image">🖼️ 图像 <span id="count-image">0</span></button>
-          <button class="filter-btn" data-filter="audio">🎙️ 音频 <span id="count-audio">0</span></button>
-          <button class="filter-btn" data-filter="running">⚡ 生成中 <span id="count-running">0</span></button>
-          <button class="filter-btn" data-filter="queued">⏳ 排队中 <span id="count-queued">0</span></button>
-          <button class="filter-btn" data-filter="completed">✅ 已完成 <span id="count-completed">0</span></button>
-          <button class="filter-btn" data-filter="failed">❌ 失败 <span id="count-failed">0</span></button>
-        </div>
-
-        <div style="display:flex; gap:10px; align-items:center;">
-          <button class="btn btn-secondary btn-sm" id="btn-quick-select-completed" style="background: rgba(16, 185, 129, 0.15); border-color: rgba(16, 185, 129, 0.4); color: #34d399; font-weight: 600;" title="快速一键勾选所有已完成的视频成片">✨ 勾选所有成片</button>
-          <button class="btn btn-secondary btn-sm" id="btn-refresh-tasks">🔄 刷新列表</button>
-        </div>
-      </div>
-
-      <!-- 任务卡片网格 -->
-            <!-- 批量操作控制条 -->
-      <div class="batch-action-bar" id="batch-action-bar">
-        <div class="batch-left">
-          <label class="batch-select-all-label" title="全选当前分类下的所有任务">
-            <input type="checkbox" id="batch-select-all-chk">
-            <span>全选本页</span>
-          </label>
-          <button class="btn btn-secondary btn-xs" id="btn-batch-invert" title="反转当前勾选状态">反选</button>
-          <button class="btn btn-secondary btn-xs" id="btn-batch-clear" title="清空所有勾选项">清空勾选</button>
-          <button class="btn btn-secondary btn-xs" id="btn-batch-select-completed" style="background: rgba(16, 185, 129, 0.18); border-color: rgba(16, 185, 129, 0.45); color: #34d399; font-weight: 600;" title="智能一键勾选所有已完成且可下载的成片">✨ 一键勾选所有已完成成片</button>
-          <span class="batch-stats-text" id="batch-stats-text">已选中 <b>0</b> 项 (成片 <b>0</b> 个)</span>
-        </div>
-        <div class="batch-right">
-          <button class="btn btn-primary btn-sm" id="btn-batch-download" disabled title="打包批量下载已选中的视频和图片产物 (ZIP压缩包)">
+</div>
+</div>
+</div>
+</section>
+<!-- ================= 视图 2: 任务与成片 ================= -->
+<section class="view-pane" id="view-tasks"><div class="page-heading"><div><h1>任务与成片</h1><p>查看进度、检查成片，并统一管理交付。</p></div></div>
+<div class="tasks-toolbar">
+<div class="filter-group">
+<button class="filter-btn active" data-filter="all">全部 <span id="count-all">0</span></button>
+<button class="filter-btn" data-filter="video">🎬 视频 <span id="count-video">0</span></button>
+<button class="filter-btn" data-filter="image">🖼️ 图像 <span id="count-image">0</span></button>
+<button class="filter-btn" data-filter="audio">🎙️ 音频 <span id="count-audio">0</span></button>
+<button class="filter-btn" data-filter="running">⚡ 生成中 <span id="count-running">0</span></button>
+<button class="filter-btn" data-filter="queued">⏳ 排队中 <span id="count-queued">0</span></button>
+<button class="filter-btn" data-filter="completed">✅ 已完成 <span id="count-completed">0</span></button>
+<button class="filter-btn" data-filter="failed">❌ 失败 <span id="count-failed">0</span></button>
+</div>
+<div style="display:flex;gap:10px;align-items:center">
+<button class="btn btn-secondary btn-sm" id="btn-quick-select-completed" style="font-weight:600" title="勾选当前已加载页面的已完成视频成片">✨ 勾选本页成片</button>
+<button class="btn btn-secondary btn-sm" id="btn-refresh-tasks">🔄 刷新列表</button>
+</div>
+</div>
+<div class="audit-task-pagination"><button class="btn btn-secondary btn-sm btn-task-prev" type="button">上一页</button><span aria-live="polite" class="task-page-info">正在读取历史任务…</span><button class="btn btn-secondary btn-sm btn-task-next" type="button">下一页</button></div>
+<!-- 任务卡片网格 -->
+<!-- 批量操作控制条 -->
+<div class="batch-action-bar" id="batch-action-bar">
+<div class="batch-left">
+<label class="batch-select-all-label" title="全选当前分类下的所有任务">
+<input id="batch-select-all-chk" type="checkbox"/>
+<span>全选本页</span>
+</label>
+<button class="btn btn-secondary btn-xs" id="btn-batch-invert" title="反转当前勾选状态">反选</button>
+<button class="btn btn-secondary btn-xs" id="btn-batch-clear" title="清空所有勾选项">清空勾选</button>
+<button class="btn btn-secondary btn-xs" hidden="" id="btn-batch-select-completed" style="font-weight:600" title="智能一键勾选所有已完成且可下载的成片">✨ 勾选本页成片</button>
+<span class="batch-stats-text" id="batch-stats-text">已选中 <b>0</b> 项 (成片 <b>0</b> 个)</span>
+</div>
+<div class="batch-right">
+<button class="btn btn-primary btn-sm" disabled="" id="btn-batch-download" title="打包批量下载已选中的视频和图片产物 (ZIP压缩包)">
             📥 批量保存下载视频 (ZIP)
           </button>
-          <button class="btn btn-danger btn-sm" id="btn-batch-delete" disabled title="彻底删除选中的任务及其本地媒体文件">
+<button class="btn btn-danger btn-sm" disabled="" id="btn-batch-delete" title="删除任务记录；受管理产物隔离保存，外部原素材保留">
             🗑️ 批量删除选中
           </button>
-        </div>
-      </div>
-
-      <div class="tasks-grid" id="tasks-container">
-        <!-- 由 JS 渲染 -->
-      </div>
-    </section>
-
-    <!-- ================= 视图 3: 账号管理 ================= -->
-    <section class="view-pane" id="view-profiles">
-      <div class="profiles-toolbar">
-        <div>
-          <h3>👥 Google Flow 独立 Profile 账号池</h3>
-          <p style="font-size:12px; color:var(--text-muted); margin-top:4px;">
-            每个账号在本地独立 Chrome Profile 运行，互不干扰，零 Cookie 泄露风险。
+</div>
+</div>
+<div class="tasks-grid" id="tasks-container">
+<!-- 由 JS 渲染 -->
+</div>
+</section>
+<!-- ================= 视图 3: 账号管理 ================= -->
+<section class="view-pane" id="view-profiles"><div class="page-heading"><div><h1>账号管理</h1><p>管理登录状态与可用通道；维护操作不会自动开始生成。</p></div></div>
+<div class="profiles-toolbar">
+<div>
+<h3>👥 Google Flow 独立 Profile 账号池</h3>
+<p style="margin-top:4px">
+            每个账号在本地独立 Chrome Profile 运行，登录状态分别保存；请保护本地账号目录，不要共享给不可信程序。
           </p>
-        </div>
-        <div style="display:flex; gap:10px;">
-          <button class="btn btn-primary btn-sm" id="btn-open-add-profile">➕ 添加新账号</button>
-          <button class="btn btn-secondary btn-sm" id="btn-auto-onboard-all" style="background:linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); color:#fff; border:none; font-weight:600;" title="对所有未就绪账号自动跳过一次性服务条款并初始化默认工程">✨ 一键初始化全部账号</button>
-          <button class="btn btn-secondary btn-sm" id="btn-refresh-profiles">🔄 刷新状态</button>
-        </div>
+</div>
+<div style="display:flex;gap:10px">
+<button class="btn btn-primary btn-sm" id="btn-open-add-profile">➕ 添加新账号</button>
+<button class="btn btn-secondary btn-sm" id="btn-auto-onboard-all" style="font-weight:600" title="对所有未就绪账号自动跳过一次性服务条款并初始化默认工程">✨ 一键初始化全部账号</button>
+<button class="btn btn-secondary btn-sm" id="btn-refresh-profiles">🔄 刷新状态</button>
+</div>
+</div>
+<div style="border-radius:8px;padding:12px 16px;margin-bottom:16px;line-height:1.6">
+<strong>💡 首次使用与一次性协议说明：</strong> 新账号第一次进入 Google Flow 或 Gemini 时，Google 会弹出《服务条款/欢迎使用》等一次性协议。这种同意<strong>通常只需首次确认，平台更新时可能再次要求确认</strong>！您可以：
+        <br/>① 优先点击卡片上的<strong>【✨ 自动过协议】</strong>由系统后台自动模拟点击同意并建好默认项目；
+        <br/>② 或点击<strong>【🔑 登录 Flow】</strong>在弹出的 Chrome 中亲手点一次【同意/继续】，随后<strong>关闭 Chrome 窗口</strong>（释放 Windows 独占锁后自动化才能接管）。
       </div>
-
-      
-      <div style="background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; font-size: 13px; line-height: 1.6; color: #bfdbfe;">
-        <strong>💡 首次使用与一次性协议说明：</strong> 新账号第一次进入 Google Flow 或 Gemini 时，Google 会弹出《服务条款/欢迎使用》等一次性协议。这种同意<strong>终生只需点一次</strong>！您可以：
-        <br>① 优先点击卡片上的<strong>【✨ 自动过协议】</strong>由系统后台自动模拟点击同意并建好默认项目；
-        <br>② 或点击<strong>【🔑 登录 Flow】</strong>在弹出的 Chrome 中亲手点一次【同意/继续】，随后<strong>关闭 Chrome 窗口</strong>（释放 Windows 独占锁后自动化才能接管）。
-      </div>
-
-      <div class="profiles-grid" id="profiles-container">
-        <!-- 由 JS 渲染 -->
-      </div>
-    </section>
-  </main>
-
-  <!-- ================= 模态弹窗 1: 9:16 视频播放器 ================= -->
-  <div class="modal-backdrop" id="modal-video-player">
-    <div class="modal-panel video-modal-panel">
-      <div class="modal-panel-header">
-        <h3 id="player-title">成片播放</h3>
-        <button class="close-x" data-modal="modal-video-player">&times;</button>
-      </div>
-      <div class="modal-panel-body" style="padding:16px;">
-        <div class="player-box">
-          <video id="html5-video" controls autoplay loop playsinline></video>
-        </div>
-        <div style="margin-top:12px; display:flex; justify-content:space-between; align-items:center;">
-          <span id="player-meta" style="font-size:12px; color:var(--text-muted);">9:16 · MP4</span>
-          <button class="btn btn-secondary btn-sm" id="btn-open-task-file">📂 在文件夹中查看</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ================= 模态弹窗 2: 质检与抽帧对比抽屉 ================= -->
-  <div class="modal-backdrop" id="modal-qa-detail">
-    <div class="modal-panel" style="max-width: 860px;">
-      <div class="modal-panel-header">
-        <div>
-          <h3 id="qa-modal-title">首尾帧约束与可见水印质检报告</h3>
-          <p id="qa-modal-sub" style="font-size:11px; color:var(--text-muted); margin-top:2px;">Task ID</p>
-        </div>
-        <button class="close-x" data-modal="modal-qa-detail">&times;</button>
-      </div>
-      <div class="modal-panel-body">
-        <div class="qa-detail-grid">
-          <!-- 首帧比对卡片 -->
-          <div class="qa-card-box">
-            <div class="qa-card-title">
-              <span>首帧对比 (Start Frame vs 第1帧)</span>
-              <span id="qa-first-ncc-badge" class="badge-completed" style="font-size:11px; padding:2px 6px;">匹配优秀</span>
-            </div>
-            <div class="qa-images-split">
-              <div class="qa-split-item">
-                <img id="qa-img-start-origin" alt="原始首帧">
-                <span class="qa-split-tag">原始首图</span>
-              </div>
-              <div class="qa-split-item">
-                <img id="qa-img-first-extracted" alt="提取首帧">
-                <span class="qa-split-tag">视频第1帧</span>
-              </div>
-            </div>
-            <div style="margin-top:8px; font-size:11px; color:var(--text-sub);" id="qa-first-desc">
+<div class="profiles-grid" id="profiles-container">
+<!-- 由 JS 渲染 -->
+</div>
+</section>
+</main><footer aria-label="运行状态" class="studio-statusbar"><div class="nav-stats">
+<div class="stat-chip">空闲账号 <b id="stat-idle-prof">0</b></div>
+<div class="stat-chip">进行中 <b id="stat-running-task">0</b></div>
+<div class="stat-chip">等待中 <b id="stat-queued-task">0</b></div>
+<div class="stat-chip">已完成 <b id="stat-completed-task">0</b></div>
+</div><div class="workspace-meta"><span id="studio-refresh-slot"><span id="last-refresh-time">自动更新中</span></span></div></footer></div></div>
+<!-- 顶部常驻导航栏 -->
+<!-- Google WAF / Fleet Cooldown 避让提醒大横幅 -->
+<!-- 主体工作区 -->
+<!-- ================= 模态弹窗 1: 9:16 视频播放器 ================= -->
+<div class="modal-backdrop" id="modal-video-player">
+<div class="modal-panel video-modal-panel">
+<div class="modal-panel-header">
+<h3 id="player-title">成片播放</h3>
+<button class="close-x" data-modal="modal-video-player">×</button>
+</div>
+<div class="modal-panel-body" style="padding:16px">
+<div class="player-box">
+<video autoplay="" controls="" id="html5-video" loop="" playsinline=""></video>
+</div>
+<div style="margin-top:12px;display:flex;justify-content:space-between;align-items:center">
+<span id="player-meta">9:16 · MP4</span>
+<button class="btn btn-secondary btn-sm" id="btn-open-task-file">📂 在文件夹中查看</button>
+</div>
+</div>
+</div>
+</div>
+<!-- ================= 模态弹窗 2: 质检与抽帧对比抽屉 ================= -->
+<div class="modal-backdrop" id="modal-qa-detail">
+<div class="modal-panel" style="max-width:860px">
+<div class="modal-panel-header">
+<div>
+<h3 id="qa-modal-title">首尾帧约束与可见水印质检报告</h3>
+<p id="qa-modal-sub" style="margin-top:2px">Task ID</p>
+</div>
+<button class="close-x" data-modal="modal-qa-detail">×</button>
+</div>
+<div class="modal-panel-body">
+<div class="qa-detail-grid">
+<!-- 首帧比对卡片 -->
+<div class="qa-card-box">
+<div class="qa-card-title">
+<span>首帧对比 (Start Frame vs 第1帧)</span>
+<span class="badge-completed" id="qa-first-ncc-badge" style="padding:2px 6px">匹配优秀</span>
+</div>
+<div class="qa-images-split">
+<div class="qa-split-item">
+<img alt="原始首帧" id="qa-img-start-origin"/>
+<span class="qa-split-tag">原始首图</span>
+</div>
+<div class="qa-split-item">
+<img alt="提取首帧" id="qa-img-first-extracted"/>
+<span class="qa-split-tag">视频第1帧</span>
+</div>
+</div>
+<div id="qa-first-desc" style="margin-top:8px">
               相关性分数: --
             </div>
-          </div>
-
-          <!-- 尾帧比对卡片 -->
-          <div class="qa-card-box">
-            <div class="qa-card-title">
-              <span>尾帧对比 (End Frame vs 最终帧)</span>
-              <span id="qa-last-ncc-badge" class="badge-completed" style="font-size:11px; padding:2px 6px;">匹配优秀</span>
-            </div>
-            <div class="qa-images-split">
-              <div class="qa-split-item">
-                <img id="qa-img-end-origin" alt="原始尾帧">
-                <span class="qa-split-tag">原始尾图</span>
-              </div>
-              <div class="qa-split-item">
-                <img id="qa-img-last-extracted" alt="提取尾帧">
-                <span class="qa-split-tag">视频最终帧</span>
-              </div>
-            </div>
-            <div style="margin-top:8px; font-size:11px; color:var(--text-sub);" id="qa-last-desc">
+</div>
+<!-- 尾帧比对卡片 -->
+<div class="qa-card-box">
+<div class="qa-card-title">
+<span>尾帧对比 (End Frame vs 最终帧)</span>
+<span class="badge-completed" id="qa-last-ncc-badge" style="padding:2px 6px">匹配优秀</span>
+</div>
+<div class="qa-images-split">
+<div class="qa-split-item">
+<img alt="原始尾帧" id="qa-img-end-origin"/>
+<span class="qa-split-tag">原始尾图</span>
+</div>
+<div class="qa-split-item">
+<img alt="提取尾帧" id="qa-img-last-extracted"/>
+<span class="qa-split-tag">视频最终帧</span>
+</div>
+</div>
+<div id="qa-last-desc" style="margin-top:8px">
               相关性分数: --
             </div>
-          </div>
-        </div>
-
-        <!-- 水印分析区 -->
-        <div class="watermark-inspect-row">
-          <div class="watermark-img-wrap">
-            <img id="qa-img-watermark-corner" alt="右下角水印截取">
-          </div>
-          <div style="flex:1;">
-            <div style="font-weight:600; font-size:13px;" id="qa-watermark-title">右下角可见水印检测</div>
-            <div style="font-size:12px; color:var(--text-sub); margin-top:4px;" id="qa-watermark-detail">
+</div>
+</div>
+<!-- 水印分析区 -->
+<div class="watermark-inspect-row">
+<div class="watermark-img-wrap">
+<img alt="右下角水印截取" id="qa-img-watermark-corner"/>
+</div>
+<div style="flex:1">
+<div id="qa-watermark-title" style="font-weight:600">右下角可见水印检测</div>
+<div id="qa-watermark-detail" style="margin-top:4px">
               正在分析右下角区域像素特征...
             </div>
-          </div>
-        </div>
-
-        <!-- 详细事件日志展开 -->
-        <div style="margin-top:16px;">
-          <h4 style="font-size:12px; color:var(--text-sub); margin-bottom:6px;">执行过程关键事件</h4>
-          <div id="qa-events-list" style="background:var(--bg-input); padding:10px; border-radius:6px; font-family:monospace; font-size:11px; max-height:140px; overflow-y:auto;">
+</div>
+</div>
+<!-- 详细事件日志展开 -->
+<div style="margin-top:16px">
+<h4 style="margin-bottom:6px">执行过程关键事件</h4>
+<div id="qa-events-list" style="padding:10px;border-radius:6px;font-family:monospace;max-height:140px;overflow-y:auto">
             暂无事件
           </div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  
-  <!-- ================= 模态弹窗 2.5: 任务运行与错误日志 ================= -->
-  <div class="modal-backdrop" id="modal-task-log">
-    <div class="modal-panel" style="max-width: 780px;">
-      <div class="modal-panel-header">
-        <div>
-          <h3 id="log-modal-title">任务运行与调度日志</h3>
-          <p id="log-modal-sub" style="font-size:11px; color:var(--text-muted); margin-top:2px;">Task ID</p>
-        </div>
-        <button class="close-x" data-modal="modal-task-log">&times;</button>
-      </div>
-      <div class="modal-panel-body">
-        <div id="log-modal-content" style="background:var(--bg-input); color:#e2e8f0; padding:14px; border-radius:6px; font-family:Consolas, Monaco, monospace; font-size:12px; max-height:450px; overflow-y:auto; white-space:pre-wrap; word-break:break-all; line-height:1.6;">正在读取日志...</div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ================= 模态弹窗 3: 添加新账号 ================= -->
-  <div class="modal-backdrop" id="modal-add-profile">
-    <div class="modal-panel" style="max-width:500px;">
-      <div class="modal-panel-header">
-        <h3>添加新 Google 账号</h3>
-        <button class="close-x" data-modal="modal-add-profile">&times;</button>
-      </div>
-      <div class="modal-panel-body" style="display:flex; flex-direction:column; gap:14px;">
-        <div class="field-group">
-          <label for="input-prof-name">账号英文代号（系统已自动预填）</label>
-          <input type="text" class="input-control" id="input-prof-name" placeholder="例如 acc2，仅限英文字母和数字">
-          <span style="font-size:11px; color:var(--text-muted); margin-top:3px;">仅用于在本地建立独立的 Chrome 隔离目录，完全不影响你的日常主浏览器</span>
-        </div>
-        <div class="field-group">
-          <label for="input-prof-label">账号显示名称 / 备注（可选）</label>
-          <input type="text" class="input-control" id="input-prof-label" placeholder="例如：备用账号 02">
-        </div>
-        <input type="hidden" id="input-prof-notes" value="">
-
-        <div style="font-size:12px; line-height:1.7; color:var(--text-sub); background:var(--bg-card); padding:12px 14px; border-radius:8px; border:1px solid rgba(255,255,255,0.06);">
-          <b style="color:var(--text-main); font-size:13px;">💡 添加流程非常简单：</b><br>
-          1. 点击下方<b>【确定并立即打开 Chrome 登录】</b>；<br>
-          2. 系统会自动为你弹出一个<b>全新纯净的独立 Chrome 窗口</b>；<br>
-          3. 在该窗口中正常登录你的第 2 个 Google 账号；<br>
+</div>
+</div>
+</div>
+</div>
+<!-- ================= 模态弹窗 2.5: 任务运行与错误日志 ================= -->
+<div class="modal-backdrop" id="modal-task-log">
+<div class="modal-panel" style="max-width:780px">
+<div class="modal-panel-header">
+<div>
+<h3 id="log-modal-title">任务运行与调度日志</h3>
+<p id="log-modal-sub" style="margin-top:2px">Task ID</p>
+</div>
+<button class="close-x" data-modal="modal-task-log">×</button>
+</div>
+<div class="modal-panel-body">
+<div id="log-modal-content" style="padding:14px;border-radius:6px;font-family:Consolas, Monaco, monospace;max-height:450px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;line-height:1.6">正在读取日志...</div>
+</div>
+</div>
+</div>
+<!-- ================= 模态弹窗 3: 添加新账号 ================= -->
+<div class="modal-backdrop" id="modal-add-profile">
+<div class="modal-panel" style="max-width:500px">
+<div class="modal-panel-header">
+<h3>添加新 Google 账号</h3>
+<button class="close-x" data-modal="modal-add-profile">×</button>
+</div>
+<div class="modal-panel-body" style="display:flex;flex-direction:column;gap:14px">
+<div class="field-group">
+<label for="input-prof-name">账号英文代号（系统已自动预填）</label>
+<input class="input-control" id="input-prof-name" placeholder="例如 acc2，仅限英文字母和数字" type="text"/>
+<span style="margin-top:3px">仅用于在本地建立独立的 Chrome 隔离目录，完全不影响你的日常主浏览器</span>
+</div>
+<div class="field-group">
+<label for="input-prof-label">账号显示名称 / 备注（可选）</label>
+<input class="input-control" id="input-prof-label" placeholder="例如：备用账号 02" type="text"/>
+</div>
+<input id="input-prof-notes" type="hidden" value=""/>
+<div style="line-height:1.7;padding:12px 14px;border-radius:8px">
+<b>💡 添加流程非常简单：</b><br/>
+          1. 点击下方<b>【确定并立即打开 Chrome 登录】</b>；<br/>
+          2. 系统会自动为你弹出一个<b>全新纯净的独立 Chrome 窗口</b>；<br/>
+          3. 在该窗口中正常登录你的第 2 个 Google 账号；<br/>
           4. 登录成功进入页面后，<b>直接关闭该 Chrome 窗口</b>即可！系统会自动识别为空闲就绪状态，后续自动多账号轮询切换。
         </div>
-
-        <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:8px;">
-          <button class="btn btn-secondary btn-sm" data-modal="modal-add-profile">取消</button>
-          <button class="btn btn-primary btn-sm" id="btn-confirm-add-profile">确定并立即打开 Chrome 登录</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ================= 模态弹窗 4: 系统信息 ================= -->
-  <div class="modal-backdrop" id="modal-sysinfo">
-    <div class="modal-panel" style="max-width:540px;">
-      <div class="modal-panel-header">
-        <h3>系统运行环境与内核信息</h3>
-        <button class="close-x" data-modal="modal-sysinfo">&times;</button>
-      </div>
-      <div class="modal-panel-body">
-        <div class="profile-meta-list" id="sysinfo-content">
-          <div class="meta-item"><span>系统服务</span><b>Video Farm Studio</b></div>
-          <div class="meta-item"><span>gflow-cli 内核</span><b id="sys-gflow-ver">加载中...</b></div>
-          <div class="meta-item"><span>Git Commit</span><b id="sys-commit">--</b></div>
-          <div class="meta-item"><span>Python 版本</span><b id="sys-py-ver">--</b></div>
-          <div class="meta-item"><span>运行平台</span><b id="sys-platform">--</b></div>
-          <div class="meta-item"><span>数据库位置</span><b id="sys-db" style="word-break:break-all;">--</b></div>
-          <div class="meta-item"><span>输出成片目录</span><b id="sys-output" style="word-break:break-all;">--</b></div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  
-  <!-- 模态框 1：Job Spec 导入导出弹窗 -->
-  <div class="studio-modal-overlay" id="pipe-job-spec-modal" style="display: none;">
-    <div class="studio-modal-card">
-      <div class="studio-modal-header">
-        <h3 id="spec-modal-title">📋 视频项目方案 (Project Spec JSON)</h3>
-        <button class="studio-modal-close" id="btn-close-spec-modal">✕</button>
-      </div>
-      <div class="studio-modal-body">
-        <p style="font-size: 12px; color: #94a3b8; margin-bottom: 8px;">
+<div style="display:flex;justify-content:flex-end;gap:10px;margin-top:8px">
+<button class="btn btn-secondary btn-sm" data-modal="modal-add-profile">取消</button>
+<button class="btn btn-primary btn-sm" id="btn-confirm-add-profile">确定并立即打开 Chrome 登录</button>
+</div>
+</div>
+</div>
+</div>
+<!-- ================= 模态弹窗 4: 系统信息 ================= -->
+<div class="modal-backdrop" id="modal-sysinfo">
+<div class="modal-panel" style="max-width:540px">
+<div class="modal-panel-header">
+<h3>系统运行环境与内核信息</h3>
+<button class="close-x" data-modal="modal-sysinfo">×</button>
+</div>
+<div class="modal-panel-body">
+<div class="profile-meta-list" id="sysinfo-content">
+<div class="meta-item"><span>系统服务</span><b>Video Farm Studio</b></div>
+<div class="meta-item"><span>gflow-cli 内核</span><b id="sys-gflow-ver">加载中...</b></div>
+<div class="meta-item"><span>Git Commit</span><b id="sys-commit">--</b></div>
+<div class="meta-item"><span>Python 版本</span><b id="sys-py-ver">--</b></div>
+<div class="meta-item"><span>运行平台</span><b id="sys-platform">--</b></div>
+<div class="meta-item"><span>数据库位置</span><b id="sys-db" style="word-break:break-all">--</b></div>
+<div class="meta-item"><span>输出成片目录</span><b id="sys-output" style="word-break:break-all">--</b></div>
+</div>
+</div>
+</div>
+</div>
+<!-- 模态框 1：Job Spec 导入导出弹窗 -->
+<div class="studio-modal-overlay" id="pipe-job-spec-modal" style="display:none">
+<div class="studio-modal-card">
+<div class="studio-modal-header">
+<h3 id="spec-modal-title">📋 视频项目方案 (Project Spec JSON)</h3>
+<button class="studio-modal-close" id="btn-close-spec-modal">✕</button>
+</div>
+<div class="studio-modal-body">
+<p style="margin-bottom:8px">
           视频方案封装了所有分镜、运镜方式、台词、画质与衔接策略。可在多台电脑间完全复用，或直接供自动化程序调用。
         </p>
-        <textarea id="pipe-spec-json-textarea" class="spec-json-textarea" placeholder="在此查看或粘贴视频方案 JSON..."></textarea>
-      </div>
-      <div class="studio-modal-footer">
-        <button class="btn btn-secondary" id="btn-copy-spec-json">📑 复制到剪贴板</button>
-        <button class="btn btn-primary" id="btn-apply-spec-json">✅ 应用此方案</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- 模态框 2：Animatic 极速动态分镜预演弹窗 -->
-  <div class="studio-modal-overlay" id="pipe-animatic-modal" style="display: none;">
-    <div class="studio-modal-card animatic-card">
-      <div class="studio-modal-header">
-        <h3>⚡ 5秒极速试看小样 (不耗额度)</h3>
-        <button class="studio-modal-close" id="btn-close-animatic-modal">✕</button>
-      </div>
-      <div class="studio-modal-body" style="display: flex; flex-direction: column; align-items: center;">
-        <div id="animatic-loading-spinner" style="padding: 40px; text-align: center;">
-          <div class="spinner-border" style="width: 3rem; height: 3rem; color: #38bdf8; margin-bottom: 12px;"></div>
-          <div style="font-size: 13px; color: #e2e8f0; font-weight: 600;">正在极速合成动态分镜预演...</div>
-          <div style="font-size: 11px; color: #94a3b8; margin-top: 4px;">快速装配微运镜、人声配音与背景音乐，完全在本地瞬时完成</div>
-        </div>
-        <video id="animatic-video-player" controls autoplay style="display: none; width: 100%; max-height: 480px; border-radius: 6px; background: #000;"></video>
-      </div>
-      <div class="studio-modal-footer" id="animatic-modal-footer" style="display: none;">
-        <span style="font-size: 12px; color: #10b981;">✨ 预演节奏满意？可直接关闭弹窗并点击【🚀 确认方案并开始生产】执行云端高精 Veo 渲染</span>
-        <button class="btn btn-secondary" id="btn-done-animatic-modal">完成试看并关闭</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- 模态框 3：双窗咬合对比抽屉 (Joint Bite Drawer) -->
-  <div class="studio-modal-overlay" id="pipe-bite-drawer-modal" style="display: none;">
-    <div class="studio-modal-card bite-drawer-card">
-      <div class="studio-modal-header">
-        <h3>🔗 镜头衔接方式与过渡对比</h3>
-        <button class="studio-modal-close" id="btn-close-bite-modal">✕</button>
-      </div>
-      <div class="studio-modal-body">
-        <div class="bite-comparison-grid">
-          <div class="bite-window">
-            <div class="bite-window-label" id="bite-prev-label">上一镜尾帧 (Out-Frame)</div>
-            <div class="bite-frame-box" id="bite-prev-frame">
-              <img id="bite-prev-img" src="" alt="Previous Shot Out-Frame">
-            </div>
-          </div>
-          <div class="bite-connector-center">
-            <div class="bite-joint-badge" id="bite-joint-badge">🟢 尾帧接力 (Continue)</div>
-            <div style="font-size: 11px; color: #94a3b8; text-align: center; margin: 8px 0;" id="bite-joint-desc">
+<textarea class="spec-json-textarea" id="pipe-spec-json-textarea" placeholder="在此查看或粘贴视频方案 JSON..."></textarea>
+</div>
+<div class="studio-modal-footer">
+<button class="btn btn-secondary" id="btn-copy-spec-json">📑 复制到剪贴板</button>
+<button class="btn btn-primary" id="btn-apply-spec-json">✅ 应用此方案</button>
+</div>
+</div>
+</div>
+<!-- 模态框 2：Animatic 极速动态分镜预演弹窗 -->
+<div class="studio-modal-overlay" id="pipe-animatic-modal" style="display:none">
+<div class="studio-modal-card animatic-card">
+<div class="studio-modal-header">
+<h3>⚡ 5秒极速试看小样 (不耗额度)</h3>
+<button class="studio-modal-close" id="btn-close-animatic-modal">✕</button>
+</div>
+<div class="studio-modal-body" style="display:flex;flex-direction:column;align-items:center">
+<div id="animatic-loading-spinner" style="padding:40px;text-align:center">
+<div class="spinner-border" style="width:3rem;height:3rem;margin-bottom:12px"></div>
+<div style="font-weight:600">正在极速合成动态分镜预演...</div>
+<div style="margin-top:4px">快速装配微运镜、人声配音与背景音乐，完全在本地瞬时完成</div>
+</div>
+<video autoplay="" controls="" id="animatic-video-player" style="display:none;width:100%;max-height:480px;border-radius:6px"></video>
+</div>
+<div class="studio-modal-footer" id="animatic-modal-footer" style="display:none">
+<span>✨ 预演节奏满意？可直接关闭弹窗并点击【🚀 确认方案并开始生产】执行云端高精 Veo 渲染</span>
+<button class="btn btn-secondary" id="btn-done-animatic-modal">完成试看并关闭</button>
+</div>
+</div>
+</div>
+<!-- 模态框 3：双窗咬合对比抽屉 (Joint Bite Drawer) -->
+<div class="studio-modal-overlay" id="pipe-bite-drawer-modal" style="display:none">
+<div class="studio-modal-card bite-drawer-card">
+<div class="studio-modal-header">
+<h3>🔗 镜头衔接方式与过渡对比</h3>
+<button class="studio-modal-close" id="btn-close-bite-modal">✕</button>
+</div>
+<div class="studio-modal-body">
+<div class="bite-comparison-grid">
+<div class="bite-window">
+<div class="bite-window-label" id="bite-prev-label">上一镜尾帧 (Out-Frame)</div>
+<div class="bite-frame-box" id="bite-prev-frame">
+<img alt="Previous Shot Out-Frame" id="bite-prev-img" src=""/>
+</div>
+</div>
+<div class="bite-connector-center">
+<div class="bite-joint-badge" id="bite-joint-badge">🟢 尾帧接力 (Continue)</div>
+<div id="bite-joint-desc" style="text-align:center;margin:8px 0">
               平滑咬合上一镜头终点画面，前后动作自然连贯
             </div>
-            <div class="bite-mode-selector">
-              <button class="bite-mode-btn" data-mode="continue">🟢 尾帧接力</button>
-              <button class="bite-mode-btn" data-mode="anchor">🔵 首尾插值</button>
-              <button class="bite-mode-btn" data-mode="re_anchor">🟡 防漂移重锚</button>
-              <button class="bite-mode-btn" data-mode="cut">🟣 独立切镜</button>
-              <button class="bite-mode-btn" data-mode="extend">⚪ 智能续写</button>
-            </div>
-          </div>
-          <div class="bite-window">
-            <div class="bite-window-label" id="bite-curr-label">本镜入点帧 (In-Frame)</div>
-            <div class="bite-frame-box" id="bite-curr-frame">
-              <img id="bite-curr-img" src="" alt="Current Shot In-Frame">
-            </div>
-          </div>
-        </div>
-      </div>
-      <div class="studio-modal-footer">
-        <button class="btn btn-primary" id="btn-save-bite-joint">确定并应用此衔接方式</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Toast 悬浮提示架 -->
-  <div class="toast-shelf" id="toast-shelf"></div>
-
-  <script src="/static/app.js?v=20261001_v5"></script>
-</body>
+<div class="bite-mode-selector">
+<button class="bite-mode-btn" data-mode="continue">🟢 尾帧接力</button>
+<button class="bite-mode-btn" data-mode="anchor">🔵 首尾插值</button>
+<button class="bite-mode-btn" data-mode="re_anchor">🟡 防漂移重锚</button>
+<button class="bite-mode-btn" data-mode="cut">🟣 独立切镜</button>
+<button class="bite-mode-btn" data-mode="extend">⚪ 智能续写</button>
+</div>
+</div>
+<div class="bite-window">
+<div class="bite-window-label" id="bite-curr-label">本镜入点帧 (In-Frame)</div>
+<div class="bite-frame-box" id="bite-curr-frame">
+<img alt="Current Shot In-Frame" id="bite-curr-img" src=""/>
+</div>
+</div>
+</div>
+</div>
+<div class="studio-modal-footer">
+<button class="btn btn-primary" id="btn-save-bite-joint">确定并应用此衔接方式</button>
+</div>
+</div>
+</div>
+<!-- Toast 悬浮提示架 -->
+<div class="toast-shelf" id="toast-shelf"></div>
+<script src="/static/workbench.js?v=studio20261003-10"></script><script src="/static/app.js?v=studio20261003-10"></script>
+<script src="/static/studio-shell.js?v=studio20261003-10"></script></body>
 </html>
-
