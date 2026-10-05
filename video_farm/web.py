@@ -1182,17 +1182,13 @@ async def create_batch_tasks(request: Request):
     if not raw_shots:
         raise HTTPException(status_code=400, detail="分镜列表不能为空，需提供镜头数组")
 
-    # 确定整批任务绑定的专属执行账号（避免中途跳换账号）
+    # 确定整批任务绑定的专属执行账号（未显式指定时采用动态负载均衡，避免单账号阻塞整批队列）
     target_prof = None
-    if top_profile_id and top_profile_id.lower() not in ("auto", "none", "null"):
+    if top_profile_id and top_profile_id.lower() not in ("auto", "none", "null", ""):
         target_prof = db.get_profile_by_id(top_profile_id, DB_PATH) or db.get_profile_by_name(top_profile_id, DB_PATH)
 
-    if not target_prof:
-        # 自动锁定当前最优空闲主账号（优先无水印、空闲就绪）
-        target_prof = db.pick_best_profile(require_clean=True, db_path=DB_PATH) or db.pick_best_profile(require_clean=False, db_path=DB_PATH)
-
     locked_profile_id = target_prof.id if target_prof else None
-    locked_profile_name = target_prof.name if target_prof else "系统调度"
+    locked_profile_name = target_prof.name if target_prof else "账号池动态调度"
 
     created_ids = []
     for item in raw_shots:
@@ -1236,9 +1232,9 @@ async def create_batch_tasks(request: Request):
         except Exception:
             priority = 10
 
-        # 单项显式指定优先，未指定则统一锁定到当前主账号
+        # 单项显式指定优先；若未指定则设为 None，由账号池空闲账号动态抢占调度
         item_pid = str(item.get("assigned_profile_id") or item.get("profile_id") or "").strip()
-        final_assigned_profile = item_pid or locked_profile_id
+        final_assigned_profile = item_pid or locked_profile_id or None
 
         task_type = str(item.get("task_type") or "video").strip().lower()
         if task_type not in ["video", "image", "audio"]:
@@ -1277,7 +1273,7 @@ async def create_batch_tasks(request: Request):
             assigned_profile_id=final_assigned_profile
         )
         db.add_task(task, DB_PATH)
-        db.log_task_event(t_id, "TASK_CREATED_BATCH", f"通过Web控制台批量导入分镜 ({engine})，已锁定绑定账号: [{locked_profile_name}]", db_path=DB_PATH)
+        db.log_task_event(t_id, "TASK_CREATED_BATCH", f"通过Web控制台批量导入分镜 ({engine})，分配策略: [{'锁定专属账号: ' + locked_profile_name if locked_profile_id else '账号池动态负载均衡'}]", db_path=DB_PATH)
         created_ids.append(t_id)
 
     if not created_ids:
@@ -2241,7 +2237,18 @@ def serve_vids_page():
         return JSONResponse({"message": "Google Vids Studio static/vids.html is not created yet."})
     return FileResponse(str(vids_file), headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache"})
 
-app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+class NoCacheStaticFiles(StaticFiles):
+    def is_not_modified(self, response_headers, request_headers) -> bool:
+        return False
+
+    async def get_response(self, path: str, scope):
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        return response
+
+app.mount("/static", NoCacheStaticFiles(directory=str(STATIC_DIR)), name="static")
 
 @app.get("/")
 def serve_index():

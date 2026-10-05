@@ -843,6 +843,22 @@ class VideoScheduler:
                 profile_id=task.assigned_profile_id,
                 db_path=self.db_path
             )
+            if not profile and task.assigned_profile_id:
+                # 容灾自动接力：若原绑定账号正忙或处于冷却，且账号池中有其他就绪的空闲账号，自动由空闲账号接力执行，防止队头阻塞死锁
+                fallback_profile = db.acquire_idle_profile(
+                    require_clean=task.require_clean_watermark,
+                    profile_id=None,
+                    db_path=self.db_path
+                )
+                if fallback_profile:
+                    db.log_task_event(
+                        task.id,
+                        "FAILOVER_PROFILE",
+                        f"原绑定账号 [{task.assigned_profile_id}] 暂不可用（忙碌或冷却中），由空闲账号 [{fallback_profile.name}] 接力调度执行",
+                        db_path=self.db_path
+                    )
+                    profile = fallback_profile
+
             if not profile:
                 continue
 

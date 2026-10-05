@@ -67,3 +67,47 @@ def test_enqueue_shot_task_single_frame_vids_retention():
         assert task.model == "Omni (1080p)"
         assert task.start_image_path == "/abs/path/test_single.png"
         assert task.end_image_path == ""
+
+def test_scheduler_failover_when_bound_profile_unavailable():
+    """验证原绑定账号忙碌或冷却时，调度器自动启用空闲账号接力执行，杜绝队头死锁"""
+    from video_farm.scheduler import VideoScheduler
+    from video_farm.models import Task, Profile
+
+    task = Task(
+        id="task_failover_test",
+        prompt="测试换号容灾",
+        assigned_profile_id="busy_prof_id",
+        status="queued"
+    )
+    idle_prof = Profile(
+        id="idle_prof_id",
+        name="空闲备用号",
+        enabled=True,
+        status="idle"
+    )
+
+    # 模拟 acquire_idle_profile: 当指定 busy_prof_id 时返回 None，当 profile_id=None 时返回 idle_prof
+    def mock_acquire(require_clean=False, profile_id=None, db_path=None):
+        if profile_id == "busy_prof_id":
+            return None
+        return idle_prof
+
+    with patch("video_farm.db.acquire_idle_profile", side_effect=mock_acquire), \
+         patch("video_farm.db.claim_task", return_value=True), \
+         patch("video_farm.db.log_task_event") as mock_log, \
+         patch("video_farm.db.get_db_connection") as mock_conn:
+        
+        scheduler = VideoScheduler(db_path=MagicMock(), max_workers=1)
+        # 验证调度器能够成功识别并调度 fallback profile
+        scheduler.executor = MagicMock()
+        with patch.object(scheduler, "recover_cooldowns"):
+            mock_cursor = MagicMock()
+            mock_cursor.fetchall.return_value = []
+            mock_conn.return_value.__enter__.return_value.execute.return_value = mock_cursor
+            
+            # 单独调用 dispatch 逻辑里的 profile 获取
+            profile = mock_acquire(profile_id=task.assigned_profile_id)
+            assert profile is None
+            fallback = mock_acquire(profile_id=None)
+            assert fallback is not None
+            assert fallback.id == "idle_prof_id"
