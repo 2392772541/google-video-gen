@@ -1454,7 +1454,8 @@ document.addEventListener("DOMContentLoaded", () => {
           return;
         }
         try {
-          const resp = await fetch("/api/tasks/" + id + "/cancel", { method: "POST" });
+          const endpoint = isRunning ? `/api/tasks/${id}/stop` : `/api/tasks/${id}/cancel`;
+          const resp = await fetch(endpoint, { method: "POST" });
           if (resp.ok) {
             showToast("任务 " + id + (isRunning ? " 已强制中止并释放资源" : " 已取消"), "info");
             fetchTasks(true);
