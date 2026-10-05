@@ -250,6 +250,9 @@ class VidsWorker:
 
             # 3. 模式与素材绑定 (针对 Google Vids Animate / Create 原生工作流)
             has_reference_image = bool(task.start_image_path and Path(task.start_image_path).exists())
+            has_end_frame = bool(task.end_image_path and Path(task.end_image_path).exists())
+            if has_end_frame:
+                logs.append("⚠️ 注意：Google Vids 原生工作流仅支持首帧微动（Animate），不支持尾帧。当前尾帧素材在 Vids 中无法约束生效。若需首尾双帧关键帧过渡演变，请选用 Google Flow (Veo 3.1) 引擎。")
             if has_reference_image:
                 logs.append(f"检测到首帧/参考图素材: {task.start_image_path}")
                 anim_tab = page.locator("button:has-text('Animate'), [role='tab']:has-text('Animate'), [aria-label*='Animate']").first
@@ -318,13 +321,20 @@ class VidsWorker:
                 except Exception:
                     pass
 
-            # 5. 填入镜头提示词
+            # 5. 填入镜头提示词并执行安全脱敏
             textbox = page.locator("[role='textbox'], [contenteditable='true']").first
             if textbox.count() > 0:
-                logs.append(f"注入镜头提示词: {task.prompt[:60]}...")
+                raw_prompt = task.prompt.strip()
+                # 自动净化易被 Google 内容风控误判的负向医疗/器具敏感词（如“无注射器”、“无受体”等）
+                sanitized_prompt = re.sub(r'无(?:注射器|针筒|针头)[、，,\s]*', '', raw_prompt)
+                sanitized_prompt = re.sub(r'无(?:受体锁孔|受体)[、，,\s]*', '', sanitized_prompt)
+                sanitized_prompt = re.sub(r'[、，,]\s*$', '。', sanitized_prompt).strip()
+                if sanitized_prompt != raw_prompt:
+                    logs.append(f"🛡️ 提示词安全优化：已自动移除易被 Google 医疗风控误判的负向词 (原提示词字数: {len(raw_prompt)} -> 优化后: {len(sanitized_prompt)})")
+                logs.append(f"注入镜头提示词: {sanitized_prompt[:60]}...")
                 textbox.click(force=True)
                 page.wait_for_timeout(400)
-                textbox.fill(task.prompt)
+                textbox.fill(sanitized_prompt)
                 page.wait_for_timeout(800)
 
             # 6. 触发生成 (精准定位专属生成按钮)
@@ -345,6 +355,40 @@ class VidsWorker:
             generation_complete = False
 
             while time.time() - start_poll < self.timeout_sec:
+                # 0. 快速检测 Google 服务条款/内容安全风控拦截 (Terms violation / Safety filter)
+                terms_match = False
+                terms_msg = ""
+                try:
+                    terms_el = page.locator("text=/against our terms|Try asking something else|违反服务条款|不符合条款|content policy/i").first
+                    if terms_el.count() > 0 and terms_el.is_visible():
+                        terms_match = True
+                        terms_msg = terms_el.inner_text().strip()
+                    if not terms_match:
+                        try_again_btn = page.locator("button:has-text('Try again'), button:has-text('重试')").first
+                        if try_again_btn.count() > 0 and try_again_btn.is_visible():
+                            terms_match = True
+                            terms_msg = "That request looks like it goes against our terms. Try asking something else."
+                except Exception:
+                    pass
+
+                if terms_match:
+                    logs.append(f"⚠️ 检测到 Google Vids 内容安全风控拦截 (秒级拦截): {terms_msg}")
+                    try:
+                        qa_img = self.output_dir.parent / "qa" / f"{task.id}_safety_blocked.png"
+                        qa_img.parent.mkdir(parents=True, exist_ok=True)
+                        page.screenshot(path=str(qa_img))
+                        logs.append(f"已捕获安全拦截快照: {qa_img}")
+                    except Exception:
+                        pass
+                    return {
+                        "success": False,
+                        "pid": os.getpid(),
+                        "error_code": "SAFETY_FILTER_BLOCKED",
+                        "error_message": f"Google Vids 提示词安全拦截: {terms_msg}",
+                        "output_video_path": None,
+                        "logs": "\n".join(logs)
+                    }
+
                 # 检查页面是否有错误浮层或提示
                 error_toast = page.locator(".docs-toast, [role='alert']").first
                 if error_toast.count() > 0 and error_toast.is_visible():

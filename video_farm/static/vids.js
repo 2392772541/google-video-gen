@@ -637,6 +637,16 @@ card.innerHTML = `
           <!-- 资产胶囊条带 (严控高、首尾帧并排) -->
           ${frameAssetHtml}
 
+          <!-- 当首尾帧与 Vids 冲突时的显式提示 -->
+          ${((mode === 'first_last_frame' || Boolean(shot.end_image_url)) && (shot.engine || state.workflow?.engine || 'vids') === 'vids') ? `
+            <div class="vids-engine-warn-pill" style="font-size: 10px; color: #f59e0b; background: rgba(245,158,11,0.12); border: 1px solid rgba(245,158,11,0.3); border-radius: 4px; padding: 2px 6px; display: flex; align-items: center; justify-content: space-between; gap: 4px; margin-top: 2px;">
+              <span>⚠️ <strong>提示：</strong>Google Vids 仅支持首帧微动（无法约束尾帧）。如需首尾两端关键帧插值，请将途径切换为 ⚡ Flow</span>
+              <button class="btn btn-secondary btn-sm" style="font-size: 9px; padding: 1px 5px; height: 18px; color: #38bdf8; border-color: rgba(56,189,248,0.4);" onclick="updateShotField('${shot.id}', 'engine', 'flow'); this.parentElement.style.display='none';">切为Flow</button>
+            </div>
+          ` : `
+            <div class="vids-engine-warn-pill" style="display: none;"></div>
+          `}
+
           <div class="shot-error-box" style="${shot.error_message && !isDone ? '' : 'display: none; '}font-size: 10px; color: #fbbf24; background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.25); border-radius: 4px; padding: 2px 6px;">
             ⚠️ ${escapeHtml(shot.error_message || '')}
           </div>
@@ -1607,6 +1617,59 @@ function toggleLiveLogExpand() {
 
 
 
+// 动态字段更新与模式切换函数
+async function updateShotField(shotId, field, value) {
+  try {
+    const payload = {};
+    payload[field] = value;
+    await api(`/shots/${shotId}`, {
+      method: 'PUT',
+      body: payload
+    });
+    if (state.workflow && state.workflow.shots) {
+      const s = state.workflow.shots.find(x => x.id === shotId);
+      if (s) {
+        s[field] = value;
+        if (field === 'engine' || field === 'image_url' || field === 'end_image_url') {
+          const card = document.getElementById(`shot-card-${shotId}`);
+          if (card) {
+            const warnBox = card.querySelector('.vids-engine-warn-pill');
+            const curEng = s.engine || state.workflow?.engine || 'vids';
+            const shouldWarn = (s.mode === 'first_last_frame' || Boolean(s.end_image_url)) && curEng === 'vids';
+            if (warnBox) {
+              warnBox.style.display = shouldWarn ? 'flex' : 'none';
+            }
+          }
+        }
+      }
+    }
+  } catch (e) {
+    appendLog(`更新分镜字段 [${field}] 失败: ${e.message}`, 'error');
+  }
+}
+
+async function updateShotMode(shotId, mode) {
+  try {
+    const payload = { mode: mode };
+    if (mode === 'first_last_frame') {
+      const s = state.workflow?.shots?.find(x => x.id === shotId);
+      if (s && (!s.engine || s.engine === 'vids')) {
+        appendLog(`[分镜 #${s.sequence || ''}] 切换为首尾帧过渡模式。提示：Google Vids 原生仅支持首帧微动，建议将途径切换为 ⚡ Flow (Veo 3.1) 实现两端关键帧插值`, 'info');
+      }
+    }
+    await api(`/shots/${shotId}`, {
+      method: 'PUT',
+      body: payload
+    });
+    if (state.currentWorkflowId) {
+      await selectWorkflow(state.currentWorkflowId);
+    }
+    appendLog(`分镜模式已更新为: ${getModeLabel(mode)}`, 'success');
+  } catch (e) {
+    appendLog(`更新分镜模式失败: ${e.message}`, 'error');
+  }
+}
+
 // 别名与补齐函数 (由次智能体审查指出)
 function generateSingleShot(shotId) {
   return runSingleShot(shotId);
@@ -1632,6 +1695,13 @@ function executeBatchJsonImport() {
 function fillSampleJson(mode) {
   const textarea = document.getElementById('json-import-textarea') || document.getElementById('batch-import-textarea');
   if (!textarea) return;
+  if (mode === 'first_last_frame') {
+    const flowRadio = document.getElementById('import-engine-flow');
+    if (flowRadio) flowRadio.checked = true;
+  } else {
+    const vidsRadio = document.getElementById('import-engine-vids');
+    if (vidsRadio) vidsRadio.checked = true;
+  }
   let sampleData = [];
   if (mode === 'first_last_frame') {
     sampleData = [

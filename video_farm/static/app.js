@@ -268,6 +268,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (targetId === "view-audio") {
         updateAudioCompletedVideos();
         updateAssignedProfSelect();
+        if (window.refreshGeminiHubView) window.refreshGeminiHubView();
       }
     });
   });
@@ -1331,7 +1332,6 @@ document.addEventListener("DOMContentLoaded", () => {
             ${isImageTask && t.status === "completed" && t.image_urls && t.image_urls.length > 0 ? `<button class="btn btn-primary btn-sm" onclick="openImageViewer('${escapeJs(t.image_paths[0] || "")}', '${escapeJs(t.image_urls[0])}', '${escapeJs(t.prompt)}')">👁️ 查看大图</button>` : ""}
             ${!isImageTask && !isAudioTask && t.has_video ? `<button class="btn btn-primary btn-sm btn-play-video" data-id="${t.id}" data-url="${t.video_url}">🎥 播放</button>` : ""}
             ${(t.has_video || t.has_audio || (isImageTask && t.status === "completed" && t.image_urls && t.image_urls.length > 0)) ? `<a href="/api/tasks/${t.id}/download" download class="btn btn-secondary btn-sm" title="保存下载该成品文件">📥 下载</a>` : ""}
-            ${isVideoTask && t.status === "completed" && t.has_video ? `<button class="btn btn-secondary btn-sm btn-quick-audio" data-id="${t.id}" data-url="${t.video_url}" data-path="${escapeHtml(t.output_video_path || '')}" data-prompt="${escapeHtml(t.prompt)}" title="一键将该成片送入配音工作台生成旁白解说">🎙️ 配音</button>` : ""}
             ${["queued", "retry_wait"].includes(t.status) ? `<button class="btn btn-danger btn-sm btn-cancel-task" data-id="${t.id}" title="停止并取消该任务">⏹ 取消</button>` : ""}
             ${!isImageTask && !isAudioTask && t.status === "completed" && t.engine !== "gemini" ? `<button class="btn btn-secondary btn-sm btn-view-qa" data-id="${t.id}">🔍 质检对比</button>` : ""}
             <button class="btn btn-secondary btn-sm btn-view-log" data-id="${t.id}">📋 日志</button>
@@ -1354,15 +1354,6 @@ document.addEventListener("DOMContentLoaded", () => {
       });
     });
 
-    container.querySelectorAll(".btn-quick-audio").forEach(b => {
-      b.addEventListener("click", () => {
-        const vUrl = b.getAttribute("data-url");
-        const vPath = b.getAttribute("data-path");
-        const vId = b.getAttribute("data-id");
-        const vPrompt = b.getAttribute("data-prompt") || "";
-        selectVideoForAudioWorkbench(vId, vUrl, vPath, vPrompt);
-      });
-    });
 
     container.querySelectorAll(".btn-view-qa").forEach(b => {
       b.addEventListener("click", () => {
@@ -2327,8 +2318,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const geminiProfSel = document.getElementById("gemini-active-profile");
     if (geminiProfSel) {
-      const curGVal = geminiProfSel.value || "auto";
-      geminiProfSel.innerHTML = "<option value=\"auto\">⚡ Auto · 智能轮转选择</option>";
+      const savedPid = localStorage.getItem("gemini_hub_profile_id");
+      const curGVal = geminiProfSel.value || savedPid || "";
+      geminiProfSel.innerHTML = "";
       state.profiles.forEach(p => {
         if (p.enabled) {
           const opt = document.createElement("option");
@@ -2337,7 +2329,14 @@ document.addEventListener("DOMContentLoaded", () => {
           geminiProfSel.appendChild(opt);
         }
       });
-      geminiProfSel.value = curGVal;
+      if (curGVal && Array.from(geminiProfSel.options).some(o => o.value === curGVal)) {
+        geminiProfSel.value = curGVal;
+      } else if (geminiProfSel.options.length > 0) {
+        geminiProfSel.selectedIndex = 0;
+      }
+      if (geminiProfSel.value) {
+        localStorage.setItem("gemini_hub_profile_id", geminiProfSel.value);
+      }
     }
 
     const sel = el.selectAssignedProf;
@@ -2647,7 +2646,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  function initAudioWorkbench() {
+  function initAudioWorkbench() { return; // 本地配音功能已下线
     const selCompVideo = document.getElementById("audio-select-completed-video");
     const inputVideoPath = document.getElementById("audio-input-video-path");
     const uploadVideoFile = document.getElementById("audio-upload-video-file");
@@ -2927,7 +2926,14 @@ function initGeminiHub() {
   }
 
   if (activeProfSel) {
-    activeProfSel.addEventListener("change", updateProfBadge);
+    activeProfSel.addEventListener("change", () => {
+      if (activeProfSel.value) {
+        localStorage.setItem("gemini_hub_profile_id", activeProfSel.value);
+      }
+      updateProfBadge();
+      const p = state.profiles.find(x => x.id === activeProfSel.value);
+      if (p) showToast(`已锁定对话账号为: ${p.name}，多轮对话上下文将持续保持`, "info");
+    });
   }
 
   if (btnLaunchChrome) {
@@ -3347,18 +3353,22 @@ function initGeminiHub() {
     showToast("✨ 已将图片成功设为视频创作的起始帧参考图！", "success");
   }
 
-  async function fetchGeminiMessages() {
+  let lastRenderedGeminiMsgCount = 0;
+  async function fetchGeminiMessages(force = false) {
     try {
       const resp = await fetch("/api/gemini/messages?session_id=default");
       if (!resp.ok) return;
       const data = await resp.json();
       const msgs = data.messages || [];
-      if (msgs.length > 0 && feed) {
-        const welcome = feed.querySelector(".gemini-welcome-card");
-        feed.innerHTML = "";
-        if (welcome) feed.appendChild(welcome);
-        msgs.forEach(renderMessageBubble);
-        scrollFeedToBottom();
+      if (feed) {
+        if (force || msgs.length !== lastRenderedGeminiMsgCount) {
+          lastRenderedGeminiMsgCount = msgs.length;
+          const welcome = feed.querySelector(".gemini-welcome-card");
+          feed.innerHTML = "";
+          if (welcome) feed.appendChild(welcome);
+          msgs.forEach(renderMessageBubble);
+          scrollFeedToBottom();
+        }
       }
     } catch (e) {
       console.error("fetchGeminiMessages error", e);
@@ -3443,7 +3453,12 @@ function initGeminiHub() {
     });
   }
 
+  let isGeminiSending = false;
   async function sendMessage() {
+    if (isGeminiSending) {
+      showToast("正在处理上一条消息，请稍候...", "warn");
+      return;
+    }
     const msg = chatInput ? chatInput.value.trim() : "";
     if (!msg && !attachedVideoFile && !attachedVideoPath && !attachedImageFile && !attachedImagePath) {
       showToast("请输入文字对话内容，或上传视频/图片", "warn");
@@ -3451,7 +3466,15 @@ function initGeminiHub() {
       return;
     }
 
-    if (btnSend) btnSend.disabled = true;
+    isGeminiSending = true;
+    if (btnSend) {
+      btnSend.disabled = true;
+      btnSend.innerHTML = `<span>生成中...</span> ⏳`;
+    }
+    if (chatInput) {
+      chatInput.disabled = true;
+      chatInput.placeholder = "Gemini 正在思考并生成回复，请稍候...";
+    }
     if (chatStatus) chatStatus.textContent = "正在处理与生成中...";
 
     const formData = new FormData();
@@ -3534,7 +3557,16 @@ function initGeminiHub() {
       });
       scrollFeedToBottom();
     } finally {
-      if (btnSend) btnSend.disabled = false;
+      isGeminiSending = false;
+      if (btnSend) {
+        btnSend.disabled = false;
+        btnSend.innerHTML = `<span>发送</span> 🚀`;
+      }
+      if (chatInput) {
+        chatInput.disabled = false;
+        chatInput.placeholder = "像 ChatGPT / Gemini 网页端一样输入对话内容、视频配音诉求或画图提示词... (Enter 发送, Shift+Enter 换行)";
+        chatInput.focus();
+      }
       if (chatStatus) chatStatus.textContent = "就绪";
     }
   }
@@ -3547,10 +3579,20 @@ function initGeminiHub() {
     chatInput.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
-        sendMessage();
+        if (!isGeminiSending) {
+          sendMessage();
+        }
       }
     });
   }
+
+  window.refreshGeminiHubView = () => {
+    updateProfBadge();
+    fetchGeminiMessages();
+    fetchGeminiImages();
+    fetchGeminiAudios();
+    populateCompletedVideos();
+  };
 
   updateProfBadge();
   fetchGeminiMessages();

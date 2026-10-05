@@ -11,6 +11,40 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 
 from .models import Task, Profile
+import psutil
+
+_PROFILE_LOCKS = {}
+_PROFILE_LOCKS_GUARD = threading.Lock()
+
+def get_profile_lock(profile_name: str) -> threading.Lock:
+    with _PROFILE_LOCKS_GUARD:
+        if profile_name not in _PROFILE_LOCKS:
+            _PROFILE_LOCKS[profile_name] = threading.Lock()
+        return _PROFILE_LOCKS[profile_name]
+
+def unlock_profile_processes(profile_dir: Path, profile_name: str) -> int:
+    """彻底清理指定 Profile 残留的无头/崩溃 Chrome 进程与目录锁，杜绝 TargetClosedError (exitCode=21)"""
+    target_substr = f"profile_{profile_name}".lower()
+    killed = 0
+    for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+        try:
+            if proc.info['name'] and 'chrome' in proc.info['name'].lower():
+                cmd_str = " ".join(proc.info.get('cmdline') or []).lower()
+                if target_substr in cmd_str:
+                    proc.kill()
+                    killed += 1
+        except Exception:
+            pass
+    if killed > 0:
+        time.sleep(0.5)
+    for lock_name in ["lockfile", "SingletonLock", "SingletonSocket", "SingletonCookie"]:
+        lf = profile_dir / lock_name
+        if lf.exists():
+            try:
+                lf.unlink()
+            except Exception:
+                pass
+    return killed
 
 class GeminiWebWorker:
     """
@@ -485,299 +519,66 @@ class GeminiWebWorker:
             }
 
     def _synthesize_tts_file(self, text: str, voice: str, out_path: Path) -> bool:
-        """安全并发合成高保真神经语音 MP3 文件，隔离独立线程避免 Event Loop 冲突"""
-        import concurrent.futures
-        import asyncio
-        import edge_tts
+        """本地配音功能已下线"""
+        return False
 
-        clean_text = text.strip()
-        if "```" in clean_text:
-            parts = clean_text.split("```")
-            clean_text = parts[1] if len(parts) > 1 else clean_text
-        if clean_text.startswith("Gemini said"):
-            clean_text = clean_text[len("Gemini said"):].strip()
+    def _extract_narration_script(self, text: str) -> str:
+        """从 Gemini 多模态输出中智能提取最纯粹的解说文案，去除思考过程与舞台说明、去除 Markdown 格式"""
+        import re
+        if not text:
+            return ""
+        clean = text.strip()
+        if clean.startswith("Gemini said"):
+            clean = clean[len("Gemini said"):].strip()
 
-        chosen_voice = voice if (voice and "Neural" in voice) else "zh-CN-YunxiNeural"
+        extracted_block = None
+        for tag in ["【配音解说词】", "[配音解说词]", "配音解说词：", "配音解说词:"]:
+            if tag in clean:
+                parts = clean.split(tag, 1)
+                extracted_block = parts[1].strip()
+                break
+        else:
+            if "配音解说词" in clean:
+                parts = clean.split("配音解说词", 1)
+                extracted_block = parts[1].lstrip("：:\n ").strip()
 
-        def _worker():
-            async def _main():
-                comm = edge_tts.Communicate(clean_text, chosen_voice)
-                await comm.save(str(out_path))
-            asyncio.run(_main())
+        if extracted_block:
+            block_lines = []
+            for line in extracted_block.split("\n"):
+                s_line = line.strip()
+                if s_line.startswith("#") or s_line.startswith("===") or s_line.startswith("---"):
+                    break
+                if s_line:
+                    block_lines.append(s_line)
+            if block_lines:
+                extracted_clean = " ".join(block_lines)
+            else:
+                extracted_clean = extracted_block
+            quotes = re.findall(r'[“]([^”]+)[”]', extracted_clean)
+            if quotes:
+                script = " ".join(quotes)
+            else:
+                script = extracted_clean
+        else:
+            # 没有专门配音解说词标识时，清理 Markdown 标签与元数据
+            script = re.sub(r'[*#_`~>\[\]]', '', clean)
+            script = re.sub(r'https?://\S+', '', script)
 
-        try:
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
-                ex.submit(_worker).result(timeout=45)
-            return out_path.exists() and out_path.stat().st_size > 500
-        except Exception:
-            return False
+        # 清除括号内的动作/镜头说明
+        script = re.sub(r'[\(（][^\)）]*[\)）]', '', script).strip()
+        script = script.strip('“"”\' \n\r')
+        return script if len(script) >= 2 else text[:200]
 
     def execute_audio_task(self, task: Task, profile: Profile) -> Dict[str, Any]:
-        """
-        Gemini 网页端多模态音频生成 / 配音工作台：
-        - 访问 gemini.google.com/app
-        - 支持上传本地视频附件 (.mp4/.mov) 或参考图作为多模态上下文
-        - 支持提交音频提示词生成配音/音效/解说台词
-        - 优先抓取页面生成的音频流或朗读音频，同时提供 edge_tts 高质合成兜底，输出标准的 .mp3
-        """
-        worker_name = threading.current_thread().name
-        profile_dir = self._resolve_profile_dir(profile)
-        
-        logs = []
-        logs.append(f"[{worker_name}] 启动 Gemini 网页端多模态音频生成引擎 (Profile: {profile.name})")
-        logs.append(f"Profile 目录: {profile_dir}")
-        logs.append(f"Prompt: {task.prompt}")
-
-        if not profile_dir.exists():
-            profile_dir.mkdir(parents=True, exist_ok=True)
-
-        from playwright.sync_api import sync_playwright
-        output_audio_path = self.output_dir / f"{task.id}.mp3"
-
-        # 1. 如果没有多模态附件需要上传分析，且指定了广播级神经音色，直接使用高速 TTS 引擎秒级生成
-        has_media = bool((getattr(task, "input_video_path", None) and Path(task.input_video_path).exists()) or (task.start_image_path and Path(task.start_image_path).exists()))
-        is_direct_tts = not has_media and (getattr(task, "model", "") != "gemini-audio")
-        target_voice = task.model if (getattr(task, "model", None) and "Neural" in task.model) else "zh-CN-YunxiNeural"
-
-        if is_direct_tts:
-            logs.append(f"检测到纯配音文本指令，直接采用高保真广播级神经音色 [{target_voice}] 合成...")
-            if self._synthesize_tts_file(task.prompt, target_voice, output_audio_path):
-                logs.append(f"✅ 配音音频秒级生成完成: {output_audio_path.name} ({output_audio_path.stat().st_size} 字节)")
-                return {
-                    "success": True,
-                    "pid": os.getpid(),
-                    "error_code": None,
-                    "error_message": None,
-                    "output_audio_path": str(output_audio_path.resolve()),
-                    "logs": "\n".join(logs)
-                }
-            logs.append("快速直出遇阻，进入 Gemini 浏览器多模态引擎...")
-
-        try:
-            with sync_playwright() as p:
-                launch_args = [
-                                        "--no-sandbox"
-                ]
-                logs.append("正在拉起 Chrome 浏览器会话...")
-                try:
-                    browser = p.chromium.launch_persistent_context(
-                        user_data_dir=str(profile_dir.resolve()),
-                        channel="chrome",
-                        headless=self.headless,
-                        args=launch_args
-                    )
-                except Exception as launch_exc:
-                    lexc_str = str(launch_exc).lower()
-                    logs.append(f"拉起浏览器异常: {launch_exc}")
-                    if any(k in lexc_str for k in ["target closed", "browser has been closed", "singleton", "lock", "in use", "already running"]):
-                        return {
-                            "success": False,
-                            "pid": os.getpid(),
-                            "error_code": "PROFILE_LOCKED",
-                            "error_message": f"Profile [{profile.name}] 正在被运行中的 Chrome 窗口占用。请关闭外部 Chrome 窗口后重试。",
-                            "output_audio_path": None,
-                            "logs": "\n".join(logs)
-                        }
-                    raise launch_exc
-
-                try:
-                    page = browser.new_page()
-                    logs.append("正在打开 Gemini 主工作区 https://gemini.google.com/app ...")
-                    page.goto("https://gemini.google.com/app", timeout=35000)
-                    page.wait_for_timeout(3000)
-                    self._dismiss_overlays(page, logs)
-
-                    # 检查输入框
-                    input_selector = 'rich-textarea div[contenteditable="true"], div.ql-editor[contenteditable="true"], [contenteditable="true"], textarea'
-                    has_input = False
-                    try:
-                        page.wait_for_selector(input_selector, timeout=8000)
-                        has_input = True
-                    except Exception:
-                        has_input = False
-
-                    if not has_input:
-                        logs.append("未检测到有效输入框，可能未登录或被弹窗拦截")
-                        return {
-                            "success": False,
-                            "pid": os.getpid(),
-                            "error_code": "AUTH_EXPIRED",
-                            "error_message": f"Gemini 网页版未登录或会话已过期 (Profile: {profile.name})",
-                            "output_audio_path": None,
-                            "logs": "\n".join(logs)
-                        }
-
-                    input_el = page.query_selector(input_selector)
-
-                    # 多模态素材上传 (参考视频或参考图)
-                    media_files = []
-                    if getattr(task, "input_video_path", None) and Path(task.input_video_path).exists():
-                        ref_v = Path(task.input_video_path).resolve()
-                        media_files.append(str(ref_v))
-                        logs.append(f"准备附加参考视频附件: {ref_v.name}")
-
-                    if task.start_image_path and Path(task.start_image_path).exists():
-                        ref_img = Path(task.start_image_path).resolve()
-                        media_files.append(str(ref_img))
-                        logs.append(f"准备附加参考图附件: {ref_img.name}")
-
-                    if media_files:
-                        file_input = page.query_selector('input[type="file"]')
-                        if file_input:
-                            file_input.set_input_files(media_files)
-                            logs.append(f"已上传多模态参考附件: {[Path(m).name for m in media_files]}")
-                            page.wait_for_timeout(3500)
-
-                    # 填写提示词并发送
-                    final_prompt = task.prompt.strip()
-                    input_el.scroll_into_view_if_needed()
-                    input_el.click(force=True)
-                    page.wait_for_timeout(300)
-                    input_el.fill(final_prompt)
-                    logs.append(f"已输入音频提示词: {final_prompt}")
-                    page.wait_for_timeout(1000)
-
-                    send_selectors = [
-                        'button[aria-label="Send message"]',
-                        'button[aria-label*="Send"]',
-                        'button[aria-label*="发送"]',
-                        '.send-button-container button',
-                        '[data-test-id="send-button"]'
-                    ]
-                    submitted = False
-                    for s_sel in send_selectors:
-                        s_btn = page.query_selector(s_sel)
-                        if s_btn and s_btn.is_visible():
-                            s_btn.click(force=True)
-                            submitted = True
-                            logs.append("已通过发送按钮提交音频生成请求")
-                            break
-                    if not submitted:
-                        page.keyboard.press("Enter")
-                        logs.append("已通过回车键提交音频请求")
-
-                    page.wait_for_timeout(4000)
-
-                    # 轮询等待回答或音频
-                    logs.append("等待 Gemini 响应...")
-                    start_t = time.time()
-                    audio_found = False
-                    captured_text = ""
-
-                    while (time.time() - start_t) < min(self.timeout_sec, 120):
-                        time.sleep(3.0)
-                        
-                        # 检查音频标签
-                        audios = page.query_selector_all("audio")
-                        for a in audios:
-                            src = a.get_attribute("src")
-                            if src and (src.startswith("http") or src.startswith("blob:")):
-                                logs.append(f"捕获到页面音频元素: {src[:60]}")
-                                try:
-                                    b64_data = page.evaluate("""
-                                        async (audio) => {
-                                            try {
-                                                const res = await fetch(audio.src, { credentials: 'include' });
-                                                if (!res.ok) return null;
-                                                const blob = await res.blob();
-                                                return new Promise((resolve) => {
-                                                    const reader = new FileReader();
-                                                    reader.onloadend = () => resolve(reader.result);
-                                                    reader.readAsDataURL(blob);
-                                                });
-                                            } catch (err) {
-                                                return null;
-                                            }
-                                        }
-                                    """, a)
-                                    if b64_data and "," in b64_data:
-                                        raw_bytes = base64.b64decode(b64_data.split(",", 1)[1])
-                                        if len(raw_bytes) > 1000:
-                                            with open(output_audio_path, "wb") as af:
-                                                af.write(raw_bytes)
-                                            logs.append(f"已成功提取原生音频并转存: {output_audio_path} ({len(raw_bytes)} 字节)")
-                                            audio_found = True
-                                            break
-                                except Exception as a_exc:
-                                    logs.append(f"提取音频流异常: {a_exc}")
-
-                        if audio_found:
-                            break
-
-                        # 检查是否有回答完成
-                        model_responses = page.query_selector_all("model-response")
-                        if model_responses:
-                            last_txt = model_responses[-1].inner_text().strip()
-                            if len(last_txt) > 5:
-                                captured_text = last_txt
-                                # 检查是否不再在流式输出
-                                page.wait_for_timeout(2000)
-                                latest_txt = model_responses[-1].inner_text().strip()
-                                if latest_txt == captured_text and (time.time() - start_t) > 8:
-                                    logs.append("Gemini 回答已完全生成")
-                                    break
-
-                    # 如果没有直接抓到原生 audio 元素，但有生成的文本/配音稿，使用 edge_tts 兜底渲染为高质量音频
-                    if not audio_found:
-                        target_speech = captured_text.strip() or final_prompt
-                        # 去除可能的 Markdown 代码块或系统提示
-                        if "```" in target_speech:
-                            parts = target_speech.split("```")
-                            target_speech = parts[1] if len(parts) > 1 else target_speech
-                        target_voice = task.model if (getattr(task, "model", None) and "Neural" in task.model) else "zh-CN-YunxiNeural"
-                        logs.append(f"采用语音合成引擎将文本生成高保真音频 (音色: {target_voice}): {target_speech[:50]}...")
-                        if self._synthesize_tts_file(target_speech, target_voice, output_audio_path):
-                            logs.append(f"高品质音频生成完成: {output_audio_path.name} ({output_audio_path.stat().st_size} 字节)")
-                            audio_found = True
-                        else:
-                            logs.append("文本语音合成失败")
-
-                    if audio_found and output_audio_path.exists():
-                        return {
-                            "success": True,
-                            "pid": os.getpid(),
-                            "error_code": None,
-                            "error_message": None,
-                            "output_audio_path": str(output_audio_path.resolve()),
-                            "logs": "\n".join(logs)
-                        }
-                    else:
-                        return {
-                            "success": False,
-                            "pid": os.getpid(),
-                            "error_code": "AUDIO_GEN_FAILED",
-                            "error_message": "未能生成或提取到有效音频产物",
-                            "output_audio_path": None,
-                            "logs": "\n".join(logs)
-                        }
-
-                finally:
-                    browser.close()
-                    logs.append("浏览器会话已安全退出。")
-
-        except Exception as exc:
-            logs.append(f"执行音频任务异常: {exc}")
-            if task.prompt and task.prompt.strip():
-                logs.append("正在启动智能应急音频引擎生成成品音频...")
-                target_voice = task.model if (getattr(task, "model", None) and "Neural" in task.model) else "zh-CN-YunxiNeural"
-                if self._synthesize_tts_file(task.prompt, target_voice, output_audio_path):
-                    logs.append(f"✅ 应急配音音频已生成: {output_audio_path.name} ({output_audio_path.stat().st_size} 字节)")
-                    return {
-                        "success": True,
-                        "pid": os.getpid(),
-                        "error_code": None,
-                        "error_message": None,
-                        "output_audio_path": str(output_audio_path.resolve()),
-                        "logs": "\n".join(logs)
-                    }
-            return {
-                "success": False,
-                "pid": os.getpid(),
-                "error_code": "EXCEPTION",
-                "error_message": str(exc),
-                "output_audio_path": None,
-                "logs": "\n".join(logs)
-            }
+        """本地配音功能已下线"""
+        return {
+            "success": False,
+            "pid": os.getpid(),
+            "error_code": "AUDIO_DISABLED",
+            "error_message": "本地配音功能已下线",
+            "output_audio_path": None,
+            "logs": "本地配音功能已下线并移除"
+        }
 
     def execute_multimodal_interaction(
         self,
@@ -795,7 +596,7 @@ class GeminiWebWorker:
         - 支持文字对话、多轮交互
         - 支持上传任意本地视频 (.mp4, .mov 等)，让 Gemini 网页端分析画面并生成配音文案与音频
         - 支持 AI 绘画（文生图/图生图），自动提取生成的图片并转存到资产库
-        - 优先 Playwright 网页端原生交互；遇到网络/登录异常提供智能语音合成兜底，保障不阻塞死等
+        - 采用稳定 Playwright 驱动，内置自动解除 Profile 锁、 Quilling 键盘输入及 Agree 协议确认
         """
         worker_name = threading.current_thread().name
         profile_dir = self._resolve_profile_dir(profile)
@@ -810,7 +611,22 @@ class GeminiWebWorker:
         if not profile_dir.exists():
             profile_dir.mkdir(parents=True, exist_ok=True)
 
-        # 检查是否包含媒体附件
+        prof_lock = get_profile_lock(profile.name)
+        acquired = prof_lock.acquire(timeout=90)
+        if not acquired:
+            return {
+                "success": False,
+                "error_code": "PROFILE_BUSY",
+                "error_message": f"账号 [{profile.name}] 当前正在执行前序对话，请稍候片刻再试。",
+                "text": "",
+                "audio_url": None,
+                "image_urls": [],
+                "logs": f"[{worker_name}] 获取账号锁超时"
+            }
+
+        # 独占锁保障下，安全排查并清理属于当前账号的孤儿僵尸进程
+        unlock_profile_processes(profile_dir, profile.name)
+
         has_video = bool(video_path and Path(video_path).exists())
         has_image = bool(image_path and Path(image_path).exists())
         if has_video:
@@ -822,7 +638,7 @@ class GeminiWebWorker:
 
         try:
             with sync_playwright() as p:
-                launch_args = ["--no-sandbox"]
+                launch_args = ["--no-sandbox", "--disable-dev-shm-usage", "--disable-blink-features=AutomationControlled"]
                 logs.append("正在拉起独立 Chrome 容器 (Profile 隔离模式)...")
                 try:
                     browser = p.chromium.launch_persistent_context(
@@ -835,22 +651,6 @@ class GeminiWebWorker:
                     lexc_str = str(launch_exc).lower()
                     logs.append(f"拉起浏览器异常: {launch_exc}")
                     if any(k in lexc_str for k in ["target closed", "browser has been closed", "singleton", "lock", "in use", "already running"]):
-                        # 优雅降级：如果是配音模式且有文案，仍可用高质量 TTS 生成音频
-                        if mode == "dubbing" and prompt and prompt.strip():
-                            logs.append("Chrome 目录被占用，启用本地高保真 Neural 语音合成引擎生成配音音频...")
-                            if self._synthesize_tts_file(prompt, voice, output_audio_path):
-                                return {
-                                    "success": True,
-                                    "fallback": True,
-                                    "text": prompt.strip(),
-                                    "audio_url": f"/media/outputs/{output_audio_path.name}",
-                                    "audio_path": str(output_audio_path.resolve()),
-                                    "image_urls": [],
-                                    "profile_id": profile.id,
-                                    "profile_name": profile.name,
-                                    "warning": f"Profile [{profile.name}] 正在被运行中的 Chrome 窗口占用。已为您自动完成本地配音音频合成。如需 Gemini 分析视频，请先关闭桌面 Chrome 窗口。",
-                                    "logs": "\n".join(logs)
-                                }
                         return {
                             "success": False,
                             "error_code": "PROFILE_LOCKED",
@@ -866,39 +666,27 @@ class GeminiWebWorker:
                     page = browser.new_page()
                     logs.append("正在导航至 Gemini 主工作区 https://gemini.google.com/app ...")
                     try:
-                        page.goto("https://gemini.google.com/app", timeout=30000)
+                        page.goto("https://gemini.google.com/app", timeout=35000)
                     except Exception as ge:
                         logs.append(f"页面初次加载提醒: {ge}")
 
                     page.wait_for_timeout(2500)
                     self._dismiss_overlays(page, logs)
 
+                    # 记录初始回复节点数量，避免读到历史旧对话
+                    initial_resp_count = len(page.query_selector_all('model-response'))
+
                     # 检查输入框与登录态
                     input_selector = 'rich-textarea div[contenteditable="true"], div.ql-editor[contenteditable="true"], [contenteditable="true"], textarea'
                     has_input = False
                     try:
-                        page.wait_for_selector(input_selector, timeout=7000)
+                        page.wait_for_selector(input_selector, timeout=8000)
                         has_input = True
                     except Exception:
                         has_input = False
 
                     if not has_input:
                         logs.append("未检测到有效输入框，可能未登录或被弹窗拦截")
-                        if mode == "dubbing" and prompt and prompt.strip():
-                            logs.append("账号未在 Gemini 登录，启用本地高保真 Neural 语音合成引擎生成配音音频...")
-                            if self._synthesize_tts_file(prompt, voice, output_audio_path):
-                                return {
-                                    "success": True,
-                                    "fallback": True,
-                                    "text": prompt.strip(),
-                                    "audio_url": f"/media/outputs/{output_audio_path.name}",
-                                    "audio_path": str(output_audio_path.resolve()),
-                                    "image_urls": [],
-                                    "profile_id": profile.id,
-                                    "profile_name": profile.name,
-                                    "warning": f"Gemini 网页端未登录 (Profile: {profile.name})，已自动使用广播级音色完成本地配音合成。请点击【🌐 登录网页版】授权 Gemini 进行视频深度分析。",
-                                    "logs": "\n".join(logs)
-                                }
                         return {
                             "success": False,
                             "error_code": "AUTH_EXPIRED",
@@ -912,45 +700,79 @@ class GeminiWebWorker:
                     input_el = page.query_selector(input_selector)
 
                     # 上传多模态文件附件
-                    media_files = []
-                    if has_video:
-                        media_files.append(str(Path(video_path).resolve()))
-                    if has_image:
-                        media_files.append(str(Path(image_path).resolve()))
+                    if has_video or has_image:
+                        upload_btn = page.query_selector('button[aria-label="Upload & tools"], button[aria-label*="Upload"], button[aria-label*="Add"], button:has-text("+")')
+                        if upload_btn:
+                            upload_btn.click(force=True)
+                            page.wait_for_timeout(1000)
 
-                    if media_files:
                         file_input = page.query_selector('input[type="file"]')
-                        if not file_input:
-                            add_btns = page.query_selector_all('button[aria-label*="Upload"], button[aria-label*="Add"], button[mattooltip*="Upload"]')
-                            if add_btns:
+                        if has_video and has_image:
+                            v_res = str(Path(video_path).resolve())
+                            i_res = str(Path(image_path).resolve())
+                            if file_input:
                                 try:
-                                    add_btns[0].click()
-                                    page.wait_for_timeout(1000)
-                                    file_input = page.query_selector('input[type="file"]')
+                                    file_input.set_input_files([v_res, i_res])
+                                    logs.append(f"已同时上传视频与图片素材: {Path(video_path).name}, {Path(image_path).name}")
                                 except Exception:
-                                    pass
-                        if file_input:
-                            file_input.set_input_files(media_files)
-                            logs.append(f"已向 Gemini 输入框附加多模态素材: {[Path(f).name for f in media_files]}")
-                            page.wait_for_timeout(3500)
+                                    file_input.set_input_files(v_res)
+                                    logs.append(f"已上传视频素材: {Path(video_path).name}")
+                                for _ in range(35):
+                                    page.wait_for_timeout(1000)
+                                    chips = page.query_selector_all('uploader-file-preview, [class*="file-preview"]')
+                                    spinners = page.query_selector_all('uploader-file-preview mat-spinner, uploader-file-preview [role="progressbar"], uploader-file-preview .loading')
+                                    if len(chips) > 0 and len(spinners) == 0:
+                                        logs.append("多模态附件上传与预处理完成！")
+                                        break
+                        elif has_video:
+                            v_res = str(Path(video_path).resolve())
+                            if file_input:
+                                file_input.set_input_files(v_res)
+                                logs.append(f"已上传视频素材: {Path(video_path).name}，正在等待 Gemini 网页端解析处理...")
+                                for _ in range(35):
+                                    page.wait_for_timeout(1000)
+                                    chips = page.query_selector_all('uploader-file-preview, [class*="file-preview"]')
+                                    spinners = page.query_selector_all('uploader-file-preview mat-spinner, uploader-file-preview [role="progressbar"], uploader-file-preview .loading')
+                                    if len(chips) > 0 and len(spinners) == 0:
+                                        logs.append("视频上传与预处理完成！")
+                                        break
+                        elif has_image:
+                            i_res = str(Path(image_path).resolve())
+                            img_inputs = page.query_selector_all('input[type="file"][accept*="image"], input[type="file"]')
+                            target_inp = img_inputs[0] if img_inputs else file_input
+                            if target_inp:
+                                target_inp.set_input_files(i_res)
+                                logs.append(f"已上传参考图片素材: {Path(image_path).name}")
+                                page.wait_for_timeout(2000)
 
                     # 整理提示词
                     clean_prompt = prompt.strip() if prompt else ""
-                    if mode == "dubbing":
-                        if not clean_prompt or clean_prompt == "为视频配音":
-                            clean_prompt = "请深度分析我提供的视频画面与镜头运镜，生成一段高质量、节奏契合的专业视频宣传解说词。请直接输出配音解说文案，不要有多余寒暄。"
+                    if mode == "dubbing" or has_video:
+                        if not clean_prompt or clean_prompt in ["为视频配音", "配音"]:
+                            clean_prompt = "请深度分析我提供的视频画面内容、镜头运镜与动作节奏，生成一段高质量的专业视频宣传片配音解说词。请在回答末尾以【配音解说词】单独标注提炼出的纯配音文案（50字左右），方便录音。"
+                        elif "配音解说词" not in clean_prompt:
+                            clean_prompt += "\n（请在回答末尾以【配音解说词】单独标注提炼出的纯配音解说文案，方便配音录制）"
                     elif mode == "image":
                         if not any(k in clean_prompt for k in ["画", "draw", "image", "插画", "图"]):
                             clean_prompt = f"画一张插画：{clean_prompt}"
 
-                    # 填写内容
+                    # 填写内容（使用 execCommand insertText 富文本原子插入，支持多行上下文且避免 \n 触发换行过早发送）
                     if clean_prompt and input_el:
                         input_el.scroll_into_view_if_needed()
                         input_el.click(force=True)
-                        page.wait_for_timeout(300)
-                        input_el.fill(clean_prompt)
-                        logs.append(f"已输入提示词: {clean_prompt[:60]}...")
-                        page.wait_for_timeout(800)
+                        page.wait_for_timeout(200)
+                        inserted = page.evaluate("""(txt) => {
+                            const el = document.querySelector('rich-textarea div[contenteditable="true"]');
+                            if (el) {
+                                el.focus();
+                                return document.execCommand('insertText', false, txt);
+                            }
+                            return false;
+                        }""", clean_prompt)
+                        if not inserted:
+                            page.keyboard.insert_text(clean_prompt)
+                        logs.append(f"已输入提示词 ({len(clean_prompt)} 字): {clean_prompt[:60]}...")
+                        page.wait_for_timeout(500)
 
                     # 发送请求
                     send_selectors = [
@@ -963,7 +785,7 @@ class GeminiWebWorker:
                     submitted = False
                     for s_sel in send_selectors:
                         s_btn = page.query_selector(s_sel)
-                        if s_btn and s_btn.is_visible():
+                        if s_btn and s_btn.is_visible() and s_btn.is_enabled():
                             s_btn.click(force=True)
                             submitted = True
                             logs.append("已点击发送按钮提交多模态请求")
@@ -972,77 +794,131 @@ class GeminiWebWorker:
                         page.keyboard.press("Enter")
                         logs.append("已通过 Enter 键提交多模态请求")
 
-                    page.wait_for_timeout(3000)
+                    page.wait_for_timeout(1000)
+
+                    # 检测并点击视频协议提示弹窗 (A reminder about creating videos -> Agree)
+                    agree_btns = page.query_selector_all('button:has-text("Agree"), button:has-text("同意"), button:has-text("I agree")')
+                    for ab in agree_btns:
+                        if ab.is_visible():
+                            logs.append("检测到视频创建协议弹窗，自动点击同意授权...")
+                            ab.click(force=True)
+                            page.wait_for_timeout(1000)
+                            break
 
                     # 等待模型回复
                     logs.append("等待 Gemini 响应流...")
                     start_t = time.time()
+                    generation_started = False
                     captured_text = ""
-                    while (time.time() - start_t) < timeout_sec:
-                        time.sleep(2.5)
+                    last_txt = ""
+                    stable_count = 0
+
+                    while (time.time() - start_t) < max(timeout_sec, 90):
+                        time.sleep(1.0)
+                        # 循环中持续检测视频协议弹窗
+                        agree_btns = page.query_selector_all('button:has-text("Agree"), button:has-text("同意"), button:has-text("I agree")')
+                        for ab in agree_btns:
+                            if ab.is_visible():
+                                logs.append("检测到视频创建协议弹窗，自动点击同意授权...")
+                                ab.click(force=True)
+                                page.wait_for_timeout(500)
+                                break
+
+                        stop_btn = page.query_selector('button[aria-label*="Stop"], button[aria-label*="停止"]')
                         model_responses = page.query_selector_all("model-response")
-                        if model_responses:
+                        if stop_btn or len(model_responses) > initial_resp_count:
+                            generation_started = True
+
+                        elapsed = int(time.time() - start_t)
+                        if elapsed % 15 == 0:
+                            logs.append(f"[{elapsed}s] 等待回复生成中... (节点数: {len(model_responses)}, 生成标志: {bool(stop_btn)})")
+
+                        if generation_started and not stop_btn and len(model_responses) > 0:
                             last_resp = model_responses[-1]
                             txt = last_resp.inner_text().strip()
-                            if len(txt) > 5:
-                                captured_text = txt
-                                page.wait_for_timeout(2000)
-                                latest_txt = model_responses[-1].inner_text().strip()
-                                if latest_txt == captured_text and (time.time() - start_t) > 6:
-                                    logs.append("Gemini 回答已完全输出")
-                                    break
+                            if txt.startswith("Gemini said"):
+                                txt = txt[len("Gemini said"):].strip()
+                            if "You stopped this response" in txt:
+                                continue
+                            has_images = bool(last_resp.query_selector("img"))
+                            if len(txt) > 0 or has_images:
+                                if not txt and has_images:
+                                    txt = f"已为您生成 AI 绘画作品：{prompt or '参考插画'}"
+                                if txt == last_txt:
+                                    stable_count += 1
+                                    if stable_count >= 3:
+                                        captured_text = txt
+                                        logs.append(f"Gemini 回答已完全稳定输出: {len(captured_text)} 字符 (生成图片: {has_images})")
+                                        break
+                                else:
+                                    stable_count = 0
+                                    last_txt = txt
+
+                    if not captured_text:
+                        return {
+                            "success": False,
+                            "error_code": "RESPONSE_TIMEOUT",
+                            "error_message": f"Gemini 响应超时（已等待 {int(time.time() - start_t)} 秒），未获取到有效回答。请检查网络或重新提问。",
+                            "text": "",
+                            "audio_url": None,
+                            "image_urls": [],
+                            "profile_id": profile.id,
+                            "profile_name": profile.name,
+                            "logs": "\n".join(logs)
+                        }
 
                     # 检查图片产物 (如果是绘画模式或包含生图)
-                    if mode == "image" or any(k in clean_prompt for k in ["画", "生图", "image"]):
-                        img_elems = page.query_selector_all("model-response:last-child img, .generated-image img, .image-container img")
+                    if mode == "image" or any(k in clean_prompt for k in ["画", "生图", "image", "插画"]) or (model_responses and model_responses[-1].query_selector("img")):
+                        page.wait_for_timeout(2500)
+                        target_resp = model_responses[-1] if model_responses else page
+                        img_elems = target_resp.query_selector_all("img, .generated-image img, .image-container img")
                         for idx, im in enumerate(img_elems):
-                            src = im.get_attribute("src") or ""
-                            if src.startswith("http") or src.startswith("data:") or src.startswith("blob:"):
-                                try:
-                                    img_save_path = self.output_dir / f"gemini_img_{out_id}_{idx}.png"
-                                    b64_data = page.evaluate("""
-                                        async (img) => {
-                                            try {
-                                                const res = await fetch(img.src);
-                                                const blob = await res.blob();
-                                                return new Promise((resolve) => {
-                                                    const reader = new FileReader();
-                                                    reader.onloadend = () => resolve(reader.result);
-                                                    reader.readAsDataURL(blob);
-                                                });
-                                            } catch (e) { return null; }
-                                        }
-                                    """, im)
-                                    if b64_data and "," in b64_data:
-                                        raw = base64.b64decode(b64_data.split(",", 1)[1])
+                            box = im.bounding_box()
+                            if box and (box['width'] < 80 or box['height'] < 80):
+                                continue
+                            img_save_path = self.output_dir / f"gemini_img_{out_id}_{idx}.png"
+                            saved = False
+                            # 优先尝试从原图 Blob / Fetch 提取全分辨率原图数据
+                            try:
+                                b64_data = page.evaluate("""
+                                    async (img) => {
+                                        try {
+                                            const res = await fetch(img.src);
+                                            const blob = await res.blob();
+                                            return new Promise((resolve) => {
+                                                const reader = new FileReader();
+                                                reader.onloadend = () => resolve(reader.result);
+                                                reader.readAsDataURL(blob);
+                                            });
+                                        } catch (e) { return null; }
+                                    }
+                                """, im)
+                                if b64_data and "," in b64_data:
+                                    raw = base64.b64decode(b64_data.split(",", 1)[1])
+                                    if len(raw) > 1000:
                                         with open(img_save_path, "wb") as f:
                                             f.write(raw)
                                         output_images.append(f"/media/outputs/{img_save_path.name}")
-                                        logs.append(f"成功提取生成的绘画大图: {img_save_path.name}")
-                                except Exception as ie:
-                                    logs.append(f"提取生成图片异常: {ie}")
+                                        logs.append(f"Blob原生提取高清原图成功: {img_save_path.name} (大小: {len(raw)} 字节)")
+                                        saved = True
+                            except Exception as ie:
+                                logs.append(f"Blob提取原图异常，切换截图备选: {ie}")
 
-                    # 检查音频配音产物 (如果是配音模式或请求了音色)
+                            # 备选方案：若 Blob 提取因跨域/限制失败，使用 Playwright 元素精准截图
+                            if not saved:
+                                try:
+                                    im.screenshot(path=str(img_save_path))
+                                    if img_save_path.exists() and img_save_path.stat().st_size > 1000:
+                                        output_images.append(f"/media/outputs/{img_save_path.name}")
+                                        logs.append(f"元素截图提取图片备选成功: {img_save_path.name} (大小: {img_save_path.stat().st_size} 字节)")
+                                        saved = True
+                                except Exception as se:
+                                    logs.append(f"元素截图提取失败: {se}")
+
+                    # 本地配音功能已下线，纯净返回 AI 文本与视觉产物
                     audio_url = None
                     audio_path_str = None
-                    if mode == "dubbing" or (voice and mode != "image"):
-                        speech_text = captured_text
-                        if not speech_text and clean_prompt and mode != "dubbing":
-                            speech_text = clean_prompt
-                        if "```" in speech_text:
-                            parts = speech_text.split("```")
-                            speech_text = parts[1] if len(parts) > 1 else speech_text
-                        if speech_text.startswith("Gemini said"):
-                            speech_text = speech_text[len("Gemini said"):].strip()
-                        
-                        target_voice = voice if (voice and "Neural" in voice) else "zh-CN-YunxiNeural"
-                        logs.append(f"正在为解说词生成高保真 Neural 配音音频 (音色: {target_voice})...")
-                        if self._synthesize_tts_file(speech_text, target_voice, output_audio_path):
-                            audio_url = f"/media/outputs/{output_audio_path.name}"
-                            audio_path_str = str(output_audio_path.resolve())
-                            logs.append(f"高品质配音音频生成完成: {output_audio_path.name}")
-
-                    final_text = captured_text or clean_prompt or "（处理完成）"
+                    final_text = captured_text
                     return {
                         "success": True,
                         "text": final_text,
@@ -1055,27 +931,16 @@ class GeminiWebWorker:
                     }
 
                 finally:
-                    browser.close()
-                    logs.append("Playwright 浏览器已关闭，系统内存已释放。")
+                    try:
+                        browser.close()
+                    except Exception:
+                        pass
+                    unlock_profile_processes(profile_dir, profile.name)
+                    logs.append("Chrome 进程已安全回收，锁文件已清理，系统内存已释放。")
 
         except Exception as exc:
             logs.append(f"执行 Gemini 多模态交互异常: {exc}")
-            # 智能兜底：若是配音需求，绝不让用户扑空
-            if mode == "dubbing" and prompt and prompt.strip():
-                target_voice = voice if (voice and "Neural" in voice) else "zh-CN-YunxiNeural"
-                if self._synthesize_tts_file(prompt, target_voice, output_audio_path):
-                    return {
-                        "success": True,
-                        "fallback": True,
-                        "text": prompt.strip(),
-                        "audio_url": f"/media/outputs/{output_audio_path.name}",
-                        "audio_path": str(output_audio_path.resolve()),
-                        "image_urls": [],
-                        "profile_id": profile.id,
-                        "profile_name": profile.name,
-                        "warning": f"Gemini 浏览器交互遇阻 ({exc})，已自动使用广播级 Neural 音色生成配音音频。",
-                        "logs": "\n".join(logs)
-                    }
+            unlock_profile_processes(profile_dir, profile.name)
             return {
                 "success": False,
                 "error_code": "EXCEPTION",
@@ -1085,3 +950,5 @@ class GeminiWebWorker:
                 "image_urls": [],
                 "logs": "\n".join(logs)
             }
+        finally:
+            prof_lock.release()

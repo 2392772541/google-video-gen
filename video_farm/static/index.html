@@ -7,7 +7,7 @@
 <title>Video Farm · 创作工作台</title>
 <link href="/static/style.css?v=studio20261003-10" rel="stylesheet"/>
 <link href="/static/studio.css?v=studio20261003-10" rel="stylesheet"/></head>
-<body class="farm-console"><div class="studio-shell"><aside aria-label="主导航" class="studio-sidebar" id="studio-sidebar"><a class="studio-brand" href="/"><span class="studio-mark">VF</span><span class="brand-caption">Video Farm</span></a><nav aria-label="工作空间" class="studio-navigation"><button class="tab-button active" data-target="view-generate" title="视频创作"><span aria-hidden="true" class="ui-icon icon-clapperboard"></span><span>视频创作</span></button><button class="tab-button" data-target="view-audio" title="配音音频"><span aria-hidden="true" class="ui-icon icon-audio-lines"></span><span>配音音频</span></button><button class="tab-button" data-target="view-images" title="图像素材"><span aria-hidden="true" class="ui-icon icon-images"></span><span>图像素材</span></button><button class="tab-button" data-target="view-tasks" title="任务成片"><span aria-hidden="true" class="ui-icon icon-list-video"></span><span>任务成片</span><span class="pill-count" id="badge-total-tasks">0</span></button><button class="tab-button" data-target="view-profiles" title="账号管理"><span aria-hidden="true" class="ui-icon icon-users-round"></span><span>账号管理</span><span class="pill-count" id="badge-total-profiles">0</span></button><a class="tab-button" href="/vids" title="连续分镜工程"><span aria-hidden="true" class="ui-icon icon-panels-top-left"></span><span>连续分镜</span></a></nav><div class="sidebar-foot"><span class="sidebar-dot"></span> 本机工作室</div></aside><div class="studio-main"><header class="navbar">
+<body class="farm-console"><div class="studio-shell"><aside aria-label="主导航" class="studio-sidebar" id="studio-sidebar"><a class="studio-brand" href="/"><span class="studio-mark">VF</span><span class="brand-caption">Video Farm</span></a><nav aria-label="工作空间" class="studio-navigation"><button class="tab-button active" data-target="view-generate" title="视频创作"><span aria-hidden="true" class="ui-icon icon-clapperboard"></span><span>视频创作</span></button><button class="tab-button" data-target="view-audio" title="配音音频" style="display:none!important"><span aria-hidden="true" class="ui-icon icon-audio-lines"></span><span>配音音频</span></button><button class="tab-button" data-target="view-images" title="图像素材"><span aria-hidden="true" class="ui-icon icon-images"></span><span>图像素材</span></button><button class="tab-button" data-target="view-tasks" title="任务成片"><span aria-hidden="true" class="ui-icon icon-list-video"></span><span>任务成片</span><span class="pill-count" id="badge-total-tasks">0</span></button><button class="tab-button" data-target="view-profiles" title="账号管理"><span aria-hidden="true" class="ui-icon icon-users-round"></span><span>账号管理</span><span class="pill-count" id="badge-total-profiles">0</span></button><a class="tab-button" href="/vids" title="连续分镜工程"><span aria-hidden="true" class="ui-icon icon-panels-top-left"></span><span>连续分镜</span></a></nav><div class="sidebar-foot"><span class="sidebar-dot"></span> 本机工作室</div></aside><div class="studio-main"><header class="navbar">
 <div class="workspace-location"><span>工作空间 / <b id="workspace-title">视频创作</b></span></div>
 <div class="nav-center">
 <div class="scheduler-status-pill" id="scheduler-pill" title="点击切换调度器状态">
@@ -38,7 +38,7 @@
 <!-- ================= 视图 1: 生成视频 ================= -->
 <!-- ================= 视图 0: 一键全自动成片 (Pipeline) ================= -->
 <!-- ================= 视图: Gemini 智能配音与多模态音频工作台 ================= -->
-<section class="view-pane" id="view-audio">
+<section class="view-pane" id="view-audio" style="display:none!important">
   <!-- 顶部多账号统一管理调度横幅 -->
   <div class="card gemini-hub-card" style="margin-bottom:16px;padding:16px 20px;">
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
@@ -58,10 +58,8 @@
       <!-- 多账号统一管理与操作栏 -->
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
         <div style="display:flex;align-items:center;gap:6px;background:#f8faf6;padding:4px 10px;border-radius:6px;border:1px solid #e2e4dc">
-          <span style="font-size:11px;color:var(--text-sub);white-space:nowrap;font-weight:600">👤 当前调度账号:</span>
-          <select id="gemini-active-profile" class="form-control" style="min-width:180px;height:30px;padding:2px 8px;font-size:12px;font-weight:600">
-            <option value="auto">⚡ Auto · 智能轮转选择</option>
-          </select>
+          <span style="font-size:11px;color:var(--text-sub);white-space:nowrap;font-weight:600">👤 绑定对话账号:</span>
+          <select id="gemini-active-profile" class="form-control" style="min-width:180px;height:30px;padding:2px 8px;font-size:12px;font-weight:600" title="当前会话专属绑定的 Google 账号，多轮对话上下文严格在此账号下保持"></select>
           <span id="gemini-profile-status-badge" class="badge-chip" style="font-size:10px;padding:2px 6px;background:#ecfdf5;color:#047857">就绪</span>
         </div>
         <button class="btn btn-secondary btn-sm" id="btn-gemini-launch-chrome" type="button" title="启动独立 Chrome 窗口登录 Gemini 网页版完成授权">

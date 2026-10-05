@@ -51,12 +51,21 @@ def close_chrome_for_profile(profile_name: str) -> int:
                 cmdline = proc.info.get('cmdline') or []
                 cmd_str = " ".join(cmdline).lower()
                 if target_substr in cmd_str:
-                    proc.terminate()
+                    proc.kill()
                     closed_count += 1
         except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
             pass
     if closed_count > 0:
-        time.sleep(1.0)
+        time.sleep(0.5)
+    appdata = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
+    p_dir = Path(appdata) / "ffroliva" / "gflow-cli" / f"profile_{profile_name}"
+    for lock_name in ["lockfile", "SingletonLock", "SingletonSocket", "SingletonCookie"]:
+        lf = p_dir / lock_name
+        if lf.exists():
+            try:
+                lf.unlink()
+            except Exception:
+                pass
     return closed_count
 
 def check_chrome_running_for_profile(profile_name: str) -> bool:
@@ -1095,65 +1104,8 @@ async def create_task(
     return {"id": task_id, "status": "queued", "engine": engine, "task_type": task_type, "message": f"{engine_desc}任务创建成功并已加入队列"}
 
 @app.post("/api/tasks/create-audio")
-async def create_audio_task_endpoint(
-    prompt: str = Form(...),
-    model: str = Form("zh-CN-YunxiNeural"),
-    voice: Optional[str] = Form(None),
-    input_video: Optional[UploadFile] = File(None),
-    input_video_path: Optional[str] = Form(None),
-    ref_image: Optional[UploadFile] = File(None),
-    ref_image_path: Optional[str] = Form(None),
-    priority: int = Form(10),
-    assigned_profile_id: Optional[str] = Form(None)
-):
-    if not prompt.strip():
-        raise HTTPException(status_code=400, detail="音频/配音提示词不能为空")
-    
-    task_id = f"task_{uuid.uuid4().hex[:12]}"
-    task_upload_dir = UPLOADS_DIR / task_id
-    task_upload_dir.mkdir(parents=True, exist_ok=True)
-    
-    video_dest_str = ""
-    if input_video and input_video.filename:
-        vid_ext = Path(input_video.filename or "input.mp4").suffix or ".mp4"
-        vid_dest = task_upload_dir / f"input_video{vid_ext}"
-        with open(vid_dest, "wb") as f:
-            shutil.copyfileobj(input_video.file, f)
-        video_dest_str = str(vid_dest.resolve())
-    elif input_video_path and Path(input_video_path).exists():
-        video_dest_str = str(Path(input_video_path).resolve())
-
-    ref_dest_str = ""
-    if ref_image and ref_image.filename:
-        ref_ext = Path(ref_image.filename or "ref.png").suffix or ".png"
-        ref_dest = task_upload_dir / f"ref{ref_ext}"
-        with open(ref_dest, "wb") as f:
-            shutil.copyfileobj(ref_image.file, f)
-        ref_dest_str = str(ref_dest.resolve())
-    elif ref_image_path and Path(ref_image_path).exists():
-        ref_dest_str = str(Path(ref_image_path).resolve())
-
-    target_prof_id = assigned_profile_id.strip() if assigned_profile_id and assigned_profile_id.strip() else None
-    if not target_prof_id or target_prof_id.lower() in ("auto", "none", "null"):
-        target_prof_id = None
-
-    chosen_model = (voice.strip() if voice and voice.strip() else (model.strip() if model and model.strip() else "zh-CN-YunxiNeural"))
-    task = Task(
-        id=task_id,
-        prompt=prompt.strip(),
-        start_image_path=ref_dest_str,
-        input_video_path=video_dest_str,
-        engine="gemini",
-        task_type="audio",
-        model=chosen_model,
-        status="queued",
-        priority=priority,
-        assigned_profile_id=target_prof_id
-    )
-    
-    db.add_task(task, DB_PATH)
-    db.log_task_event(task_id, "TASK_CREATED_WEB", f"通过Web控制台提交Gemini多模态音频/配音任务，模型: {task.model}", db_path=DB_PATH)
-    return {"id": task_id, "status": "queued", "engine": "gemini", "task_type": "audio", "message": "Gemini音频/配音任务创建成功并已加入队列"}
+async def create_audio_task_endpoint():
+    return {"id": "", "status": "disabled", "message": "本地配音功能已下线", "success": False}
 
 @app.post("/api/tasks/create-image")
 async def create_image_task_endpoint(
@@ -1954,6 +1906,52 @@ app.include_router(vids_router)
 # Gemini 多模态综合工作台 API (对话、视频配音、AI绘画与多账号管理)
 # ============================================================
 
+def run_in_clean_thread(fn, *args, **kwargs):
+    res_box = {}
+    err_box = {}
+    def _runner():
+        try:
+            res_box['data'] = fn(*args, **kwargs)
+        except Exception as e:
+            err_box['err'] = e
+    th = threading.Thread(target=_runner, daemon=True)
+    th.start()
+    th.join(timeout=180)
+    if th.is_alive():
+        return {"success": False, "error_message": "多模态执行超时（超过180秒）"}
+    if 'err' in err_box:
+        raise err_box['err']
+    return res_box.get('data') or {"success": False, "error_message": "执行未返回有效结果"}
+
+@app.post("/api/profiles/{profile_id}/unlock")
+def unlock_profile_endpoint(profile_id: str):
+    p = db.get_profile_by_id(profile_id, DB_PATH) or db.get_profile_by_name(profile_id, DB_PATH)
+    if not p:
+        raise HTTPException(status_code=404, detail="Profile未找到")
+    killed = close_chrome_for_profile(p.name)
+    return {"success": True, "killed_processes": killed, "message": f"已成功释放账号 [{p.name}] 占用并清理目录锁"}
+
+@app.post("/api/profiles/{profile_id}/launch-chrome")
+def launch_chrome_for_gemini(profile_id: str):
+    p = db.get_profile_by_id(profile_id, DB_PATH) or db.get_profile_by_name(profile_id, DB_PATH)
+    if not p:
+        raise HTTPException(status_code=404, detail="Profile未找到")
+    close_chrome_for_profile(p.name)
+    appdata = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
+    profile_dir = Path(appdata) / "ffroliva" / "gflow-cli" / f"profile_{p.name}"
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    chrome_path = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
+    if not Path(chrome_path).exists():
+        chrome_path = "chrome"
+    subprocess.Popen([
+        chrome_path,
+        f"--user-data-dir={str(profile_dir)}",
+        "--no-first-run",
+        "--no-default-browser-check",
+        "https://gemini.google.com/app"
+    ])
+    return {"success": True, "message": f"已在桌面启动账号 [{p.name}] 独立 Chrome 窗口，请在浏览器中登录 Google/Gemini。"}
+
 @app.get("/api/gemini/messages")
 def get_gemini_messages(session_id: str = "default", limit: int = 100):
     msgs = db.list_gemini_messages(session_id=session_id, limit=limit, db_path=DB_PATH)
@@ -2005,6 +2003,14 @@ def gemini_chat_endpoint(
     image: Optional[UploadFile] = File(None),
     image_path: Optional[str] = Form(None)
 ):
+    message = message.strip() if message else ""
+    session_id = session_id.strip() if session_id else "default"
+    mode = mode.strip() if mode else "chat"
+    voice = voice.strip() if voice else "zh-CN-YunxiNeural"
+    aspect_ratio = aspect_ratio.strip() if aspect_ratio else "16:9"
+    if profile_id:
+        profile_id = profile_id.strip()
+
     chat_upload_dir = UPLOADS_DIR / "gemini_chat"
     chat_upload_dir.mkdir(parents=True, exist_ok=True)
 
@@ -2080,12 +2086,22 @@ def gemini_chat_endpoint(
             "url": image_url or f"/media/file?path={image_dest_str}"
         })
 
-    # 解析目标 Profile
+    # 解析目标 Profile（严格锁定账号，严禁随机轮转打乱对话上下文）
     target_profile = None
     if profile_id and profile_id.strip() and profile_id.lower() not in ("auto", "none", "null"):
         target_profile = db.get_profile_by_id(profile_id.strip(), DB_PATH) or db.get_profile_by_name(profile_id.strip(), DB_PATH)
+
+    # 若未明确指定新账号，自动继承当前 session 既有绑定的 Profile，保持对话上下文严格在同一账号下
     if not target_profile:
-        target_profile = db.pick_best_profile(require_clean=False, db_path=DB_PATH)
+        prior_msgs = db.list_gemini_messages(session_id=session_id, limit=8, db_path=DB_PATH)
+        for pm in prior_msgs:
+            if pm.get("profile_id"):
+                cand = db.get_profile_by_id(pm["profile_id"], DB_PATH) or db.get_profile_by_name(pm.get("profile_name", ""), DB_PATH)
+                if cand:
+                    target_profile = cand
+                    break
+
+    # 若为全新的会话且未指定账号，默认固定使用第一个已启用的账号，严禁动态切号
     if not target_profile:
         all_profs = db.list_profiles(DB_PATH)
         if all_profs:
@@ -2116,11 +2132,32 @@ def gemini_chat_endpoint(
         }, DB_PATH)
         return {"success": False, "user_message": user_msg, "assistant_message": ai_msg}
 
-    # 调用 Gemini 多模态工作台 Worker
+    # 针对纯文字自由对话模式，组装前序对话上下文（提取最近历史轮次），赋予 Gemini 网页端连贯记忆
+    actual_prompt = message.strip()
+    if mode == "chat" and not video_dest_str and not image_dest_str:
+        prior_history = db.list_gemini_messages(session_id=session_id, limit=8, db_path=DB_PATH)
+        context_turns = [
+            m for m in prior_history 
+            if m.get("id") != user_msg.get("id") and m.get("content") and not m.get("content", "").startswith("⚠️")
+        ]
+        if context_turns:
+            history_lines = []
+            for m in context_turns[-4:]:
+                r_label = "用户" if m.get("role") == "user" else "Gemini"
+                c_snippet = m.get("content", "").strip().replace("\n", " ")
+                if len(c_snippet) > 100:
+                    c_snippet = c_snippet[:100] + "..."
+                history_lines.append(f"{r_label}: {c_snippet}")
+            if history_lines:
+                history_block = "\n".join(history_lines)
+                actual_prompt = f"【前序对话记录】\n{history_block}\n\n【用户最新问题】\n{message.strip()}"
+
+    # 调用 Gemini 多模态工作台 Worker（在纯净独立线程中运行，完全隔离 FastAPI 的 asyncio loop）
     worker = mgr.scheduler.gemini_worker if (mgr.scheduler and hasattr(mgr.scheduler, "gemini_worker")) else GeminiWebWorker(output_dir=OUTPUTS_DIR)
-    res = worker.execute_multimodal_interaction(
+    res = run_in_clean_thread(
+        worker.execute_multimodal_interaction,
         profile=target_profile,
-        prompt=message.strip(),
+        prompt=actual_prompt,
         mode=mode,
         video_path=video_dest_str,
         image_path=image_dest_str,
@@ -2153,22 +2190,7 @@ def gemini_chat_endpoint(
         "error_message": res.get("error_message")
     }, DB_PATH)
 
-    # 若生成了音频，同步在 tasks 登记便于成片库归档
-    if res.get("audio_path"):
-        t_id = f"task_aud_{uuid.uuid4().hex[:10]}"
-        t = Task(
-            id=t_id,
-            prompt=message.strip() or "Gemini 多模态视频配音",
-            input_video_path=video_dest_str,
-            start_image_path=image_dest_str,
-            engine="gemini",
-            task_type="audio",
-            model=voice,
-            status="completed",
-            output_audio_path=res.get("audio_path"),
-            assigned_profile_id=target_profile.id
-        )
-        db.add_task(t, DB_PATH)
+    # 本地音频配音功能已下线，不登记音频任务
 
     return {
         "success": res.get("success", False),

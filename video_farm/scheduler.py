@@ -40,6 +40,18 @@ def classify_failure(err_code: str, err_msg: str, logs: str) -> tuple[str, str, 
             False,
         )
 
+    # 0.2 提示词内容安全/条款拦截 (Safety Filter / Terms Violation)
+    if code_up in ("SAFETY_FILTER_BLOCKED", "TERMS_VIOLATION") or any(k in content for k in [
+        "against our terms", "safety_filter_blocked", "try asking something else",
+        "content policy", "违反服务条款", "提示词安全拦截"
+    ]):
+        return (
+            "SAFETY_FILTER_BLOCKED",
+            "提示词触碰 Google 内容政策与服务条款 (That request looks like it goes against our terms)。请调整提示词避开敏感词后重新提交",
+            0,
+            False
+        )
+
     # 0. 浏览器目录锁冲突 (Chrome 窗口仍在运行中)
     if code_up == "PROFILE_LOCKED" or any(k in content for k in [
         "profile_locked", "profilelockederror", "profile is in use", "is already in use",
@@ -328,7 +340,7 @@ class VideoScheduler:
             if task_type == "image":
                 exec_res = self.flow_worker.execute_image_task(task, profile)
             elif task_type == "audio":
-                exec_res = self.gemini_worker.execute_audio_task(task, profile)
+                exec_res = {"success": False, "error_code": "AUDIO_DISABLED", "error_message": "本地配音功能已下线", "pid": None}
             elif engine_name == "gemini":
                 exec_res = self.gemini_worker.execute_task(task, profile)
             elif engine_name == "vids":
@@ -361,7 +373,7 @@ class VideoScheduler:
                 now_dt = datetime.now().astimezone()
                 cooldown_until = (now_dt + timedelta(seconds=cooldown_sec)).isoformat()
 
-                if category in ("UNSUPPORTED_FEATURE", "WIRE_FORMAT_MISMATCH"):
+                if category in ("UNSUPPORTED_FEATURE", "WIRE_FORMAT_MISMATCH", "SAFETY_FILTER_BLOCKED"):
                     db.update_profile_status(
                         profile_id=profile_id,
                         status="idle",
