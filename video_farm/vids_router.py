@@ -1001,3 +1001,47 @@ def get_workflows_stats():
         "total_completed_shots": total_completed,
         "workflows": wfs
     }
+
+
+@router.post("/workflows/{workflow_id}/stop_all")
+def stop_workflow_generation(workflow_id: str):
+    """强行中止当前工作流中所有正在运行或排队的分镜任务"""
+    wf = db.get_vids_workflow(workflow_id)
+    if not wf:
+        raise HTTPException(status_code=404, detail="工作流不存在")
+    shots = db.list_vids_shots(workflow_id)
+    stopped = 0
+    from . import web
+    for s in shots:
+        tid = s.get("task_id")
+        if tid:
+            try:
+                if web.mgr and web.mgr.scheduler:
+                    web.mgr.scheduler.cancel_task(tid)
+                db.transition_task(tid, "stop", web.DB_PATH)
+                stopped += 1
+            except Exception:
+                pass
+        if s.get("status") in ("running", "queued"):
+            db.update_vids_shot(s["id"], {"status": "pending", "progress": 0, "error_message": "用户手动停止生成"})
+    db.update_vids_workflow(workflow_id, {"status": "draft"})
+    return {"success": True, "stopped_count": stopped, "message": f"已成功停止 {stopped} 个镜头的生成任务并释放资源"}
+
+
+@router.post("/shots/{shot_id}/cancel")
+def cancel_shot_generation(shot_id: str):
+    """强行中止单个分镜的生成任务"""
+    shot = db.get_vids_shot(shot_id)
+    if not shot:
+        raise HTTPException(status_code=404, detail="分镜不存在")
+    tid = shot.get("task_id")
+    from . import web
+    if tid:
+        try:
+            if web.mgr and web.mgr.scheduler:
+                web.mgr.scheduler.cancel_task(tid)
+            db.transition_task(tid, "stop", web.DB_PATH)
+        except Exception:
+            pass
+    db.update_vids_shot(shot_id, {"status": "pending", "progress": 0, "error_message": "用户手动停止生成"})
+    return {"success": True, "message": f"分镜 [{shot.get('name')}] 生成任务已成功停止并释放资源"}

@@ -38,6 +38,44 @@ class VidsWorker:
         self.timeout_sec = timeout_sec
         self.headless = headless
         self.mock_sample_video = mock_sample_video
+        self._active_sessions: Dict[str, Dict[str, Any]] = {}
+        self._sessions_lock = threading.Lock()
+
+    def cancel_task(self, task_id: str) -> bool:
+        """强行终止指定任务的 Google Vids 会话并清理 Chrome 进程"""
+        with self._sessions_lock:
+            sess = self._active_sessions.get(task_id)
+            if sess:
+                sess["cancelled"] = True
+                browser = sess.get("browser")
+                if browser:
+                    try:
+                        browser.close()
+                    except Exception:
+                        pass
+                p_ctx = sess.get("playwright_ctx")
+                if p_ctx:
+                    try:
+                        p_ctx.stop()
+                    except Exception:
+                        pass
+                profile = sess.get("profile")
+                if profile:
+                    try:
+                        self._close_chrome_for_profile(profile)
+                    except Exception:
+                        pass
+                return True
+        return False
+
+    def _close_chrome_for_profile(self, profile: Profile):
+        """强制清理指定 Profile 的残留 Chrome 进程与锁文件"""
+        profile_dir = self._resolve_profile_dir(profile)
+        try:
+            from .gemini_worker import unlock_profile_processes
+            unlock_profile_processes(profile_dir, profile.name)
+        except Exception as e:
+            print(f"[VidsWorker] 清理 Chrome 进程与锁异常: {e}")
 
     def _resolve_profile_dir(self, profile: Profile) -> Path:
         if profile.profile_path and Path(profile.profile_path).exists():
@@ -137,6 +175,13 @@ class VidsWorker:
         playwright_ctx = None
 
         try:
+            with self._sessions_lock:
+                self._active_sessions[task.id] = {
+                    "profile": profile,
+                    "browser": None,
+                    "playwright_ctx": None,
+                    "cancelled": False
+                }
             playwright_ctx = sync_playwright().start()
             launch_args = [
                 "--no-sandbox",
@@ -151,6 +196,10 @@ class VidsWorker:
                     headless=self.headless,
                     args=launch_args
                 )
+                with self._sessions_lock:
+                    if task.id in self._active_sessions:
+                        self._active_sessions[task.id]["browser"] = browser
+                        self._active_sessions[task.id]["playwright_ctx"] = playwright_ctx
             except Exception as launch_exc:
                 lexc_str = str(launch_exc).lower()
                 logs.append(f"拉起浏览器会话异常: {launch_exc}")
@@ -355,6 +404,18 @@ class VidsWorker:
             generation_complete = False
 
             while time.time() - start_poll < self.timeout_sec:
+                with self._sessions_lock:
+                    if self._active_sessions.get(task.id, {}).get("cancelled"):
+                        logs.append("⏹ 任务在渲染轮询期间被用户手动取消")
+                        return {
+                            "success": False,
+                            "pid": os.getpid(),
+                            "error_code": "USER_CANCELLED",
+                            "error_message": "用户手动强行中止任务",
+                            "output_video_path": None,
+                            "logs": "\n".join(logs)
+                        }
+
                 # 0. 快速检测 Google 服务条款/内容安全风控拦截 (Terms violation / Safety filter)
                 terms_match = False
                 terms_msg = ""
@@ -519,6 +580,8 @@ class VidsWorker:
                 "logs": "\n".join(logs)
             }
         finally:
+            with self._sessions_lock:
+                self._active_sessions.pop(task.id, None)
             # 8. 必须完全释放浏览器资源与内存，杜绝驻留进程把系统吃死
             logs.append("🧹 正在关闭 Google Vids 自动化会话并彻底释放系统内存...")
             if browser:

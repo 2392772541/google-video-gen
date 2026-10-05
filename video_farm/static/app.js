@@ -30,6 +30,7 @@ document.addEventListener("DOMContentLoaded", () => {
     btnBatchClear: document.getElementById("btn-batch-clear"),
     batchStatsText: document.getElementById("batch-stats-text"),
     btnBatchDownload: document.getElementById("btn-batch-download"),
+    btnBatchCancel: document.getElementById("btn-batch-cancel"),
     btnBatchDelete: document.getElementById("btn-batch-delete"),
     btnBatchSelectCompleted: document.getElementById("btn-batch-select-completed"),
     btnQuickSelectCompleted: document.getElementById("btn-quick-select-completed"),
@@ -1332,7 +1333,8 @@ document.addEventListener("DOMContentLoaded", () => {
             ${isImageTask && t.status === "completed" && t.image_urls && t.image_urls.length > 0 ? `<button class="btn btn-primary btn-sm" onclick="openImageViewer('${escapeJs(t.image_paths[0] || "")}', '${escapeJs(t.image_urls[0])}', '${escapeJs(t.prompt)}')">👁️ 查看大图</button>` : ""}
             ${!isImageTask && !isAudioTask && t.has_video ? `<button class="btn btn-primary btn-sm btn-play-video" data-id="${t.id}" data-url="${t.video_url}">🎥 播放</button>` : ""}
             ${(t.has_video || t.has_audio || (isImageTask && t.status === "completed" && t.image_urls && t.image_urls.length > 0)) ? `<a href="/api/tasks/${t.id}/download" download class="btn btn-secondary btn-sm" title="保存下载该成品文件">📥 下载</a>` : ""}
-            ${["queued", "retry_wait"].includes(t.status) ? `<button class="btn btn-danger btn-sm btn-cancel-task" data-id="${t.id}" title="停止并取消该任务">⏹ 取消</button>` : ""}
+            ${["running", "dispatching", "verifying"].includes(t.status) ? `<button class="btn btn-danger btn-sm btn-cancel-task" data-id="${t.id}" style="background:#dc2626;border-color:#b91c1c;font-weight:700;" title="强行中止当前正在运行的任务并释放资源与槽位">⏹ 强制停止</button>` : ""}
+            ${["queued", "retry_wait"].includes(t.status) ? `<button class="btn btn-danger btn-sm btn-cancel-task" data-id="${t.id}" title="取消排队中的任务">⏹ 取消</button>` : ""}
             ${!isImageTask && !isAudioTask && t.status === "completed" && t.engine !== "gemini" ? `<button class="btn btn-secondary btn-sm btn-view-qa" data-id="${t.id}">🔍 质检对比</button>` : ""}
             <button class="btn btn-secondary btn-sm btn-view-log" data-id="${t.id}">📋 日志</button>
             ${(t.status === "failed" || t.status === "retry_wait" || t.status === "cancelled") && !["WIRE_FORMAT_MISMATCH", "UNSUPPORTED_FEATURE"].includes(t.error_code) ? `<button class="btn btn-warning btn-sm btn-retry-task" data-id="${t.id}" title="重新排队；保留原账号绑定，等待调度">🔄 重新排队</button>` : ""}
@@ -1435,20 +1437,24 @@ document.addEventListener("DOMContentLoaded", () => {
       });
     });
 
-    // 单任务取消事件
+    // 单任务取消与强制停止事件
     container.querySelectorAll(".btn-cancel-task").forEach(b => {
       b.addEventListener("click", async () => {
         const id = b.getAttribute("data-id");
-        if (!confirm(`确定要取消任务 [${id}] 吗？`)) {
+        const isRunning = b.textContent.includes("停止");
+        const msg = isRunning ? `确定要强行中止正在运行的任务 [${id}] 吗？将立即终止底层执行进程并释放账号。` : `确定要取消排队中的任务 [${id}] 吗？`;
+        if (!confirm(msg)) {
           return;
         }
         try {
           const resp = await fetch("/api/tasks/" + id + "/cancel", { method: "POST" });
           if (resp.ok) {
-            showToast("任务 " + id + " 已取消", "info");
+            showToast("任务 " + id + (isRunning ? " 已强制中止并释放资源" : " 已取消"), "info");
             fetchTasks(true);
+            fetchOverview();
           } else {
-            showToast("取消失败", "error");
+            const errData = await resp.json().catch(() => ({}));
+            showToast("操作失败: " + (errData.detail || resp.statusText), "error");
           }
         } catch (e) {
           showToast("网络错误: " + e.message, "error");
@@ -1502,7 +1508,39 @@ document.addEventListener("DOMContentLoaded", () => {
       el.btnBatchDownload.innerHTML = `📥 批量保存下载视频 (${readyVideoCount}) (ZIP)`;
     }
 
-    if (el.btnBatchDelete) {
+    if (el.btnBatchCancel) {
+      el.btnBatchCancel.disabled = (totalSelected === 0);
+      el.btnBatchCancel.innerHTML = `⏹ 批量停止/取消 (${totalSelected})`;
+    }
+
+    if (el.btnBatchCancel) {
+    el.btnBatchCancel.addEventListener("click", async () => {
+      const ids = Array.from(state.selectedTaskIds);
+      if (ids.length === 0) return;
+      if (!confirm(`确定要强行停止/取消选中的 ${ids.length} 个任务吗？\n如果任务正在运行，将立即终止底层执行进程并释放账号与调度槽位。`)) {
+        return;
+      }
+      try {
+        const resp = await fetch("/api/tasks/batch/cancel", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ task_ids: ids })
+        });
+        const res = await resp.json().catch(() => ({}));
+        if (resp.ok) {
+          showToast(`已成功停止/取消 ${res.cancelled_count ?? ids.length} 个任务并释放槽位`, "info");
+          fetchTasks(true);
+          fetchOverview();
+        } else {
+          showToast("批量停止失败: " + (res.detail || resp.statusText), "error");
+        }
+      } catch (e) {
+        showToast("网络请求失败: " + e.message, "error");
+      }
+    });
+  }
+
+  if (el.btnBatchDelete) {
       el.btnBatchDelete.disabled = (totalSelected === 0);
       el.btnBatchDelete.innerHTML = `🗑️ 批量删除选中 (${totalSelected})`;
     }
@@ -1598,6 +1636,33 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       showToast(`正在打包下载 ${readyIds.length} 个视频/图片产物，请稍候...`, "info");
       window.location.href = `/api/tasks/batch-download-zip?task_ids=${encodeURIComponent(readyIds.join(","))}`;
+    });
+  }
+
+  if (el.btnBatchCancel) {
+    el.btnBatchCancel.addEventListener("click", async () => {
+      const ids = Array.from(state.selectedTaskIds);
+      if (ids.length === 0) return;
+      if (!confirm(`确定要强行停止/取消选中的 ${ids.length} 个任务吗？\n如果任务正在运行，将立即终止底层执行进程并释放账号与调度槽位。`)) {
+        return;
+      }
+      try {
+        const resp = await fetch("/api/tasks/batch/cancel", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ task_ids: ids })
+        });
+        const res = await resp.json().catch(() => ({}));
+        if (resp.ok) {
+          showToast(`已成功停止/取消 ${res.cancelled_count ?? ids.length} 个任务并释放槽位`, "info");
+          fetchTasks(true);
+          fetchOverview();
+        } else {
+          showToast("批量停止失败: " + (res.detail || resp.statusText), "error");
+        }
+      } catch (e) {
+        showToast("网络请求失败: " + e.message, "error");
+      }
     });
   }
 

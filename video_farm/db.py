@@ -1036,12 +1036,16 @@ def transition_task(task_id: str, action: str, db_path: Path = DEFAULT_DB_PATH):
                 # Preserve explicit profile binding; never silently switch a pinned account.
                 conn.execute("UPDATE tasks SET status='queued', retry_count=0, error_code=NULL, error_message=NULL, start_time=NULL, finish_time=NULL, updated_at=? WHERE id=?",(now,task_id))
                 status='queued'
-            elif action == 'cancel':
+            elif action in ('cancel', 'stop'):
                 if row['status'] == 'cancelled':
                     return {'id':task_id,'status':'cancelled'}
-                if row['status'] not in ('queued','retry_wait'):
-                    raise TaskOperationConflict('只能取消尚未执行的任务；运行中不能安全强制中断，请等待完成')
-                conn.execute("UPDATE tasks SET status='cancelled', finish_time=?, updated_at=? WHERE id=?",(now,now,task_id))
+                if action == 'cancel' and row['status'] not in ('queued','retry_wait'):
+                    raise TaskOperationConflict('只能取消尚未执行的任务；运行中任务请使用 stop 强制中止')
+                if action == 'stop' and row['status'] not in ('queued','retry_wait','running'):
+                    raise TaskOperationConflict('只能中止未完成的任务')
+                conn.execute("UPDATE tasks SET status='cancelled', error_code='USER_CANCELLED', error_message='用户手动强行中止任务', finish_time=?, updated_at=? WHERE id=?",(now,now,task_id))
+                if row['assigned_profile_id']:
+                    conn.execute("UPDATE profiles SET status='idle', updated_at=? WHERE id=? AND status='busy'", (now, row['assigned_profile_id']))
                 status='cancelled'
             else:
                 raise ValueError('Unknown task action')

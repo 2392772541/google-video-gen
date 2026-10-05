@@ -122,6 +122,26 @@ class VideoWorker:
         self.output_dir = output_dir.resolve()
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.timeout_sec = timeout_sec
+        self._current_procs: Dict[str, subprocess.Popen] = {}
+        self._procs_lock = threading.Lock()
+
+    def cancel_task(self, task_id: str) -> bool:
+        """强行终止指定任务的 gflow-cli 进程树及 Chrome 进程"""
+        with self._procs_lock:
+            proc = self._current_procs.get(task_id)
+        if proc:
+            pid = proc.pid
+            print(f"[VideoWorker] ⏹ 收到取消信号，正在杀掉 gflow 进程树 (PID={pid})...")
+            try:
+                import sys
+                if sys.platform == "win32":
+                    subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)], capture_output=True, timeout=5)
+                else:
+                    proc.kill()
+            except Exception as e:
+                print(f"[VideoWorker] 杀进程异常: {e}")
+            return True
+        return False
 
     def _ensure_profile_marker(self, profile_name: str):
         try:
@@ -259,6 +279,8 @@ class VideoWorker:
                 errors="replace"
             )
             pid = proc.pid
+            with self._procs_lock:
+                self._current_procs[task.id] = proc
             print(f"[{worker_name}] 启动 gflow 进程 (PID={pid}) -> Profile=[{profile.name}] Task=[{task.id}]")
 
             try:
@@ -444,6 +466,10 @@ class VideoWorker:
                 "output_video_path": None,
                 "logs": str(exc)
             }
+        finally:
+            with self._procs_lock:
+                self._current_procs.pop(task.id, None)
+
     def execute_image_task(self, task: Task, profile: Profile) -> Dict[str, Any]:
         """
         Executes gflow-cli image t2i (文生图) or i2i (图生图) for a given task and profile.
@@ -513,6 +539,8 @@ class VideoWorker:
                 errors="replace"
             )
             pid = proc.pid
+            with self._procs_lock:
+                self._current_procs[task.id] = proc
             mode_desc = f"图生图 (i2i, 垫图={Path(task.start_image_path).name})" if is_i2i else "文生图 (t2i)"
             print(f"[{worker_name}] 启动 gflow 图像进程 (PID={pid}) -> {mode_desc} Profile=[{profile.name}] Task=[{task.id}]")
 
@@ -691,5 +719,8 @@ class VideoWorker:
                 "output_image_paths": [],
                 "logs": str(exc)
             }
+        finally:
+            with self._procs_lock:
+                self._current_procs.pop(task.id, None)
 
 

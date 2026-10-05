@@ -1029,6 +1029,8 @@ async def create_task(
 ):
     if not prompt.strip():
         raise HTTPException(status_code=400, detail="提示词不能为空")
+    if task_type == "audio":
+        raise HTTPException(status_code=400, detail="本地配音功能已下线，不支持提交音频配音任务")
     
     task_id = f"task_{uuid.uuid4().hex[:12]}"
     task_upload_dir = UPLOADS_DIR / task_id
@@ -1066,11 +1068,6 @@ async def create_task(
     elif input_video_path and Path(input_video_path).exists():
         input_video_dest_str = str(Path(input_video_path).resolve())
     
-    # 若是音频任务，强制使用 Gemini 多模态引擎
-    if task_type == "audio":
-        engine = "gemini"
-        if not model or model == "veo-lite":
-            model = "gemini-audio"
 
     target_prof_id = assigned_profile_id.strip() if assigned_profile_id and assigned_profile_id.strip() else None
     if not target_prof_id or target_prof_id.lower() in ("auto", "none", "null"):
@@ -1303,10 +1300,46 @@ def retry_task(task_id: str):
     except db.TaskOperationConflict as e:
         raise HTTPException(409, str(e))
 
-@app.post("/api/tasks/{task_id}/cancel")
-def cancel_task(task_id: str):
+class BatchTasksReq(BaseModel):
+    task_ids: list[str]
+
+@app.post("/api/tasks/{task_id}/stop")
+def stop_task_endpoint(task_id: str):
+    """强行中止正在运行或排队中的任务，立即终止执行进程并释放账号与槽位"""
     try:
-        return db.transition_task(task_id, "cancel", DB_PATH)
+        res = db.transition_task(task_id, "stop", DB_PATH)
+        if mgr.scheduler:
+            mgr.scheduler.cancel_task(task_id)
+        db.log_task_event(task_id, "TASK_STOPPED", "用户手动强行中止任务并释放资源", db_path=DB_PATH)
+        return {"success": True, "task": res, "message": f"任务 [{task_id}] 已成功强行中止"}
+    except KeyError:
+        raise HTTPException(404, "Task未找到")
+    except db.TaskOperationConflict as e:
+        raise HTTPException(409, str(e))
+
+@app.post("/api/tasks/batch/cancel")
+def batch_cancel_tasks(req: BatchTasksReq):
+    cancelled = []
+    for tid in req.task_ids:
+        try:
+            db.transition_task(tid, "stop", DB_PATH)
+            if mgr.scheduler:
+                mgr.scheduler.cancel_task(tid)
+            db.log_task_event(tid, "TASK_CANCELLED", "用户批量强行中止任务并释放资源", db_path=DB_PATH)
+            cancelled.append(tid)
+        except Exception:
+            pass
+    return {"success": True, "cancelled_count": len(cancelled), "cancelled_ids": cancelled, "message": f"已成功停止/取消 {len(cancelled)} 个任务"}
+
+@app.post("/api/tasks/{task_id}/cancel")
+def cancel_task(task_id: str, force: bool = False):
+    try:
+        action = "stop" if force else "cancel"
+        res = db.transition_task(task_id, action, DB_PATH)
+        if force and mgr.scheduler:
+            mgr.scheduler.cancel_task(task_id)
+        db.log_task_event(task_id, "TASK_CANCELLED", "用户手动取消任务", db_path=DB_PATH)
+        return {"success": True, "task": res, "message": f"任务 [{task_id}] 已成功取消"}
     except KeyError:
         raise HTTPException(404, "Task未找到")
     except db.TaskOperationConflict as e:

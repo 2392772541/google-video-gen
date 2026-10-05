@@ -67,6 +67,30 @@ class GeminiWebWorker:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.timeout_sec = timeout_sec
         self.headless = headless
+        self._active_sessions: Dict[str, Dict[str, Any]] = {}
+        self._sessions_lock = threading.Lock()
+
+    def cancel_task(self, task_id: str) -> bool:
+        """强行终止指定任务的 Gemini 会话并清理 Chrome 进程"""
+        with self._sessions_lock:
+            sess = self._active_sessions.get(task_id)
+            if sess:
+                sess["cancelled"] = True
+                browser = sess.get("browser")
+                if browser:
+                    try:
+                        browser.close()
+                    except Exception:
+                        pass
+                profile = sess.get("profile")
+                if profile:
+                    try:
+                        profile_dir = self._resolve_profile_dir(profile)
+                        unlock_profile_processes(profile_dir, profile.name)
+                    except Exception:
+                        pass
+                return True
+        return False
 
     def _resolve_profile_dir(self, profile: Profile) -> Path:
         if profile.profile_path and Path(profile.profile_path).exists():
@@ -138,6 +162,12 @@ class GeminiWebWorker:
                         headless=self.headless,
                         args=launch_args
                     )
+                    with self._sessions_lock:
+                        self._active_sessions[task.id] = {
+                            "browser": browser,
+                            "profile": profile,
+                            "cancelled": False
+                        }
                 except Exception as launch_exc:
                     lexc_str = str(launch_exc).lower()
                     logs.append(f"拉起浏览器异常: {launch_exc}")
@@ -624,19 +654,19 @@ class GeminiWebWorker:
                 "logs": f"[{worker_name}] 获取账号锁超时"
             }
 
-        # 独占锁保障下，安全排查并清理属于当前账号的孤儿僵尸进程
-        unlock_profile_processes(profile_dir, profile.name)
-
-        has_video = bool(video_path and Path(video_path).exists())
-        has_image = bool(image_path and Path(image_path).exists())
-        if has_video:
-            logs.append(f"已附加本地参考视频: {Path(video_path).name}")
-        if has_image:
-            logs.append(f"已附加本地参考图片: {Path(image_path).name}")
-
-        from playwright.sync_api import sync_playwright
-
         try:
+            # 独占锁保障下，安全排查并清理属于当前账号的孤儿僵尸进程
+            unlock_profile_processes(profile_dir, profile.name)
+
+            has_video = bool(video_path and Path(video_path).exists())
+            has_image = bool(image_path and Path(image_path).exists())
+            if has_video:
+                logs.append(f"已附加本地参考视频: {Path(video_path).name}")
+            if has_image:
+                logs.append(f"已附加本地参考图片: {Path(image_path).name}")
+
+            from playwright.sync_api import sync_playwright
+
             with sync_playwright() as p:
                 launch_args = ["--no-sandbox", "--disable-dev-shm-usage", "--disable-blink-features=AutomationControlled"]
                 logs.append("正在拉起独立 Chrome 容器 (Profile 隔离模式)...")
@@ -647,6 +677,12 @@ class GeminiWebWorker:
                         headless=self.headless,
                         args=launch_args
                     )
+                    with self._sessions_lock:
+                        self._active_sessions[task.id] = {
+                            "browser": browser,
+                            "profile": profile,
+                            "cancelled": False
+                        }
                 except Exception as launch_exc:
                     lexc_str = str(launch_exc).lower()
                     logs.append(f"拉起浏览器异常: {launch_exc}")
@@ -747,14 +783,11 @@ class GeminiWebWorker:
 
                     # 整理提示词
                     clean_prompt = prompt.strip() if prompt else ""
-                    if mode == "dubbing" or has_video:
-                        if not clean_prompt or clean_prompt in ["为视频配音", "配音"]:
-                            clean_prompt = "请深度分析我提供的视频画面内容、镜头运镜与动作节奏，生成一段高质量的专业视频宣传片配音解说词。请在回答末尾以【配音解说词】单独标注提炼出的纯配音文案（50字左右），方便录音。"
-                        elif "配音解说词" not in clean_prompt:
-                            clean_prompt += "\n（请在回答末尾以【配音解说词】单独标注提炼出的纯配音解说文案，方便配音录制）"
-                    elif mode == "image":
+                    if mode == "image":
                         if not any(k in clean_prompt for k in ["画", "draw", "image", "插画", "图"]):
                             clean_prompt = f"画一张插画：{clean_prompt}"
+                    elif has_video and not clean_prompt:
+                        clean_prompt = "请深度分析我提供的视频画面内容、镜头运镜与动作节奏，提炼核心看点并给出专业总结。"
 
                     # 填写内容（使用 execCommand insertText 富文本原子插入，支持多行上下文且避免 \n 触发换行过早发送）
                     if clean_prompt and input_el:
@@ -931,6 +964,8 @@ class GeminiWebWorker:
                     }
 
                 finally:
+                    with self._sessions_lock:
+                        self._active_sessions.pop(task.id, None)
                     try:
                         browser.close()
                     except Exception:

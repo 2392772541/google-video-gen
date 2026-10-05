@@ -234,6 +234,7 @@ class VideoScheduler:
         
         self.max_workers = max_workers
         self.active_tasks: Dict[str, threading.Event] = {}
+        self.cancelled_task_ids: set[str] = set()
         self.lock = threading.Lock()
         self.running = False
         self.fleet_cooldown_until: Optional[datetime] = None
@@ -354,6 +355,7 @@ class VideoScheduler:
                         headless=self.vids_worker.headless,
                         mock_sample_video=self.vids_worker.mock_sample_video
                     )
+                    self.vids_worker = worker
                     exec_res = worker.execute_task(task, profile)
                 except Exception:
                     exec_res = self.vids_worker.execute_task(task, profile)
@@ -362,6 +364,20 @@ class VideoScheduler:
 
             pid = exec_res.get("pid")
             pid_str = f" (PID={pid})" if pid else ""
+
+            # 优先检查任务是否在执行期间已被外部手动取消
+            with self.lock:
+                was_cancelled = (task_id in self.cancelled_task_ids)
+
+            conn = db.get_db_connection(self.db_path)
+            try:
+                with conn:
+                    r_check = conn.execute("SELECT status FROM tasks WHERE id = ?", (task_id,)).fetchone()
+                    if was_cancelled or (r_check and r_check["status"] == "cancelled"):
+                        print(f"[{thread_name}] 任务 [{task_id}] 已在外部被用户手动中止，跳过后置处理。")
+                        return
+            finally:
+                conn.close()
 
             # ---------------- 失败处理与智能熔断切换 (Failover) ----------------
             if not exec_res["success"]:
@@ -710,7 +726,54 @@ class VideoScheduler:
             db.log_task_event(task_id, "TASK_EXCEPTION", str(exc), db_path=self.db_path)
         finally:
             with self.lock:
+                self.cancelled_task_ids.discard(task_id)
                 self.active_tasks.pop(task_id, None)
+
+    def cancel_task(self, task_id: str) -> bool:
+        """强行中止指定任务的执行并释放占用资源与调度槽位"""
+        with self.lock:
+            self.cancelled_task_ids.add(task_id)
+            self.active_tasks.pop(task_id, None)
+
+        print(f"[VideoScheduler] ⏹ 正在执行任务 [{task_id}] 强行中止操作...")
+
+        # 1. 尝试通知所有 Worker 终止执行与杀掉进程
+        try:
+            self.flow_worker.cancel_task(task_id)
+        except Exception as e:
+            print(f"[VideoScheduler] flow_worker.cancel_task 异常: {e}")
+
+        try:
+            self.vids_worker.cancel_task(task_id)
+        except Exception as e:
+            print(f"[VideoScheduler] vids_worker.cancel_task 异常: {e}")
+
+        try:
+            if hasattr(self, "gemini_worker") and hasattr(self.gemini_worker, "cancel_task"):
+                self.gemini_worker.cancel_task(task_id)
+        except Exception as e:
+            print(f"[VideoScheduler] gemini_worker.cancel_task 异常: {e}")
+
+        # 2. 释放可能被锁定的 Profile 与残留 Chrome 进程
+        try:
+            conn = db.get_db_connection(self.db_path)
+            with conn:
+                r = conn.execute("SELECT assigned_profile_id FROM tasks WHERE id = ?", (task_id,)).fetchone()
+                assigned_pid = r["assigned_profile_id"] if r else None
+            conn.close()
+
+            if assigned_pid:
+                db.update_profile_status(assigned_pid, "idle", cooldown_until=None, db_path=self.db_path)
+                p_obj = db.get_profile(assigned_pid, self.db_path)
+                if p_obj:
+                    p_dir = Path(p_obj.profile_path) if p_obj.profile_path else None
+                    if p_dir and p_dir.exists():
+                        from .gemini_worker import unlock_profile_processes
+                        unlock_profile_processes(p_dir, p_obj.name)
+        except Exception as e:
+            print(f"[VideoScheduler] 释放 Profile 异常: {e}")
+
+        return True
 
     def dispatch_cycle(self) -> int:
         """检查等待排队任务并派发到空闲可用 Profile"""
@@ -790,7 +853,12 @@ class VideoScheduler:
 
             with self.lock:
                 evt = threading.Event()
-                self.active_tasks[task.id] = evt
+                self.active_tasks[task.id] = {
+                    "event": evt,
+                    "task": task,
+                    "profile": profile,
+                    "start_time": time.time()
+                }
 
             self.executor.submit(self.process_task_execution, task, profile)
             dispatched += 1

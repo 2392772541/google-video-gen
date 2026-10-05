@@ -85,5 +85,45 @@ class TestApiBatchEngine(unittest.TestCase):
         task = db.get_task(task_id)
         self.assertEqual(task.engine, "flow")
 
+    def test_running_task_stop_and_force_cancel(self):
+        resp = client.post("/api/tasks/batch", json={
+            "shots": [{"prompt": "测试中断镜头", "duration_sec": 8}],
+            "engine": "flow"
+        }, headers=HEADERS)
+        task_id = resp.json()["task_ids"][0]
+        
+        c = db.get_db_connection()
+        with c:
+            c.execute("UPDATE tasks SET status='running' WHERE id=?", (task_id,))
+        c.close()
+        
+        r_conflict = client.post(f"/api/tasks/{task_id}/cancel", headers=HEADERS)
+        self.assertEqual(r_conflict.status_code, 409)
+        
+        r_stop = client.post(f"/api/tasks/{task_id}/stop", headers=HEADERS)
+        self.assertEqual(r_stop.status_code, 200)
+        self.assertTrue(r_stop.json()["success"])
+        t_after = db.get_task(task_id)
+        self.assertEqual(t_after.status, "cancelled")
+
+    def test_batch_cancel_running_and_queued(self):
+        resp = client.post("/api/tasks/batch", json={
+            "shots": [{"prompt": "批量中止1", "duration_sec": 8}, {"prompt": "批量中止2", "duration_sec": 8}],
+            "engine": "vids"
+        }, headers=HEADERS)
+        tids = resp.json()["task_ids"]
+        
+        c = db.get_db_connection()
+        with c:
+            c.execute("UPDATE tasks SET status='running' WHERE id=?", (tids[0],))
+        c.close()
+        
+        r_batch = client.post("/api/tasks/batch/cancel", json={"task_ids": tids}, headers=HEADERS)
+        self.assertEqual(r_batch.status_code, 200)
+        self.assertEqual(r_batch.json()["cancelled_count"], 2)
+        
+        self.assertEqual(db.get_task(tids[0]).status, "cancelled")
+        self.assertEqual(db.get_task(tids[1]).status, "cancelled")
+
 if __name__ == "__main__":
     unittest.main()

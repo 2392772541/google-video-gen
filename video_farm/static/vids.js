@@ -492,6 +492,7 @@ function renderShots(shots) {
 
     const isDone = shot.status === 'completed';
     const isRunning = shot.status === 'running';
+    const isQueued = shot.status === 'queued';
     const isFailed = shot.status === 'failed';
 
     let statusBadge = '<span class="shot-status-badge status-pending">待生成</span>';
@@ -594,6 +595,7 @@ card.innerHTML = `
         </div>
         <div class="shot-header-actions">
           <div class="shot-status-badge-wrap">${statusBadge}</div>
+          ${(isRunning || isQueued) ? `<button class="btn btn-danger btn-sm" style="height: 22px; padding: 0 6px; font-size: 10px; background: #dc2626; border-color: #b91c1c; font-weight:700;" onclick="stopRunningShot('${shot.id}')" title="强行中止当前镜头渲染并释放资源">⏹ 停止</button>` : ''}
           ${isFailed ? `<button class="btn btn-secondary btn-sm" style="height: 22px; padding: 0 6px; font-size: 10px; color: #f87171; border-color: rgba(239,68,68,0.4);" onclick="generateSingleShot('${shot.id}')" title="重试该镜头">🔄 重试</button>` : ''}
           ${isDone ? `<button class="btn btn-secondary btn-sm" style="height: 22px; padding: 0 6px; font-size: 10px; color: #10b981;" onclick="generateSingleShot('${shot.id}')" title="重新渲染该镜头">🔄 重渲</button>` : ''}
           <button class="btn btn-secondary btn-sm" style="height: 22px; padding: 0 5px;" onclick="moveShot('${shot.id}', 'up')" title="上移" aria-label="上移镜头">↑</button>
@@ -960,6 +962,11 @@ async function startContinuousGeneration() {
 
 // 刷新总进度条
 function updateOverallProgress(shots) {
+  const hasActive = shots.some(s => s.status === 'running' || s.status === 'queued');
+  const stopBtn = document.getElementById('btn-stop-continuous');
+  if (stopBtn) {
+    stopBtn.style.display = hasActive ? 'inline-flex' : 'none';
+  }
   const total = shots.length;
   const done = shots.filter(s => s.status === 'completed').length;
   const pct = total > 0 ? Math.round((done / total) * 100) : 0;
@@ -1804,5 +1811,33 @@ async function submitCreateNewWorkflow() {
     await selectWorkflow(newWf.id);
   } catch (e) {
     alert(`创建工程失败: ${e.message}`);
+  }
+}
+
+// 强行中止镜头与连续生成
+async function stopRunningShot(shotId) {
+  if (!confirm('确定要强行中止该镜头的渲染任务吗？将立即终止底层执行进程并释放资源。')) return;
+  try {
+    const res = await api(`/shots/${shotId}/cancel`, { method: 'POST' });
+    appendLog(`⏹ ${res.message || '镜头生成任务已强行停止'}`, 'info');
+    if (state.currentWorkflowId) {
+      await selectWorkflow(state.currentWorkflowId);
+    }
+  } catch (e) {
+    appendLog(`停止镜头失败: ${e.message}`, 'error');
+  }
+}
+
+async function stopContinuousGeneration() {
+  if (!state.currentWorkflowId) return;
+  if (!confirm('确定要强行中止当前工程的所有生成任务吗？正在运行与排队中的镜头都将被立即停止。')) return;
+  try {
+    const res = await api(`/workflows/${state.currentWorkflowId}/stop_all`, { method: 'POST' });
+    appendLog(`⏹ ${res.message || '连续生成已成功停止'}`, 'info');
+    if (state.currentWorkflowId) {
+      await selectWorkflow(state.currentWorkflowId);
+    }
+  } catch (e) {
+    appendLog(`停止连续生成失败: ${e.message}`, 'error');
   }
 }
