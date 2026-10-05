@@ -1326,12 +1326,19 @@ document.addEventListener("DOMContentLoaded", () => {
               </div>
             </div>
           ` : ""}
+
+          ${!isImageTask && !isAudioTask && t.has_video && t.output_video_path ? `
+            <div style="font-size: 11px; color: var(--text-muted); font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 4px; padding: 2px 6px; background: rgba(0,0,0,0.25); border-radius: 4px;" title="${escapeAttr(t.output_video_path)}">
+              📁 本地路径: ${escapeHtml(t.output_video_path)}
+            </div>
+          ` : ""}
         </div>
 
         <div class="task-card-bottom">
           <div class="task-btn-group">
             ${isImageTask && t.status === "completed" && t.image_urls && t.image_urls.length > 0 ? `<button class="btn btn-primary btn-sm" onclick="openImageViewer('${escapeJs(t.image_paths[0] || "")}', '${escapeJs(t.image_urls[0])}', '${escapeJs(t.prompt)}')">👁️ 查看大图</button>` : ""}
             ${!isImageTask && !isAudioTask && t.has_video ? `<button class="btn btn-primary btn-sm btn-play-video" data-id="${t.id}" data-url="${t.video_url}">🎥 播放</button>` : ""}
+            ${!isImageTask && !isAudioTask && t.has_video ? `<button class="btn btn-secondary btn-sm btn-copy-video-path" data-id="${t.id}" data-path="${escapeAttr(t.output_video_path || '')}" title="复制本地绝对路径，可直接在 Google Vids 导入窗口粘贴使用">📋 复制路径</button>` : ""}
             ${(t.has_video || t.has_audio || (isImageTask && t.status === "completed" && t.image_urls && t.image_urls.length > 0)) ? `<a href="/api/tasks/${t.id}/download" download class="btn btn-secondary btn-sm" title="保存下载该成品文件">📥 下载</a>` : ""}
             ${["running", "dispatching", "verifying"].includes(t.status) ? `<button class="btn btn-danger btn-sm btn-cancel-task" data-id="${t.id}" style="background:#dc2626;border-color:#b91c1c;font-weight:700;" title="强行中止当前正在运行的任务并释放资源与槽位">⏹ 强制停止</button>` : ""}
             ${["queued", "retry_wait"].includes(t.status) ? `<button class="btn btn-danger btn-sm btn-cancel-task" data-id="${t.id}" title="取消排队中的任务">⏹ 取消</button>` : ""}
@@ -1459,6 +1466,22 @@ document.addEventListener("DOMContentLoaded", () => {
         } catch (e) {
           showToast("网络错误: " + e.message, "error");
         }
+      });
+    });
+
+    // 一键复制本地绝对路径（直接在 Google Vids 导入窗口粘贴）
+    container.querySelectorAll(".btn-copy-video-path").forEach(b => {
+      b.addEventListener("click", () => {
+        let p = b.getAttribute("data-path");
+        if (!p) {
+          const id = b.getAttribute("data-id");
+          p = `C:\\Users\\win10\\Documents\\ChatGPT\\视频制作\\video_farm_data\\outputs\\${id}.mp4`;
+        }
+        navigator.clipboard.writeText(p).then(() => {
+          showToast("已复制本地绝对路径: " + p.split(/[\\/]/).pop() + "（可直接在 Google Vids 导入窗口粘贴）", "success");
+        }).catch(() => {
+          prompt("请复制本地绝对路径（可在 Google Vids 导入窗口粘贴）：", p);
+        });
       });
     });
 

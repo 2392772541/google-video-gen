@@ -629,7 +629,14 @@ def _enqueue_shot_task(shot: Dict[str, Any], wf: Dict[str, Any]) -> str:
     if engine not in ("vids", "flow", "gemini"):
         engine = "vids"
 
-    if engine == "vids":
+    adapter_note = ""
+    if is_first_last and engine == "vids":
+        # Google Vids 原生页面仅支持单图 Animate 微动，不支持尾帧输入。
+        # 为确保用户的首尾关键帧过渡能够真正生效，自动通过 Generation Adapter 调度至 Google Flow (Veo 3.1)
+        engine = "flow"
+        final_model = "veo-lite"
+        adapter_note = " [首尾双帧自适应调度至 Flow (Veo 3.1)]"
+    elif engine == "vids":
         # Google Vids 原生模型与画质规格: Omni 多模态引擎，支持 1080p (超清) 与 720p (标清)
         final_model = f"Omni ({shot_res})" if shot_res in ("1080p", "720p") else "Omni (1080p)"
     elif engine == "flow":
@@ -667,7 +674,7 @@ def _enqueue_shot_task(shot: Dict[str, Any], wf: Dict[str, Any]) -> str:
     db.log_task_event(
         task_id,
         "TASK_CREATED_VIDS",
-        f"分镜任务下发 [{engine_name_cn}]: [{shot.get('name')}] (所属工程: {wf.get('title')}), 模型: {final_model}, 画质: {shot_res}, 时长: {duration_sec}s"
+        f"分镜任务下发 [{engine_name_cn}{adapter_note}]: [{shot.get('name')}] (所属工程: {wf.get('title')}), 模型: {final_model}, 画质: {shot_res}, 时长: {duration_sec}s"
     )
     
     old_task_id = shot.get("task_id")

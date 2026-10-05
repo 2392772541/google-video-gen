@@ -431,6 +431,9 @@ function getShotMediaPreviewHtml(shot, index, isDone, isRunning, isFailed, shotR
           <span>进度: ${shot.progress || 10}%</span>
           <span>云端渲染同步中</span>
         </div>
+        <button class="btn btn-danger btn-sm" style="font-size: 10px; padding: 2px 10px; margin-top: 4px; background: #dc2626; border-color: #b91c1c; font-weight: 700;" onclick="stopRunningShot('${shot.id}')" title="强行中止渲染并释放资源">
+          ⏹ 停止当前渲染
+        </button>
       </div>
     `;
   } else if (isFailed) {
@@ -595,7 +598,7 @@ card.innerHTML = `
         </div>
         <div class="shot-header-actions">
           <div class="shot-status-badge-wrap">${statusBadge}</div>
-          ${(isRunning || isQueued) ? `<button class="btn btn-danger btn-sm" style="height: 22px; padding: 0 6px; font-size: 10px; background: #dc2626; border-color: #b91c1c; font-weight:700;" onclick="stopRunningShot('${shot.id}')" title="强行中止当前镜头渲染并释放资源">⏹ 停止</button>` : ''}
+          ${(isRunning || isQueued) ? `<button class="btn btn-danger btn-sm btn-dynamic-stop" style="height: 22px; padding: 0 6px; font-size: 10px; background: #dc2626; border-color: #b91c1c; font-weight:700;" onclick="stopRunningShot('${shot.id}')" title="强行中止当前镜头渲染并释放资源">⏹ 停止</button>` : ''}
           ${isFailed ? `<button class="btn btn-secondary btn-sm" style="height: 22px; padding: 0 6px; font-size: 10px; color: #f87171; border-color: rgba(239,68,68,0.4);" onclick="generateSingleShot('${shot.id}')" title="重试该镜头">🔄 重试</button>` : ''}
           ${isDone ? `<button class="btn btn-secondary btn-sm" style="height: 22px; padding: 0 6px; font-size: 10px; color: #10b981;" onclick="generateSingleShot('${shot.id}')" title="重新渲染该镜头">🔄 重渲</button>` : ''}
           <button class="btn btn-secondary btn-sm" style="height: 22px; padding: 0 5px;" onclick="moveShot('${shot.id}', 'up')" title="上移" aria-label="上移镜头">↑</button>
@@ -1111,6 +1114,19 @@ function syncShotsDOM(shots) {
         headerActions.insertBefore(btn, headerActions.children[1] || null);
       } else if (!isFailed && oldRetryBtn) {
         oldRetryBtn.remove();
+      }
+
+      const oldStopBtn = headerActions.querySelector(".btn-dynamic-stop");
+      if ((isRunning || isQueued) && !oldStopBtn) {
+        const btn = document.createElement("button");
+        btn.className = "btn btn-danger btn-sm btn-dynamic-stop";
+        btn.style.cssText = "height: 22px; padding: 0 6px; font-size: 10px; background: #dc2626; border-color: #b91c1c; font-weight:700;";
+        btn.title = "强行中止当前镜头渲染并释放资源";
+        btn.textContent = "⏹ 停止";
+        btn.onclick = () => stopRunningShot(shot.id);
+        headerActions.insertBefore(btn, headerActions.children[1] || null);
+      } else if (!(isRunning || isQueued) && oldStopBtn) {
+        oldStopBtn.remove();
       }
     }
 
