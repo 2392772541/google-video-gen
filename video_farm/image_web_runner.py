@@ -113,13 +113,24 @@ class NativeImageRun:
         try:
             dismiss_buttons = page.get_by_role(
                 "button",
-                name=re.compile(r"^(开始使用|Get started|Got it|我知道了|关闭|Close|Dismiss|Continue|继续)$", re.I)
+                name=re.compile(r"^(开始使用|Get started|Got it|我知道了|关闭|Close|Dismiss|Continue|继续|OK|确定|Next|下一步|Skip|跳过)$", re.I)
             )
             for btn in dismiss_buttons.all():
                 if btn.is_visible():
+                    txt = (btn.inner_text() or "").strip()
                     btn.click(timeout=1500)
-                    self.log("已自动关闭 Flow 引导弹窗")
+                    self.log(f"已自动关闭 Flow 引导弹窗: {txt}")
                     self.control.pause(page, 0.5)
+                    break
+        except Exception:
+            pass
+        try:
+            close_icons = page.locator('button[aria-label*="close" i], button[aria-label*="关闭" i]')
+            for btn in close_icons.all():
+                if btn.is_visible():
+                    btn.click(timeout=1000)
+                    self.log("已点击弹窗关闭按钮")
+                    self.control.pause(page, 0.4)
                     break
         except Exception:
             pass
@@ -259,12 +270,17 @@ class NativeImageRun:
         self.wait(lambda: editor.count() == 1 and editor.is_visible(), "Gemini 提示框未就绪", 45)
         image_chip = page.get_by_role("button", name=re.compile(r"取消选择.*图片|Deselect.*image", re.I))
         if not image_chip.count():
-            self.click(page.get_by_role("button", name=re.compile(r"^(上传和工具|Upload.*tools)$", re.I)))
-            image_menu = page.get_by_role("menuitemcheckbox", name=re.compile(r"^(制作图片|Create images)$", re.I))
-            if image_menu.count() != 1:
-                raise ImageWebError("当前 Gemini 账号不提供网页制作图片模式。")
-            self.click(image_menu)
-        self.wait(lambda: image_chip.count() == 1 and image_chip.is_visible(), "Gemini 图片模式未确认", 10)
+            try:
+                tools_btn = page.get_by_role("button", name=re.compile(r"^(上传和工具|Upload.*tools)$", re.I))
+                if tools_btn.count() and tools_btn.first.is_visible():
+                    self.click(tools_btn.first)
+                    image_menu = page.get_by_role("menuitemcheckbox", name=re.compile(r"^(制作图片|Create images)$", re.I))
+                    if image_menu.count() == 1 and image_menu.first.is_visible():
+                        self.click(image_menu.first)
+            except Exception:
+                pass
+        if image_chip.count() and image_chip.first.is_visible():
+            self.wait(lambda: image_chip.count() == 1 and image_chip.is_visible(), "Gemini 图片模式未确认", 10)
         selector = page.get_by_role("button", name=re.compile(r"打开模式选择器|Open mode picker", re.I))
         self.click(selector)
         label = IMAGE_MODELS["gemini"][self.model]
@@ -285,14 +301,17 @@ class NativeImageRun:
                   selector.get_attribute("aria-label") or selector.inner_text(), re.I) is not None,
                   "Gemini 网页模式未确认", 10)
         ratio = page.get_by_role("button", name=re.compile(r"^宽高比|^Aspect ratio", re.I))
-        if ratio.count() != 1:
-            raise ImageWebError("Gemini 当前图片模式未提供画幅选择，已阻止不确定提交。")
-        self.click(ratio)
-        option = page.get_by_role("menuitemradio", name=self.aspect, exact=True)
-        if option.count() != 1:
-            raise ImageWebError("Gemini 当前账号不提供所选画幅。")
-        self.click(option)
-        self.wait(lambda: self.aspect in (ratio.get_attribute("aria-label") or ratio.inner_text()), "Gemini 画幅未确认", 10)
+        if ratio.count() == 1:
+            self.click(ratio)
+            option = page.get_by_role("menuitemradio", name=self.aspect, exact=True)
+            if option.count() != 1:
+                raise ImageWebError("Gemini 当前账号不提供所选画幅。")
+            self.click(option)
+            self.wait(lambda: self.aspect in (ratio.get_attribute("aria-label") or ratio.inner_text()), "Gemini 画幅未确认", 10)
+        else:
+            aspect_tag = f" (aspect ratio: {self.aspect})"
+            if self.aspect and aspect_tag not in self.spec["prompt"]:
+                self.spec["prompt"] = self.spec["prompt"] + aspect_tag
         editor.fill(self.spec["prompt"], timeout=self.control.timeout_ms())
         if self.spec.get("reference"):
             self.click(page.get_by_role("button", name=re.compile(r"^(上传和工具|Upload.*tools)$", re.I)))
