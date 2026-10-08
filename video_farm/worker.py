@@ -1,109 +1,26 @@
 from __future__ import annotations
 
 import os
+import math
 import sys
 import json
+import re
 import subprocess
-import sqlite3
+import uuid
+import shutil
 import threading
 from pathlib import Path
 from typing import Dict, Any, Optional
 from .models import Task, Profile
-
-def heal_profile_flow_ui(profile_name: str, project_id: Optional[str] = None) -> bool:
-    """
-    自动自愈 Google Flow 界面阻断状态：
-    1. 确保写入 .gflow_browser_strategy 为 chrome
-    2. 关闭可能遮挡底栏的会话侧边栏 (.header-action)
-    3. 自动点击并消除 '您正在使用我们最新的视频模型...' 引导浮层 (button: '知道了' / 'Got it')
-    4. 若智能体 (Agent mode) 被选中，自动点击解除选中状态，确保经典底栏 (.settings-trigger-button) 显示
-    """
-    try:
-        from playwright.sync_api import sync_playwright
-        appdata = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
-        gflow_base = Path(appdata) / "ffroliva" / "gflow-cli"
-        profile_dir = gflow_base / f"profile_{profile_name}"
-        
-        marker = profile_dir / ".gflow_browser_strategy"
-        marker.write_text("chrome", encoding="utf-8")
-        
-        if not project_id:
-            gflow_db = gflow_base / "gflow.db"
-            if gflow_db.exists():
-                with sqlite3.connect(str(gflow_db)) as conn:
-                    row = conn.execute(
-                        "SELECT flow_project_id FROM projects WHERE profile_name = ? ORDER BY rowid DESC LIMIT 1",
-                        (profile_name,)
-                    ).fetchone()
-                    if row and row[0]:
-                        project_id = row[0]
-                        
-        url = f"https://flow.google.com/project/{project_id}" if project_id else "https://flow.google.com/"
-        
-        with sync_playwright() as pw:
-            browser = pw.chromium.launch_persistent_context(
-                user_data_dir=str(profile_dir),
-                channel="chrome",
-                headless=True,
-            )
-            page = browser.pages[0] if browser.pages else browser.new_page()
-            try:
-                page.goto(url, timeout=30000, wait_until="domcontentloaded")
-                page.wait_for_timeout(3500)
-                
-                # 1. 消除前置协议遮罩
-                for _ in range(3):
-                    pane = page.query_selector(".cdk-overlay-pane")
-                    if not pane:
-                        break
-                    next_btn = pane.query_selector("button:has-text('下一步'), button:has-text('Next')")
-                    if next_btn and not next_btn.evaluate("el => el.disabled"):
-                        next_btn.click()
-                        page.wait_for_timeout(1500)
-                        continue
-                    page.evaluate("""() => {
-                        const el = document.querySelector('.privacy-content') || document.querySelector('.cdk-overlay-pane div[style*="overflow"]');
-                        if (el) { el.scrollTop = el.scrollHeight; el.dispatchEvent(new Event('scroll')); }
-                    }""")
-                    cont_btn = pane.query_selector("button:has-text('继续'), button:has-text('Continue'), button:has-text('完成'), button:has-text('开始')")
-                    if cont_btn and not cont_btn.evaluate("el => el.disabled || el.getAttribute('disabled')"):
-                        cont_btn.click()
-                        page.wait_for_timeout(2000)
-                        
-                # 2. 关闭右侧会话栏
-                close_btn = page.query_selector("button.header-action:has-text('close'), button[aria-label='关闭'], button[aria-label='Close']")
-                if close_btn:
-                    try:
-                        close_btn.click()
-                        page.wait_for_timeout(1000)
-                    except Exception:
-                        pass
-                        
-                # 3. 消除引导气泡
-                got_it = page.query_selector("button:has-text('知道了'), button:has-text('Got it')")
-                if got_it:
-                    try:
-                        got_it.click()
-                        page.wait_for_timeout(1000)
-                    except Exception:
-                        pass
-                        
-                # 4. 关闭智能体模式
-                chip = page.query_selector("button.agent-mode-chip[aria-pressed='true']")
-                if chip:
-                    try:
-                        chip.click()
-                        page.wait_for_timeout(1500)
-                    except Exception:
-                        pass
-                        
-                btn = page.query_selector(".settings-trigger-button")
-                return btn.is_visible() if btn else False
-            finally:
-                browser.close()
-    except Exception as exc:
-        print(f"[heal_profile_flow_ui] 自动修复 profile [{profile_name}] 异常: {exc}")
-        return False
+from .execution_control import ExecutionControl, ExecutionStopped
+from .image_worker import BrowserImageWorker
+from .owned_process import OwnedProcess
+from .output_publication import publish_video
+from .flow_errors import (
+    FLOW_RESPONSE_UNREADABLE,
+    FLOW_RESPONSE_UNREADABLE_MESSAGE,
+    is_flow_response_unreadable,
+)
 
 class VideoWorker:
     def __init__(
@@ -122,26 +39,107 @@ class VideoWorker:
         self.output_dir = output_dir.resolve()
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.timeout_sec = timeout_sec
-        self._current_procs: Dict[str, subprocess.Popen] = {}
+        self._current_procs: Dict[str, OwnedProcess] = {}
         self._procs_lock = threading.Lock()
+        self._cancel_events = {}
+        self._image_worker = BrowserImageWorker(self.output_dir, timeout_sec, self.python_bin)
+
+    def prepare_task(self, task_id: str, cancel_event: threading.Event) -> None:
+        with self._procs_lock:
+            self._cancel_events[task_id] = cancel_event
 
     def cancel_task(self, task_id: str) -> bool:
-        """强行终止指定任务的 gflow-cli 进程树及 Chrome 进程"""
+        image = self._image_worker.cancel_task(task_id)
+        with self._procs_lock:
+            event = self._cancel_events.get(task_id)
+            if event is not None:
+                event.set()
+        return image or event is not None
+
+    def has_live_execution(self, task_id: str) -> bool:
+        """A root exit cannot release an account with living descendants."""
         with self._procs_lock:
             proc = self._current_procs.get(task_id)
-        if proc:
-            pid = proc.pid
-            print(f"[VideoWorker] ⏹ 收到取消信号，正在杀掉 gflow 进程树 (PID={pid})...")
+        if proc is not None:
             try:
-                import sys
-                if sys.platform == "win32":
-                    subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)], capture_output=True, timeout=5)
-                else:
-                    proc.kill()
-            except Exception as e:
-                print(f"[VideoWorker] 杀进程异常: {e}")
-            return True
-        return False
+                if proc.is_alive() or not proc.cleanup():
+                    return True
+            except Exception:
+                return True
+            with self._procs_lock:
+                if self._current_procs.get(task_id) is proc:
+                    self._current_procs.pop(task_id, None)
+                    self._cancel_events.pop(task_id, None)
+        return self._image_worker.has_live_execution(task_id)
+
+    @staticmethod
+    def _terminate(proc):
+        return proc.cleanup()
+
+    def _launch_cli(self, command, *, stdout, stderr):
+        # The service must not accumulate a hung CLI's full output in PIPEs.
+        # Inherited file handles also avoid descendants keeping communicate open.
+        return OwnedProcess(command, cwd=str(self.gflow_dir), stdout=stdout, stderr=stderr)
+
+    @staticmethod
+    def _read_log_tail(path, byte_limit=64 * 1024):
+        if path is None:
+            return ""
+        try:
+            with Path(path).open("rb") as stream:
+                size = stream.seek(0, os.SEEK_END)
+                stream.seek(max(0, size - byte_limit))
+                content = stream.read(byte_limit).decode("utf-8", errors="replace")
+            return ("[log truncated; full log retained in attempt directory]\n" if size > byte_limit else "") + content
+        except OSError as exc:
+            return "[log unavailable: " + str(exc) + "]"
+
+    def _attempt_logs(self, proc, stdout_path, stderr_path):
+        return (f"=== PID: {proc.pid if proc else '-'} ===\n=== STDOUT ===\n"
+                + self._read_log_tail(stdout_path, byte_limit=12000)
+                + "\n=== STDERR ===\n" + self._read_log_tail(stderr_path, byte_limit=12000))
+
+    @staticmethod
+    def _receipt(stdout):
+        try:
+            value = json.loads(stdout.strip())
+            if isinstance(value, dict):
+                return value
+        except (ValueError, TypeError):
+            pass
+        for line in reversed(stdout.splitlines()):
+            try:
+                value = json.loads(line)
+                if isinstance(value, dict):
+                    return value
+            except (ValueError, TypeError):
+                continue
+        return {}
+
+    def _validate_output(self, path, task, control):
+        probe = shutil.which("ffprobe")
+        if not probe:
+            raise ValueError("缺少 ffprobe，不能验证 Flow 成片")
+        control.check()
+        result = subprocess.run([probe, "-v", "error", "-select_streams", "v:0",
+            "-show_entries", "stream=width,height,duration:format=duration", "-of", "json", str(path)],
+            capture_output=True, text=True, timeout=min(15, control.remaining))
+        data = json.loads(result.stdout or "{}")
+        stream = (data.get("streams") or [{}])[0]
+        w, h = stream.get("width", 0), stream.get("height", 0)
+        duration = 0.0
+        for raw in (stream.get("duration"), data.get("format", {}).get("duration")):
+            try:
+                value = float(raw)
+            except (ValueError, TypeError):
+                continue
+            if math.isfinite(value) and value > 0:
+                duration = value
+                break
+        aspect = 16 / 9 if task.aspect_ratio == "16:9" else 9 / 16
+        if result.returncode or min(w, h) < 720 or abs(w / max(h, 1) - aspect) > 0.03 or abs(duration - task.duration_sec) > 0.6:
+            raise ValueError(f"实际 Flow 成片 {w}×{h}/{duration:.2f}s 与请求 {task.aspect_ratio}/{task.duration_sec}s 不符")
+        control.check()
 
     def _ensure_profile_marker(self, profile_name: str):
         try:
@@ -155,572 +153,158 @@ class VideoWorker:
             pass
 
     def execute_task(self, task: Task, profile: Profile) -> Dict[str, Any]:
-        """
-        Executes gflow-cli video i2v for a given task and profile.
-        Returns execution result dictionary.
-        """
-        worker_name = threading.current_thread().name
-        self._ensure_profile_marker(profile.name)
-        if self.mock_sample_video:
-            import time, shutil
-            time.sleep(1.0)
-            target = self.output_dir / f"{task.id}.mp4"
-            shutil.copy2(self.mock_sample_video, target)
-            return {
-                "success": True,
-                "pid": os.getpid(),
-                "error_code": None,
-                "error_message": None,
-                "output_video_path": str(target.resolve()),
-                "logs": f"Mock executed with sample: {self.mock_sample_video}"
-            }
+        """One owned CLI attempt; ambiguous outcomes must never trigger a new spend."""
+        with self._procs_lock:
+            event = self._cancel_events.setdefault(task.id, threading.Event())
+        control = ExecutionControl(event, self.timeout_sec)
+        proc, logs, launched = None, "", False
+        outcome = {}
+        output_to_publish = None
+        stdout_path = stderr_path = None
+        spool_handles = []
 
-        start_img = Path(task.start_image_path).resolve() if task.start_image_path and task.start_image_path.strip() else None
-        end_img = Path(task.end_image_path).resolve() if task.end_image_path and task.end_image_path.strip() else None
-
-        if start_img and not start_img.exists():
-            return {
-                "success": False,
-                "pid": None,
-                "error_code": "START_IMAGE_NOT_FOUND",
-                "error_message": f"Start image not found: {start_img}",
-                "output_video_path": None,
-                "logs": ""
-            }
-        if end_img and not end_img.exists():
-            return {
-                "success": False,
-                "pid": None,
-                "error_code": "END_IMAGE_NOT_FOUND",
-                "error_message": f"End image not found: {end_img}",
-                "output_video_path": None,
-                "logs": ""
-            }
-
-        # 兼容 flow.google.com 迁移架构：若无 project_id，自动从 gflow 本地工程库探测已有工程，避免调用废弃的 labs createProject RPC
-        project_id = getattr(task, "project_id", None) or ""
-        if not project_id:
-            try:
-                appdata = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
-                gflow_db = Path(appdata) / "ffroliva" / "gflow-cli" / "gflow.db"
-                if gflow_db.exists():
-                    import sqlite3
-                    with sqlite3.connect(str(gflow_db)) as c_conn:
-                        row = c_conn.execute(
-                            "SELECT flow_project_id FROM projects WHERE profile_name = ? ORDER BY rowid DESC LIMIT 1",
-                            (profile.name,)
-                        ).fetchone()
-                        if row and row[0]:
-                            project_id = row[0]
-            except Exception as e:
-                print(f"[{worker_name}] 查找 profile [{profile.name}] 已有 project 异常: {e}")
-
-        # 前置铁壁防线：若数据库无工程记录，自动触发无头 Onboarding，保证绝不带着空工程导致 401 闪退
-        if not project_id:
-            try:
-                from .onboard import ensure_profile_onboarded
-                print(f"[{worker_name}] Profile [{profile.name}] 尚未绑定 Flow 专属工程，启动自动就绪 (Auto-Onboarding)...")
-                project_id = ensure_profile_onboarded(profile.name) or ""
-                if project_id:
-                    print(f"[{worker_name}] Profile [{profile.name}] 自动就绪成功，绑定工程: [{project_id}]")
-            except Exception as e:
-                print(f"[{worker_name}] Profile [{profile.name}] 自动就绪异常: {e}")
-
-        aspect = task.aspect_ratio or "16:9"
-        if start_img and start_img.is_file():
-            cmd = [
-                str(self.python_bin),
-                "-m", "gflow_cli",
-                "video", "i2v",
-                "--initial-frame", str(start_img),
-                "--aspect", aspect,
-                "--profile", profile.name,
-                "--out-dir", str(self.output_dir),
-                "--json",
-            ]
-            if end_img and end_img.is_file():
-                cmd.extend(["--end-frame", str(end_img)])
-        else:
-            cmd = [
-                str(self.python_bin),
-                "-m", "gflow_cli",
-                "video", "t2v",
-                "--aspect", aspect,
-                "--profile", profile.name,
-                "--out-dir", str(self.output_dir),
-                "--json",
-            ]
-        # Keep the model the user chose. Never silently downgrade a Quality job to Lite;
-        # a mismatch in Flow's start/end submit is a terminal failure, not permission
-        # to use a cheaper model or ignore the end frame.
-        if getattr(task, "model", None) and task.model:
-            cmd.extend(["--model", task.model])
-        # 注意：新版 flow.google.com 上图生视频与首尾帧插值受模型原生约束，界面上仅支持官方默认时长(8s)
-        # 强传如 --duration 4 或 --duration 6 会直接触发 ConfigurationError (exit 11) 闪退
-        # 因此在 flow 引擎下，自动省略 --duration 参数，由 Flow 原生自适配最稳定的默认时长(8s)，彻底根治闪退
-        # 如果后续有明确支持多时长的模型，再按需开启
-        if getattr(task, "engine", "flow") != "flow" and task.duration_sec and task.duration_sec not in (0, 8):
-            cmd.extend(["--duration", str(task.duration_sec)])
-        if project_id:
-            cmd.extend(["--project", str(project_id)])
-        cmd.append(task.prompt)
-
-        # Record pre-existing files in output_dir to identify newly created file if needed
-        existing_files = set(self.output_dir.glob("*.mp4"))
+        def failure(code, message):
+            outcome.update(success=False, pid=proc.pid if proc else None,
+                           error_code=code, error_message=message,
+                           output_video_path=None, logs=logs,
+                           submission_possible=launched)
+            return outcome
 
         try:
-            proc = subprocess.Popen(
-                cmd,
-                cwd=str(self.gflow_dir),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                encoding="utf-8",
-                errors="replace"
-            )
-            pid = proc.pid
+            control.check()
+            if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", task.id):
+                return failure("INVALID_VIDEO_REQUEST", "非法任务 ID")
+            if self.mock_sample_video:
+                target = self.output_dir / task.id / ("mock_" + uuid.uuid4().hex + ".mp4")
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(self.mock_sample_video, target)
+                control.check()
+                output_to_publish = target
+                outcome.update(success=True, pid=os.getpid(), output_video_path=str(target), logs="Explicit mock sample", submission_possible=False)
+                return outcome
+            self._ensure_profile_marker(profile.name)
+            start_img = Path(task.start_image_path).resolve() if task.start_image_path else None
+            end_img = Path(task.end_image_path).resolve() if task.end_image_path else None
+            for label, img in (("START", start_img), ("END", end_img)):
+                if img and not img.is_file():
+                    return failure(label + "_IMAGE_NOT_FOUND", f"图片不存在：{img}")
+            if end_img and not start_img:
+                return failure("INVALID_VIDEO_REQUEST", "尾帧必须与首帧一起提供")
+            project_id = task.project_id or ""
+            if not project_id:
+                from .onboard import ensure_profile_onboarded
+                project_id = ensure_profile_onboarded(profile.name) or ""
+            if not project_id:
+                return failure("PROJECT_INIT_REQUIRED", "该账号没有已绑定的 Flow 工程；请手动绑定后再生成。未提交网页请求。")
+            if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", str(project_id)):
+                return failure("INVALID_VIDEO_REQUEST", "Flow 工程 ID 不合法；未提交请求")
+            directory = self.output_dir / task.id / ("attempt_" + uuid.uuid4().hex)
+            directory.mkdir(parents=True, exist_ok=False)
+            cmd = [str(self.python_bin), "-m", "gflow_cli", "video", "i2v" if start_img else "t2v"]
+            if start_img:
+                cmd.extend(["--initial-frame", str(start_img)])
+            if end_img:
+                cmd.extend(["--end-frame", str(end_img)])
+            cmd.extend(["--aspect", task.aspect_ratio or "16:9", "--profile", profile.name,
+                        "--out-dir", str(directory), "--json", "--project", str(project_id)])
+            if task.model:
+                cmd.extend(["--model", task.model])
+            cmd.extend(["--duration", str(task.duration_sec)])
+            cmd.append(task.prompt)
+            control.check()
+            stdout_path, stderr_path = directory / "stdout.log", directory / "stderr.log"
+            stdout_file = stdout_path.open("wb")
+            spool_handles.append(stdout_file)
+            stderr_file = stderr_path.open("wb")
+            spool_handles.append(stderr_file)
+            proc = self._launch_cli(cmd, stdout=stdout_file, stderr=stderr_file)
+            launched = True
             with self._procs_lock:
                 self._current_procs[task.id] = proc
-            print(f"[{worker_name}] 启动 gflow 进程 (PID={pid}) -> Profile=[{profile.name}] Task=[{task.id}]")
-
-            try:
-                stdout, stderr = proc.communicate(timeout=self.timeout_sec)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                stdout, stderr = proc.communicate()
-                return {
-                    "success": False,
-                    "pid": pid,
-                    "error_code": "TIMEOUT",
-                    "error_message": f"Execution timed out after {self.timeout_sec}s (PID={pid} terminated)",
-                    "output_video_path": None,
-                    "logs": f"=== STDOUT ===\n{stdout}\n=== STDERR ===\n{stderr}"
-                }
-
-            logs = f"=== PID: {pid} ===\n=== STDOUT ===\n{stdout}\n=== STDERR ===\n{stderr}"
-
-            if proc.returncode != 0:
-                # 运行时自愈与重试防线：若触发 401/工程丢失/新条款，现场无头自愈并自动重试一次
-                is_auth_or_proj_err = any(k in stderr.lower() for k in [
-                    'status": 401', '401 unauthorized', 'unauthorized', 'createproject', 'not to the flow app', 'project not found', 'projectnotfound'
-                ])
-                if is_auth_or_proj_err and not getattr(task, "_already_retried_onboard", False):
-                    print(f"[{worker_name}] 任务 [{task.id}] Profile [{profile.name}] 运行时捕获 401/工程未初始化，启动紧急自愈...")
-                    try:
-                        from .onboard import auto_onboard_profile
-                        onboard_res = auto_onboard_profile(profile.name, create_default_project=True)
-                        if onboard_res.get("success") and onboard_res.get("project_id"):
-                            new_pid = onboard_res["project_id"]
-                            print(f"[{worker_name}] 紧急自愈成功，获得新工程: [{new_pid}]，立即透明重试任务...")
-                            task._already_retried_onboard = True
-                            
-                            # 更新 cmd 中的 --project 参数
-                            new_cmd = list(cmd)
-                            if "--project" in new_cmd:
-                                idx = new_cmd.index("--project")
-                                new_cmd[idx + 1] = str(new_pid)
-                            else:
-                                # 插入在 prompt 前
-                                prompt_val = new_cmd.pop()
-                                new_cmd.extend(["--project", str(new_pid), prompt_val])
-                            
-                            proc = subprocess.Popen(
-                                new_cmd, cwd=str(self.gflow_dir), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                text=True, encoding="utf-8", errors="replace"
-                            )
-                            pid = proc.pid
-                            try:
-                                stdout, stderr = proc.communicate(timeout=self.timeout_sec)
-                            except subprocess.TimeoutExpired:
-                                proc.kill()
-                                stdout, stderr = proc.communicate()
-                            logs += f"\n=== RETRY PID: {pid} ===\n=== STDOUT ===\n{stdout}\n=== STDERR ===\n{stderr}"
-                    except Exception as re_err:
-                        print(f"[{worker_name}] 紧急自愈重试异常: {re_err}")
-
-            # 关键：优先检测成片！无论退出码如何，只要视频已成功生成并落盘（>=50KB），即视作生成成功！
-            output_video_path = None
-            try:
-                s_clean = stdout.strip()
-                if s_clean.startswith("{") and s_clean.endswith("}"):
-                    data = json.loads(s_clean)
-                    for k in ["local_path", "path", "saved_path", "output"]:
-                        if data.get(k):
-                            output_video_path = data[k]
-                            break
-                if not output_video_path:
-                    lines = stdout.strip().splitlines()
-                    for line in reversed(lines):
-                        line_str = line.strip()
-                        if line_str.startswith("{") and line_str.endswith("}"):
-                            data = json.loads(line_str)
-                            for k in ["local_path", "path", "saved_path", "output"]:
-                                if data.get(k):
-                                    output_video_path = data[k]
-                                    break
-                            if output_video_path:
-                                break
-                if not output_video_path:
-                    import re
-                    m = re.search(r'"(?:local_path|path)":\s*"([^"]+\.mp4)"', stdout + "\n" + stderr)
-                    if m:
-                        cand = m.group(1).replace("\\\\", "\\")
-                        if Path(cand).exists():
-                            output_video_path = cand
-            except Exception:
-                pass
-
-            if not output_video_path or not Path(output_video_path).exists():
-                # Detect newest .mp4 in output_dir (>= 50KB)
-                new_files = [p for p in (set(self.output_dir.glob("*.mp4")) - existing_files) if p.stat().st_size >= 50 * 1024]
-                if new_files:
-                    latest = max(new_files, key=lambda p: p.stat().st_mtime)
-                    output_video_path = str(latest)
-
-            # 只要成片存在且大于等于 50KB，一律判定为绝对成功（免疫会话关闭或退出码杂音）
-            if output_video_path and Path(output_video_path).exists() and Path(output_video_path).stat().st_size >= 50 * 1024:
-                return {
-                    "success": True,
-                    "pid": pid,
-                    "error_code": None,
-                    "error_message": None,
-                    "output_video_path": str(Path(output_video_path).resolve()),
-                    "logs": logs
-                }
-
-            # 未检测到有效成片时，再按退出码分类报告真实错误
-            if proc.returncode != 0:
-                err_code = f"EXIT_{proc.returncode}"
-                err_msg = f"Process exited with code {proc.returncode}\n{stderr[:400]}"
-                is_unusual_activity = (
-                    proc.returncode == 10
-                    or any(k in stdout.lower() or k in stderr.lower() for k in [
-                        "unusual activity", "unusual_activity", "public_error_unusual_activity",
-                        "we noticed some unusual activity", "wafrejectionerror"
-                    ])
-                )
-                if is_unusual_activity:
-                    err_code = "UNUSUAL_ACTIVITY"
-                    err_msg = "Google Flow 拦截异常活动检测 (Unusual Activity，官方未扣除点数)。该账号已休眠，正由其他空闲账号接力运行。"
-                elif any(k in stdout.lower() or k in stderr.lower() for k in [
-                    "migrated host reported status 4", "media_generation_status_failed", "status 4"
-                ]):
-                    err_code = "TRANSIENT_SERVER_ERROR"
-                    err_msg = "Google Flow 远端服务生成中断或拥堵(status 4，官方未扣点)。已自动触发换号接力重试。"
-                elif proc.returncode == 15 or any(k in stdout.lower() or k in stderr.lower() for k in [
-                    "browsersessionclosederror", "browser session closed", "target closed"
-                ]):
-                    err_code = "BROWSER_SESSION_CLOSED"
-                    err_msg = "Chrome 页面或会话意外中断(EXIT_15)。已自动重置任务排队，由其他账号接力。"
-                elif proc.returncode == 9 or any(k in stdout.lower() or k in stderr.lower() for k in [
-                    "transporttimeouterror", "transport timeout"
-                ]):
-                    err_code = "NETWORK_TIMEOUT"
-                    err_msg = "Google Flow 远端轮询超时(EXIT_9)。已自动换号接力重试。"
-                elif proc.returncode == 7 and (
-                    'wireformaterror' in stdout.lower()
-                    or 'wire-format' in stdout.lower()
-                    or 'wireformaterror' in stderr.lower()
-                ):
-                    err_code = "WIRE_FORMAT_MISMATCH"
-                    err_msg = (
-                        "Flow 提交请求未同时包含指定首尾帧/模型；已停止自动重试，"
-                        "避免再次消耗额度。请检查任务日志后人工处理。"
-                    )
-                elif any(k in stderr.lower() for k in ["profilelocked", "already in use", "is locked", "lockfile", "cannot access the file"]):
-                    err_code = "PROFILE_LOCKED"
-                    err_msg = f"Profile [{profile.name}] 被当前打开的 Chrome 窗口独占锁定。请在桌面关闭 Chrome 窗口或在控制台点击【⏹ 关闭占用 Chrome】后系统将自动恢复任务。"
-                elif "renders no duration control" in stderr.lower() or "configuration error" in stderr.lower() or proc.returncode == 11:
-                    err_code = "CONFIG_ERROR"
-                    err_msg = f"Google Flow 参数配置异常 (如所选时长/模型在页面选项未呈现)。已自动规范化参数，请重试。"
-                elif proc.returncode == 25 or any(k in stderr.lower() for k in ["flowagentuierror", "agentic ui", "settings-trigger-button"]):
-                    err_code = "AGENTIC_UI_BLOCKED"
-                    err_msg = f"Google Flow 处于智能体或遮罩状态。系统已执行自动去遮罩自愈，请重试。"
-                    try:
-                        heal_profile_flow_ui(profile.name, project_id)
-                    except Exception:
-                        pass
-                return {
-                    "success": False,
-                    "pid": pid,
-                    "error_code": err_code,
-                    "error_message": err_msg,
-                    "output_video_path": None,
-                    "logs": logs
-                }
-
-            return {
-                "success": False,
-                "pid": pid,
-                "error_code": "OUTPUT_NOT_FOUND",
-                "error_message": "Command succeeded but no output mp4 found",
-                "output_video_path": None,
-                "logs": logs
-            }
+            if event.is_set():
+                return failure("USER_CANCELLED", "本地任务已停止；云端已提交的生成可能继续")
+            while True:
+                control.check()
+                try:
+                    proc.wait(timeout=min(0.2, control.remaining))
+                    break
+                except subprocess.TimeoutExpired:
+                    continue
+            for stream in spool_handles:
+                stream.flush()
+            stdout, stderr = self._read_log_tail(stdout_path), self._read_log_tail(stderr_path)
+            logs = self._attempt_logs(proc, stdout_path, stderr_path)
+            control.check()
+            receipt = self._receipt(stdout)
+            if proc.returncode == 0 and receipt.get("status") == "ok" and receipt.get("succeeded") is True:
+                try:
+                    output = Path(receipt.get("local_path") or "").resolve()
+                    if not output.is_relative_to(directory.resolve()) or not output.is_file():
+                        raise ValueError("Flow 返回的视频不属于本次执行目录；拒绝拿其他任务产物回显")
+                    self._validate_output(output, task, control)
+                except (ValueError, OSError, subprocess.SubprocessError) as exc:
+                    return failure("VIDEO_OUTPUT_INVALID", str(exc))
+                output_to_publish = output
+                outcome.update(success=True, pid=proc.pid, output_video_path=str(output),
+                               error_code=None, error_message=None, logs=logs, submission_possible=True)
+                return outcome
+            raw_code = f"EXIT_{proc.returncode}"
+            if is_flow_response_unreadable(raw_code, "", logs):
+                return failure(FLOW_RESPONSE_UNREADABLE, FLOW_RESPONSE_UNREADABLE_MESSAGE)
+            content = (stdout + "\n" + stderr).lower()
+            error_class = (receipt.get("error") or {}).get("class", "")
+            if error_class == "ProfileLockedError" or any(k in content for k in ("profilelocked", "already in use", "singletonlock", "is locked")):
+                return failure("PROFILE_LOCKED", "Flow 账号目录已被其他窗口占用；未获得浏览器执行权")
+            if proc.returncode == 11:
+                return failure("CONFIG_ERROR", "Flow 页面不支持请求时长/模型；未更改参数，请核对可用选项后手动处理")
+            if proc.returncode == 25:
+                return failure("AGENTIC_UI_BLOCKED", "Flow 被协议或界面遮挡；系统未同意协议、未再次提交")
+            if proc.returncode == 7 and ("wireformaterror" in content or "wire-format" in content):
+                return failure("WIRE_FORMAT_MISMATCH", "Flow 格式校验失败；请核对原工程，不自动重复提交")
+            # Authentication/transport failures can occur after an accepted submit.
+            # Without a pre-submit receipt, no account failover/retry is safe.
+            return failure("FLOW_RESULT_UNCONFIRMED", "Flow 未返回可验证成片；请先核对原工程，可能已经消耗额度，不会自动重发")
+        except ExecutionStopped as exc:
+            code = exc.code if exc.code == "USER_CANCELLED" or not launched else "FLOW_RESULT_UNCONFIRMED"
+            return failure(code, str(exc) + (" 请核对原工程；不会重复提交。" if launched else " 尚未启动生成。"))
         except Exception as exc:
-            return {
-                "success": False,
-                "pid": None,
-                "error_code": "EXCEPTION",
-                "error_message": str(exc),
-                "output_video_path": None,
-                "logs": str(exc)
-            }
+            return failure("FLOW_RESULT_UNCONFIRMED" if launched else "INVALID_VIDEO_REQUEST", str(exc))
         finally:
-            with self._procs_lock:
-                self._current_procs.pop(task.id, None)
+            try:
+                cleaned = proc is None or self._terminate(proc)
+            except Exception:
+                cleaned = False
+            # Close our handles even when ownership must be retained: the child
+            # owns separate inherited handles and can still be cleaned up later.
+            for stream in spool_handles:
+                try:
+                    stream.close()
+                except OSError:
+                    pass
+            if stdout_path is not None:
+                logs = self._attempt_logs(proc, stdout_path, stderr_path)
+                outcome["logs"] = logs
+            outcome["cleanup_confirmed"] = bool(cleaned)
+            if not cleaned:
+                failure("PROCESS_CLEANUP_FAILED",
+                        "本地执行进程树未确认退出；账号已隔离，其他账号可继续。请核对原工程结果，不要重复提交。")
+            else:
+                try:
+                    if outcome.get("success") and output_to_publish:
+                        outcome["output_video_path"] = publish_video(output_to_publish, self.output_dir, task.id, control)
+                except ExecutionStopped as exc:
+                    failure("USER_CANCELLED" if exc.code == "USER_CANCELLED" else "FLOW_RESULT_UNCONFIRMED",
+                            str(exc) + " 成片保留在独占目录，未发布成功，不会重发。")
+                except Exception as exc:
+                    failure("VIDEO_OUTPUT_INVALID", "成片发布失败，未标记成功：" + str(exc))
+                finally:
+                    with self._procs_lock:
+                        self._current_procs.pop(task.id, None)
+                        if self._cancel_events.get(task.id) is event:
+                            self._cancel_events.pop(task.id, None)
+
+    def prepare_image_task(self, task_id: str, cancel_event: threading.Event) -> None:
+        self._image_worker.prepare_task(task_id, cancel_event)
 
     def execute_image_task(self, task: Task, profile: Profile) -> Dict[str, Any]:
-        """
-        Executes gflow-cli image t2i (文生图) or i2i (图生图) for a given task and profile.
-        Returns execution result dictionary with output_image_paths list.
-        """
-        worker_name = threading.current_thread().name
-        self._ensure_profile_marker(profile.name)
-        is_i2i = bool(task.start_image_path and Path(task.start_image_path).exists())
-        subcmd = "i2i" if is_i2i else "t2i"
-
-        # 探测已存在的 project_id 避免废弃接口
-        project_id = getattr(task, "project_id", None) or ""
-        if not project_id:
-            try:
-                appdata = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
-                gflow_db = Path(appdata) / "ffroliva" / "gflow-cli" / "gflow.db"
-                if gflow_db.exists():
-                    import sqlite3
-                    with sqlite3.connect(str(gflow_db)) as c_conn:
-                        row = c_conn.execute(
-                            "SELECT flow_project_id FROM projects WHERE profile_name = ? ORDER BY rowid DESC LIMIT 1",
-                            (profile.name,)
-                        ).fetchone()
-                        if row and row[0]:
-                            project_id = row[0]
-            except Exception as e:
-                print(f"[{worker_name}] 查找 profile [{profile.name}] 已有 project 异常: {e}")
-
-        # 前置铁壁防线：若数据库无工程记录，自动触发无头 Onboarding，保证绝不带着空工程导致 401 闪退
-        if not project_id:
-            try:
-                from .onboard import ensure_profile_onboarded
-                print(f"[{worker_name}] Profile [{profile.name}] 尚未绑定 Flow 专属工程，启动自动就绪 (Auto-Onboarding)...")
-                project_id = ensure_profile_onboarded(profile.name) or ""
-                if project_id:
-                    print(f"[{worker_name}] Profile [{profile.name}] 自动就绪成功，绑定工程: [{project_id}]")
-            except Exception as e:
-                print(f"[{worker_name}] Profile [{profile.name}] 自动就绪异常: {e}")
-
-        cmd = [
-            str(self.python_bin),
-            "-m", "gflow_cli",
-            "image", subcmd,
-            "--aspect", task.aspect_ratio or "9:16",
-            "--profile", profile.name,
-            "--out", str(self.output_dir),
-            "--json",
-        ]
-        if is_i2i:
-            cmd.extend(["--ref", str(Path(task.start_image_path).resolve())])
-        if getattr(task, "model", None) and task.model:
-            cmd.extend(["--model", task.model])
-        if project_id:
-            cmd.extend(["--project", str(project_id)])
-        cmd.append(task.prompt)
-
-        existing_imgs = set(self.output_dir.glob("*.png")) | set(self.output_dir.glob("*.jpg")) | set(self.output_dir.glob("*.jpeg")) | set(self.output_dir.glob("*.webp"))
-
-        try:
-            proc = subprocess.Popen(
-                cmd,
-                cwd=str(self.gflow_dir),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                encoding="utf-8",
-                errors="replace"
-            )
-            pid = proc.pid
-            with self._procs_lock:
-                self._current_procs[task.id] = proc
-            mode_desc = f"图生图 (i2i, 垫图={Path(task.start_image_path).name})" if is_i2i else "文生图 (t2i)"
-            print(f"[{worker_name}] 启动 gflow 图像进程 (PID={pid}) -> {mode_desc} Profile=[{profile.name}] Task=[{task.id}]")
-
-            try:
-                stdout, stderr = proc.communicate(timeout=self.timeout_sec)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                stdout, stderr = proc.communicate()
-                return {
-                    "success": False,
-                    "pid": pid,
-                    "error_code": "TIMEOUT",
-                    "error_message": f"图像生成超时（超过 {self.timeout_sec}s，PID={pid} 已终止）",
-                    "output_image_paths": [],
-                    "logs": f"=== STDOUT ===\n{stdout}\n=== STDERR ===\n{stderr}"
-                }
-
-            logs = f"=== PID: {pid} ===\n=== STDOUT ===\n{stdout}\n=== STDERR ===\n{stderr}"
-
-            if proc.returncode != 0:
-                # 运行时自愈与重试防线：若生图触发 401/工程丢失/新条款，现场无头自愈并自动重试一次
-                is_auth_or_proj_err = any(k in stderr.lower() for k in [
-                    'status": 401', '401 unauthorized', 'unauthorized', 'createproject', 'not to the flow app', 'project not found', 'projectnotfound'
-                ])
-                if is_auth_or_proj_err and not getattr(task, "_already_retried_onboard", False):
-                    print(f"[{worker_name}] 生图任务 [{task.id}] Profile [{profile.name}] 运行时捕获 401/工程未初始化，启动紧急自愈...")
-                    try:
-                        from .onboard import auto_onboard_profile
-                        onboard_res = auto_onboard_profile(profile.name, create_default_project=True)
-                        if onboard_res.get("success") and onboard_res.get("project_id"):
-                            new_pid = onboard_res["project_id"]
-                            print(f"[{worker_name}] 紧急自愈成功，获得新工程: [{new_pid}]，立即透明重试生图任务...")
-                            task._already_retried_onboard = True
-                            
-                            new_cmd = list(cmd)
-                            if "--project" in new_cmd:
-                                idx = new_cmd.index("--project")
-                                new_cmd[idx + 1] = str(new_pid)
-                            else:
-                                prompt_val = new_cmd.pop()
-                                new_cmd.extend(["--project", str(new_pid), prompt_val])
-                            
-                            proc = subprocess.Popen(
-                                new_cmd, cwd=str(self.gflow_dir), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                text=True, encoding="utf-8", errors="replace"
-                            )
-                            pid = proc.pid
-                            try:
-                                stdout, stderr = proc.communicate(timeout=self.timeout_sec)
-                            except subprocess.TimeoutExpired:
-                                proc.kill()
-                                stdout, stderr = proc.communicate()
-                            logs += f"\n=== RETRY PID: {pid} ===\n=== STDOUT ===\n{stdout}\n=== STDERR ===\n{stderr}"
-                    except Exception as re_err:
-                        print(f"[{worker_name}] 生图紧急自愈重试异常: {re_err}")
-
-            # 关键：优先检测成图！无论退出码如何，只要图像已成功生成并落盘（>=5KB），即视作生成成功！
-            found_paths = []
-            try:
-                s_clean = stdout.strip()
-                parsed_data = None
-                if s_clean.startswith("{") and s_clean.endswith("}"):
-                    try:
-                        parsed_data = json.loads(s_clean)
-                    except Exception:
-                        pass
-                if not parsed_data:
-                    for line in reversed(s_clean.splitlines()):
-                        line_str = line.strip()
-                        if line_str.startswith("{") and line_str.endswith("}"):
-                            try:
-                                parsed_data = json.loads(line_str)
-                                break
-                            except Exception:
-                                pass
-                if parsed_data:
-                    data = parsed_data
-                    if "images" in data and isinstance(data["images"], list):
-                        for img in data["images"]:
-                            if isinstance(img, dict) and "local_path" in img and img["local_path"]:
-                                lp = Path(img["local_path"]).resolve()
-                                if lp.exists() and lp.stat().st_size >= 5 * 1024:
-                                    found_paths.append(str(lp))
-                    elif "saved_paths" in data and isinstance(data["saved_paths"], list):
-                        found_paths = [str(Path(p).resolve()) for p in data["saved_paths"] if Path(p).exists() and Path(p).stat().st_size >= 5 * 1024]
-                    elif "paths" in data and isinstance(data["paths"], list):
-                        found_paths = [str(Path(p).resolve()) for p in data["paths"] if Path(p).exists() and Path(p).stat().st_size >= 5 * 1024]
-                    elif "local_path" in data and data["local_path"] and Path(data["local_path"]).exists():
-                        lp = Path(data["local_path"]).resolve()
-                        if lp.stat().st_size >= 5 * 1024:
-                            found_paths = [str(lp)]
-            except Exception:
-                pass
-
-            if not found_paths:
-                # 对比现有图像识别出新落盘的文件 (>= 5KB)
-                current_imgs = set(self.output_dir.glob("*.png")) | set(self.output_dir.glob("*.jpg")) | set(self.output_dir.glob("*.jpeg")) | set(self.output_dir.glob("*.webp"))
-                new_files = sorted([p for p in (current_imgs - existing_imgs) if p.stat().st_size >= 5 * 1024], key=lambda p: p.stat().st_mtime, reverse=True)
-                if new_files:
-                    found_paths = [str(p.resolve()) for p in new_files]
-
-            # 只要成图存在，一律判定为绝对成功
-            if found_paths:
-                return {
-                    "success": True,
-                    "pid": pid,
-                    "error_code": None,
-                    "error_message": None,
-                    "output_image_paths": found_paths,
-                    "logs": logs
-                }
-
-            # 未检测到有效图片时，再按退出码分类报告真实错误
-            if proc.returncode != 0:
-                err_code = f"EXIT_{proc.returncode}"
-                err_msg = f"进程退出码 {proc.returncode}\n{stderr[:400]}"
-                if proc.returncode == 36 or "FlowHostMigratedError" in stdout or "not ported yet" in stdout or "not ported yet" in stderr:
-                    err_code = "UNSUPPORTED_FEATURE"
-                    err_msg = "Google Flow (flow.google.com) 当前仅支持 Nano Banana Pro (nano-pro) 与 Nano Banana 2 (nano2) 生图模型；Imagen 3.5 官方尚未适配，请切换模型为 Nano Banana Pro。"
-                elif any(k in stdout.lower() or k in stderr.lower() for k in [
-                    "unusual activity", "unusual_activity", "public_error_unusual_activity", "we noticed some unusual activity"
-                ]):
-                    err_code = "UNUSUAL_ACTIVITY"
-                    err_msg = "Google Flow 拦截异常活动检测 (Unusual Activity)。该账号已休眠，由其他账号接力。"
-                elif any(k in stdout.lower() or k in stderr.lower() for k in [
-                    "migrated host reported status 4", "media_generation_status_failed", "status 4"
-                ]):
-                    err_code = "TRANSIENT_SERVER_ERROR"
-                    err_msg = "Google Flow 生图服务端状态异常(status 4)。已自动换号接力重试。"
-                elif proc.returncode == 15 or any(k in stdout.lower() or k in stderr.lower() for k in [
-                    "browsersessionclosederror", "browser session closed", "target closed"
-                ]):
-                    err_code = "BROWSER_SESSION_CLOSED"
-                    err_msg = "Chrome 页面或会话意外中断(EXIT_15)。已自动重置任务排队，由其他账号接力。"
-                elif proc.returncode == 9 or any(k in stdout.lower() or k in stderr.lower() for k in [
-                    "transporttimeouterror", "transport timeout"
-                ]):
-                    err_code = "NETWORK_TIMEOUT"
-                    err_msg = "Google Flow 远端轮询超时(EXIT_9)。已自动换号接力重试。"
-                elif proc.returncode == 25 or any(k in stderr.lower() for k in ["flowagentuierror", "agentic ui", "settings-trigger-button"]):
-                    err_code = "AGENTIC_UI_BLOCKED"
-                    err_msg = f"Google Flow 处于智能体或遮罩状态。系统已执行自动去遮罩自愈，请重试。"
-                    try:
-                        heal_profile_flow_ui(profile.name, project_id)
-                    except Exception:
-                        pass
-                elif any(k in stderr.lower() for k in ["profilelocked", "already in use", "is locked", "lockfile", "cannot access the file"]):
-                    err_code = "PROFILE_LOCKED"
-                    err_msg = f"Profile [{profile.name}] 被当前打开的 Chrome 窗口独占锁定。请在桌面关闭 Chrome 窗口或在控制台点击【⏹ 关闭占用 Chrome】后系统将自动恢复任务。"
-                elif proc.returncode == 11 or "configuration error" in stderr.lower():
-                    err_code = "CONFIG_ERROR"
-                    err_msg = f"Google Flow 生图参数异常，请核对提示词或模型选项。"
-                return {
-                    "success": False,
-                    "pid": pid,
-                    "error_code": err_code,
-                    "error_message": err_msg,
-                    "output_image_paths": [],
-                    "logs": logs
-                }
-
-            return {
-                "success": False,
-                "pid": pid,
-                "error_code": "OUTPUT_NOT_FOUND",
-                "error_message": "生图命令执行成功，但未在输出目录找到生成的图像文件",
-                "output_image_paths": [],
-                "logs": logs
-            }
-        except Exception as exc:
-            return {
-                "success": False,
-                "pid": None,
-                "error_code": "EXCEPTION",
-                "error_message": str(exc),
-                "output_image_paths": [],
-                "logs": str(exc)
-            }
-        finally:
-            with self._procs_lock:
-                self._current_procs.pop(task.id, None)
-
-
+        return self._image_worker.execute_image_task(task, profile)

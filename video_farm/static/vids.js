@@ -299,7 +299,7 @@ async function loadInitialWorkflow() {
       method: "POST",
       body: {
         title: "示例工程 · 电影感多镜头连续连拍工作流 (1080p)",
-        doc_url: "https://docs.google.com/videos/d/1EXFiC89I2CzVObDNGCXejn-FYySYoaKPjRIG8Fa6nS4/edit",
+        doc_url: "",
         style_prompt: "Cinematic 8k, Unreal Engine 5 render, anamorphic lens, high contrast, atmospheric lighting, ultra-detailed.",
         aspect_ratio: "16:9",
         duration_per_shot: 10,
@@ -394,7 +394,20 @@ async function selectWorkflow(workflowId) {
 
 // 渲染分镜卡片
 // 渲染分镜卡片 (规整紧凑高密度布局，物理限制图片尺寸，彻底消除乱图堆叠)
+function shotStatusBadge(shot) {
+  const status = shot.status || 'pending';
+  const labels = {pending:'待生成', queued:'排队中', retry_wait:'等待重试', stopping:'停止中 · 等待执行线程退出', cancelled:'已停止', failed:'失败', completed:'已成片'};
+  const label = ['running','dispatching','verifying'].includes(status) ? `生成中 · 阶段进度 ${shot.progress || 0}%` : (labels[status] || status);
+  return `<span class="shot-status-badge status-${escapeAttr(status)}">${escapeHtml(label)}</span>`;
+}
+
 function getShotMediaPreviewHtml(shot, index, isDone, isRunning, isFailed, shotRes) {
+  const engine = shot.engine || state.workflow?.engine || 'vids';
+  const engineLabel = {vids:'Google Vids', flow:'Google Flow', gemini:'Gemini'}[engine] || engine;
+  if (['queued', 'retry_wait', 'stopping'].includes(shot.status)) {
+    const messages = {queued:'等待可用账号，尚未提交云端生成', retry_wait:'等待重试时间或可用账号', stopping:'已请求停止，等待本任务执行线程退出；已提交的 Google 云端生成可能仍继续'};
+    return `<div class="stage-waiting-box"><strong>${shotStatusBadge(shot)}</strong><p>${messages[shot.status]}</p></div>`;
+  }
   const mode = shot.mode || "text2video";
   if (isDone && shot.video_url) {
     const localPathAttr = escapeAttr(shot.local_video_path || "");
@@ -415,7 +428,7 @@ function getShotMediaPreviewHtml(shot, index, isDone, isRunning, isFailed, shotR
           </button>
         </div>
         <div style="font-size: 9px; color: #10b981; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-          ✅ Google Vids 原生成片就绪
+          ✅ ${escapeHtml(engineLabel)} 成片就绪
         </div>
       </div>
     `;
@@ -423,15 +436,15 @@ function getShotMediaPreviewHtml(shot, index, isDone, isRunning, isFailed, shotR
     return `
       <div class="stage-running-box" style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 6px; padding: 8px 12px; background: rgba(59,130,246,0.06); border-radius: 6px; border: 1px dashed rgba(59,130,246,0.3);">
         <div class="pulse-radar-loader" style="font-size: 22px; animation: spin 2s linear infinite;">⚙️</div>
-        <div style="font-size: 12px; font-weight: 700; color: #60a5fa;">Google Vids 渲染中</div>
+        <div style="font-size: 12px; font-weight: 700; color: #60a5fa;">${escapeHtml(engineLabel)} 生成中</div>
         <div style="width: 100%; background: rgba(255,255,255,0.1); border-radius: 999px; height: 6px; overflow: hidden; position: relative;">
-          <div style="width: ${shot.progress || 15}%; height: 100%; background: linear-gradient(90deg, #3b82f6, #06b6d4); border-radius: 999px; transition: width 0.3s;"></div>
+          <div style="width: ${shot.progress || 0}%; height: 100%; background: linear-gradient(90deg, #3b82f6, #06b6d4); border-radius: 999px; transition: width 0.3s;"></div>
         </div>
         <div style="font-size: 10px; color: var(--text-sub); display: flex; justify-content: space-between; width: 100%;">
-          <span>进度: ${shot.progress || 10}%</span>
+          <span>阶段进度: ${shot.progress || 0}%</span>
           <span>云端渲染同步中</span>
         </div>
-        <button class="btn btn-danger btn-sm" style="font-size: 10px; padding: 2px 10px; margin-top: 4px; background: #dc2626; border-color: #b91c1c; font-weight: 700;" onclick="stopRunningShot('${shot.id}')" title="强行中止渲染并释放资源">
+        <button class="btn btn-danger btn-sm" style="font-size: 10px; padding: 2px 10px; margin-top: 4px; background: #dc2626; border-color: #b91c1c; font-weight: 700;" onclick="stopRunningShot('${shot.id}')" title="请求停止本任务">
           ⏹ 停止当前渲染
         </button>
       </div>
@@ -456,7 +469,7 @@ function getShotMediaPreviewHtml(shot, index, isDone, isRunning, isFailed, shotR
         <div style="font-size: 20px; opacity: 0.6;">🎬</div>
         <div style="font-size: 12px; font-weight: 600; color: var(--text-main);">等待镜头成片</div>
         <div style="font-size: 10px; color: var(--text-muted); line-height: 1.2;">
-          ${mode === "first_last_frame" ? "首尾帧过渡 · 1080p 原生插值" : (mode === "image2video" ? "单图参考生成" : "纯提示词渲染")}
+          ${mode === "first_last_frame" ? "首尾帧约束 · 仅 Google Flow 通道可用" : (mode === "image2video" ? "单图参考生成" : "纯提示词渲染")}
         </div>
         <button class="btn btn-primary btn-sm" style="margin-top: 4px; font-size: 10px; padding: 2px 12px;" onclick="generateSingleShot('${shot.id}')">
           ⚡ 单独渲染
@@ -494,14 +507,11 @@ function renderShots(shots) {
     card.id = `shot-card-${shot.id}`;
 
     const isDone = shot.status === 'completed';
-    const isRunning = shot.status === 'running';
-    const isQueued = shot.status === 'queued';
+    const isRunning = ['running', 'dispatching', 'verifying'].includes(shot.status);
+    const isQueued = ['queued', 'retry_wait'].includes(shot.status);
     const isFailed = shot.status === 'failed';
 
-    let statusBadge = '<span class="shot-status-badge status-pending">待生成</span>';
-    if (isRunning) statusBadge = `<span class="shot-status-badge status-running">生成中 ${shot.progress || 0}%</span>`;
-    if (isDone) statusBadge = '<span class="shot-status-badge status-completed">已成片</span>';
-    if (isFailed) statusBadge = '<span class="shot-status-badge status-failed">失败</span>';
+    const statusBadge = shotStatusBadge(shot);
 
     const mode = shot.mode || 'text2video';
     const shotRes = shot.resolution || defaultRes;
@@ -598,7 +608,7 @@ card.innerHTML = `
         </div>
         <div class="shot-header-actions">
           <div class="shot-status-badge-wrap">${statusBadge}</div>
-          ${(isRunning || isQueued) ? `<button class="btn btn-danger btn-sm btn-dynamic-stop" style="height: 22px; padding: 0 6px; font-size: 10px; background: #dc2626; border-color: #b91c1c; font-weight:700;" onclick="stopRunningShot('${shot.id}')" title="强行中止当前镜头渲染并释放资源">⏹ 停止</button>` : ''}
+          ${(isRunning || isQueued) ? `<button class="btn btn-danger btn-sm btn-dynamic-stop" style="height: 22px; padding: 0 6px; font-size: 10px; background: #dc2626; border-color: #b91c1c; font-weight:700;" onclick="stopRunningShot('${shot.id}')" title="请求停止本任务，执行线程退出后释放资源">⏹ 停止</button>` : ''}
           ${isFailed ? `<button class="btn btn-secondary btn-sm" style="height: 22px; padding: 0 6px; font-size: 10px; color: #f87171; border-color: rgba(239,68,68,0.4);" onclick="generateSingleShot('${shot.id}')" title="重试该镜头">🔄 重试</button>` : ''}
           ${isDone ? `<button class="btn btn-secondary btn-sm" style="height: 22px; padding: 0 6px; font-size: 10px; color: #10b981;" onclick="generateSingleShot('${shot.id}')" title="重新渲染该镜头">🔄 重渲</button>` : ''}
           <button class="btn btn-secondary btn-sm" style="height: 22px; padding: 0 5px;" onclick="moveShot('${shot.id}', 'up')" title="上移" aria-label="上移镜头">↑</button>
@@ -965,7 +975,7 @@ async function startContinuousGeneration() {
 
 // 刷新总进度条
 function updateOverallProgress(shots) {
-  const hasActive = shots.some(s => s.status === 'running' || s.status === 'queued');
+  const hasActive = shots.some(s => ['running', 'dispatching', 'verifying', 'queued', 'retry_wait', 'stopping'].includes(s.status));
   const stopBtn = document.getElementById('btn-stop-continuous');
   if (stopBtn) {
     stopBtn.style.display = hasActive ? 'inline-flex' : 'none';
@@ -1046,7 +1056,8 @@ function syncShotsDOM(shots) {
 
     const currentStatus = shot.status || 'pending';
     const isDone = currentStatus === 'completed';
-    const isRunning = currentStatus === 'running';
+    const isRunning = ['running', 'dispatching', 'verifying'].includes(currentStatus);
+    const isQueued = ['queued', 'retry_wait'].includes(currentStatus);
     const isFailed = currentStatus === 'failed';
     const shotRes = shot.resolution || defaultRes;
 
@@ -1057,10 +1068,7 @@ function syncShotsDOM(shots) {
     }
 
     // 2. 同步状态 Badge
-    let statusBadge = '<span class="shot-status-badge status-pending">待生成</span>';
-    if (isRunning) statusBadge = `<span class="shot-status-badge status-running">生成中 ${shot.progress || 0}%</span>`;
-    if (isDone) statusBadge = '<span class="shot-status-badge status-completed">已成片</span>';
-    if (isFailed) statusBadge = '<span class="shot-status-badge status-failed">失败</span>';
+    const statusBadge = shotStatusBadge(shot);
 
     const badgeContainer = card.querySelector('.shot-status-badge-wrap');
     if (badgeContainer && badgeContainer.innerHTML !== statusBadge) {
@@ -1081,7 +1089,7 @@ function syncShotsDOM(shots) {
     const previewBox = card.querySelector(`#shot-media-preview-${shot.id}`);
     if (previewBox) {
       const currentBoxState = previewBox.dataset.state || "";
-      const targetState = isDone && shot.video_url ? "done" : (isRunning ? "running" : (isFailed ? "failed" : "pending"));
+      const targetState = isDone && shot.video_url ? "done" : (isRunning ? "running" : (isFailed ? "failed" : currentStatus));
       const existingVideo = previewBox.querySelector("video");
       const currentVideoSrc = existingVideo ? (existingVideo.getAttribute("src") || "") : "";
       const targetVideoUrl = shot.video_url || "";
@@ -1094,9 +1102,9 @@ function syncShotsDOM(shots) {
         }
       } else if (targetState === "running") {
         const pFill = previewBox.querySelector(".stage-running-box div div");
-        if (pFill) pFill.style.width = `${shot.progress || 15}%`;
+        if (pFill) pFill.style.width = `${shot.progress || 0}%`;
         const pTxt = previewBox.querySelector(".stage-running-box div span:first-child");
-        if (pTxt) pTxt.textContent = `进度: ${shot.progress || 10}%`;
+        if (pTxt) pTxt.textContent = `阶段进度: ${shot.progress || 0}%`;
       }
     }
 
@@ -1121,7 +1129,7 @@ function syncShotsDOM(shots) {
         const btn = document.createElement("button");
         btn.className = "btn btn-danger btn-sm btn-dynamic-stop";
         btn.style.cssText = "height: 22px; padding: 0 6px; font-size: 10px; background: #dc2626; border-color: #b91c1c; font-weight:700;";
-        btn.title = "强行中止当前镜头渲染并释放资源";
+        btn.title = "请求停止本任务，执行线程退出后释放资源";
         btn.textContent = "⏹ 停止";
         btn.onclick = () => stopRunningShot(shot.id);
         headerActions.insertBefore(btn, headerActions.children[1] || null);
@@ -1135,7 +1143,7 @@ function syncShotsDOM(shots) {
     if (errBox) {
       if (shot.error_message && !isDone) {
         errBox.style.display = 'block';
-        errBox.textContent = `⚠️ 状态提示: ${shot.error_message} (可点击下方单独生成或上方连续生成)`;
+        errBox.textContent = `⚠️ 状态提示: ${shot.error_message}`;
       } else {
         errBox.style.display = 'none';
       }
@@ -1272,7 +1280,7 @@ async function fillSampleImportJson() {
     const textarea = getEl('json-import-textarea', 'batch-import-textarea');
     if (textarea) {
       textarea.value = JSON.stringify(sample, null, 2);
-      appendLog('已载入 1080p、Omni、首尾帧过渡及图生视频标准示范数据！', 'info');
+      appendLog('已载入示例；Vids 支持单图动画，首尾帧必须显式选 Flow；规格以页面能力为准。', 'info');
     }
   } catch (e) {
     console.error('获取示例失败，使用本地兜底:', e);
@@ -1832,7 +1840,7 @@ async function submitCreateNewWorkflow() {
 
 // 强行中止镜头与连续生成
 async function stopRunningShot(shotId) {
-  if (!confirm('确定要强行中止该镜头的渲染任务吗？将立即终止底层执行进程并释放资源。')) return;
+  if (!confirm('停止该镜头吗？排队任务会取消；运行任务先停止本地执行，线程退出后释放资源。Google 已接收的生成可能仍继续。')) return;
   try {
     const res = await api(`/shots/${shotId}/cancel`, { method: 'POST' });
     appendLog(`⏹ ${res.message || '镜头生成任务已强行停止'}`, 'info');
@@ -1846,10 +1854,11 @@ async function stopRunningShot(shotId) {
 
 async function stopContinuousGeneration() {
   if (!state.currentWorkflowId) return;
-  if (!confirm('确定要强行中止当前工程的所有生成任务吗？正在运行与排队中的镜头都将被立即停止。')) return;
+  if (!confirm('停止此工程所有任务吗？取消排队任务并请求停止运行任务。资源在线程退出后释放，Google 已提交的生成可能仍继续。')) return;
   try {
     const res = await api(`/workflows/${state.currentWorkflowId}/stop_all`, { method: 'POST' });
-    appendLog(`⏹ ${res.message || '连续生成已成功停止'}`, 'info');
+    appendLog(`⏹ ${res.message || '已请求停止连续生成'}`, res.success === false ? 'warn' : 'info');
+    for (const failure of res.failures || []) appendLog(`${failure.shot_id}: ${failure.error}`, 'error');
     if (state.currentWorkflowId) {
       await selectWorkflow(state.currentWorkflowId);
     }

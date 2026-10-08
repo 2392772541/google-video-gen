@@ -3,14 +3,22 @@ import os
 import sys
 import time
 import json
+import re
+import math
 import base64
 import urllib.request
 import threading
 import uuid
+import shutil
+import subprocess
 from pathlib import Path
 from typing import Dict, Any, Optional
 
 from .models import Task, Profile
+from .image_worker import BrowserImageWorker
+from .execution_control import ExecutionControl, ExecutionStopped
+from .video_contract import validate_video_request, VideoRequestError
+from .vids_worker import VidsWorker
 import psutil
 
 _PROFILE_LOCKS = {}
@@ -22,31 +30,15 @@ def get_profile_lock(profile_name: str) -> threading.Lock:
             _PROFILE_LOCKS[profile_name] = threading.Lock()
         return _PROFILE_LOCKS[profile_name]
 
-def unlock_profile_processes(profile_dir: Path, profile_name: str) -> int:
-    """彻底清理指定 Profile 残留的无头/崩溃 Chrome 进程与目录锁，杜绝 TargetClosedError (exitCode=21)"""
-    target_substr = f"profile_{profile_name}".lower()
-    killed = 0
-    for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
-        try:
-            if proc.info['name'] and 'chrome' in proc.info['name'].lower():
-                cmd_str = " ".join(proc.info.get('cmdline') or []).lower()
-                if target_substr in cmd_str:
-                    proc.kill()
-                    killed += 1
-        except Exception:
-            pass
-    if killed > 0:
-        time.sleep(0.5)
-    for lock_name in ["lockfile", "SingletonLock", "SingletonSocket", "SingletonCookie"]:
-        lf = profile_dir / lock_name
-        if lf.exists():
-            try:
-                lf.unlink()
-            except Exception:
-                pass
-    return killed
+class GeminiVideoSettingsError(RuntimeError):
+    """A requested native setting cannot be verified; never submit speculatively."""
 
-class GeminiWebWorker:
+    def __init__(self, message: str, code: str = "UNSUPPORTED_FEATURE"):
+        super().__init__(message)
+        self.code = code
+
+
+class GeminiWebWorker(VidsWorker):
     """
     Worker for orchestrating video generation on gemini.google.com/videos via persistent Chrome profiles.
     - Zero cookie leakage: uses local isolated Chrome profile directories.
@@ -61,45 +53,162 @@ class GeminiWebWorker:
         self,
         output_dir: Path = Path("video_farm_data/outputs"),
         timeout_sec: int = 360,
-        headless: bool = True
+        headless: bool = True,
+        python_bin=None,
+        submission_state_path=None,
+        mock_sample_video=None,
     ):
-        self.output_dir = output_dir.resolve()
-        self.output_dir.mkdir(parents=True, exist_ok=True)
-        self.timeout_sec = timeout_sec
-        self.headless = headless
-        self._active_sessions: Dict[str, Dict[str, Any]] = {}
-        self._sessions_lock = threading.Lock()
+        super().__init__(output_dir, timeout_sec, headless, mock_sample_video,
+                         python_bin, submission_state_path)
+        self._execution = threading.local()
+        self._image_worker = BrowserImageWorker(self.output_dir, timeout_sec, headless=headless)
+
+    provider_label = "Gemini"
+    unconfirmed_code = "GEMINI_RESULT_UNCONFIRMED"
+    mock_env_var = "GEMINI_MOCK_MODE"
+
+    def _validate_request(self, task):
+        validate_video_request(task)
+        if task.engine != "gemini":
+            raise VideoRequestError("GeminiWebWorker 只接受显式 Gemini 请求")
+
+    def _runner_command(self, request_path):
+        return [self.python_bin, "-m", "video_farm.gemini_web_runner", str(request_path)]
+
+    def has_live_execution(self, task_id: str) -> bool:
+        return super().has_live_execution(task_id) or self._image_worker.has_live_execution(task_id)
+
+    def _validate_output(self, path, task, control, logs):
+        """Bounded independent probe; Gemini does not inherit Vids resolution rules."""
+        probe = shutil.which("ffprobe")
+        if not probe:
+            raise GeminiVideoSettingsError("缺少 ffprobe，不能验证成片规格", "VIDEO_OUTPUT_INVALID")
+        control.check()
+        result = subprocess.run(
+            [probe, "-v", "error", "-select_streams", "v:0", "-show_entries",
+             "stream=width,height,duration:format=duration", "-of", "json", str(path)],
+            capture_output=True, text=True, timeout=min(15, control.remaining))
+        data = json.loads(result.stdout or "{}")
+        stream = (data.get("streams") or [{}])[0]
+        width, height = stream.get("width", 0), stream.get("height", 0)
+        if (result.returncode or not isinstance(width, (int, float))
+                or not isinstance(height, (int, float))
+                or not all(math.isfinite(v) and v > 0 for v in (width, height))):
+            raise GeminiVideoSettingsError("成片没有可核验的视频尺寸", "VIDEO_OUTPUT_INVALID")
+        expected_ratio = 16 / 9 if task.aspect_ratio == "16:9" else 9 / 16
+        if abs(width / height - expected_ratio) / expected_ratio > 0.02:
+            raise GeminiVideoSettingsError(
+                f"实际成片 {width}×{height} 与请求画幅 {task.aspect_ratio} 不符", "VIDEO_ASPECT_MISMATCH")
+        duration = 0.0
+        for value in (stream.get("duration"), data.get("format", {}).get("duration")):
+            try:
+                candidate = float(value)
+            except (TypeError, ValueError):
+                continue
+            if math.isfinite(candidate) and candidate > 0:
+                duration = candidate
+                break
+        if not duration:
+            raise GeminiVideoSettingsError("成片没有可核验的时长", "VIDEO_OUTPUT_INVALID")
+        if abs(duration - task.duration_sec) > 0.5:
+            raise GeminiVideoSettingsError(
+                f"实际成片 {duration:.3f}s 与请求 {task.duration_sec}s 不符", "VIDEO_DURATION_MISMATCH")
+        control.check()
+        logs.append(f"真实成片规格通过：{width}×{height} / {duration:.3f}s")
+
+    def prepare_image_task(self, task_id: str, cancel_event: threading.Event) -> None:
+        self._image_worker.prepare_task(task_id, cancel_event)
+
+    def execute_image_task(self, task: Task, profile: Profile) -> Dict[str, Any]:
+        return self._image_worker.execute_image_task(task, profile)
+
+    def prepare_task(self, task_id: str, cancel_event: threading.Event) -> None:
+        with self._sessions_lock:
+            self._active_sessions.setdefault(task_id, {}).update(cancel_event=cancel_event, cancelled=cancel_event.is_set())
+
+    def discard_prepared_task(self, task_id: str) -> bool:
+        """Remove a reservation only before an execution owner has started."""
+        with self._sessions_lock:
+            session = self._active_sessions.get(task_id)
+            if not session or session.get("control") or session.get("browser") or session.get("proc"):
+                return False
+            self._active_sessions.pop(task_id, None)
+            return True
+
+    def begin_task(self, task_id, timeout_sec=None):
+        with self._sessions_lock:
+            session = self._active_sessions.setdefault(task_id, {})
+            event = session.setdefault("cancel_event", threading.Event())
+            if session.get("cancelled"):
+                event.set()
+            control = ExecutionControl(event, self.timeout_sec if timeout_sec is None else timeout_sec)
+            session["control"] = control
+            self._execution.control = control
+            return control
+
+    def _pause(self, page, seconds):
+        control = getattr(self._execution, "control", None)
+        if control:
+            control.pause(page, seconds)
+        else:
+            page.wait_for_timeout(seconds * 1000)
+
+    def _timeout(self, maximum=5000):
+        control = getattr(self._execution, "control", None)
+        return control.timeout_ms(maximum) if control else maximum
+
+    def _wait_for_attachments(self, page, expected_count, image_count=0):
+        """Do not submit a partial upload, a spinner, or a broken preview."""
+        until = time.monotonic() + getattr(self, "_attachment_upload_timeout_sec", 45)
+        while True:
+            control = getattr(self._execution, "control", None)
+            if control:
+                control.check()
+            previews = page.query_selector_all("uploader-file-preview")
+            if not previews:
+                # Fallback class names can occur on both parent and child nodes.
+                previews = [node for node in page.query_selector_all('[class*="file-preview"]')
+                            if node.evaluate("e => !e.parentElement?.closest('[class*=file-preview]')")]
+            spinners = page.query_selector_all(
+                'uploader-file-preview mat-spinner, uploader-file-preview [role="progressbar"], '
+                'uploader-file-preview .loading, [class*="file-preview"] mat-spinner, '
+                '[class*="file-preview"] [role="progressbar"], [class*="file-preview"] .loading')
+            images = [image for preview in previews for image in preview.query_selector_all("img")]
+            if (len(previews) == expected_count and not spinners and len(images) >= image_count
+                    and all(image.evaluate("e => e.complete && e.naturalWidth > 0") for image in images)):
+                return
+            if time.monotonic() >= until:
+                raise GeminiVideoSettingsError(
+                    f"参考素材尚未全部上传就绪（需要 {expected_count} 个）；请求未发送，请检查文件或网络。",
+                    "ATTACHMENT_NOT_READY")
+            self._pause(page, 0.5)
 
     def cancel_task(self, task_id: str) -> bool:
-        """强行终止指定任务的 Gemini 会话并清理 Chrome 进程"""
+        """Never call synchronous Playwright from another thread."""
+        if self._image_worker.cancel_task(task_id):
+            return True
         with self._sessions_lock:
-            sess = self._active_sessions.get(task_id)
-            if sess:
-                sess["cancelled"] = True
-                browser = sess.get("browser")
-                if browser:
-                    try:
-                        browser.close()
-                    except Exception:
-                        pass
-                profile = sess.get("profile")
-                if profile:
-                    try:
-                        profile_dir = self._resolve_profile_dir(profile)
-                        unlock_profile_processes(profile_dir, profile.name)
-                    except Exception:
-                        pass
-                return True
-        return False
+            session = self._active_sessions.get(task_id)
+            if not session:
+                return False
+            session["cancelled"] = True
+            if session.get("cancel_event"):
+                session["cancel_event"].set()
+            return True
 
     def _resolve_profile_dir(self, profile: Profile) -> Path:
-        if profile.profile_path and Path(profile.profile_path).exists():
+        if profile.profile_path:
             return Path(profile.profile_path).resolve()
         appdata = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
         return Path(appdata) / "ffroliva" / "gflow-cli" / f"profile_{profile.name}"
 
     def _dismiss_overlays(self, page, logs: list) -> None:
         """主动检测并关闭欢迎弹窗、条款提示、新功能推荐遮罩层，防止拦截输入与点击。"""
+        for selector in ("[role='dialog'] button:has-text('I agree')", "[role='dialog'] button:has-text('Agree')",
+                         "[role='dialog'] button:has-text('同意')", "[role='dialog'] button:has-text('Accept all')"):
+            button = page.query_selector(selector)
+            if button and button.is_visible():
+                raise GeminiVideoSettingsError("网页要求同意协议/授权；请在原网页手动处理后重试。", "USER_ACTION_REQUIRED")
         dismiss_selectors = [
             "mat-dialog-container button[aria-label*='Close']",
             "mat-dialog-container button[aria-label*='close']",
@@ -110,9 +219,6 @@ class GeminiWebWorker:
             "[role='dialog'] button:has-text('知道了')",
             "[role='dialog'] button:has-text('关闭')",
             "[role='dialog'] button:has-text('稍后再说')",
-            "[role='dialog'] button:has-text('Accept all')",
-            "[role='dialog'] button:has-text('I agree')",
-            "[role='dialog'] button:has-text('同意')",
             ".cdk-overlay-container button[aria-label*='Close']",
             ".cdk-overlay-container button:has-text('Got it')",
             ".cdk-overlay-backdrop"
@@ -122,8 +228,10 @@ class GeminiWebWorker:
                 btn = page.query_selector(sel)
                 if btn and btn.is_visible():
                     logs.append(f"检测到页面弹出浮层遮罩 ({sel})，自动点击关闭...")
-                    btn.click(force=True)
-                    page.wait_for_timeout(600)
+                    btn.click(timeout=self._timeout())
+                    self._pause(page, 0.6)
+            except ExecutionStopped:
+                raise
             except Exception:
                 pass
         try:
@@ -131,7 +239,110 @@ class GeminiWebWorker:
         except Exception:
             pass
 
-    def execute_task(self, task: Task, profile: Profile) -> Dict[str, Any]:
+    _ASPECT_BUTTON_SELECTOR = (
+        'button[aria-label*="16:9"], button[aria-label*="9:16"], '
+        'button:has-text("Landscape"), button:has-text("Portrait"), '
+        'button:has-text("横向"), button:has-text("纵向"), '
+        'button:has-text("16:9"), button:has-text("9:16")'
+    )
+    _ASPECT_OPTION_SELECTOR = (
+        '[role="menuitemradio"], [role="menuitem"], [role="option"], mat-option'
+    )
+
+    @staticmethod
+    def _native_aspect(element) -> Optional[str]:
+        # Current Gemini exposes the numbers in aria-label, not visible text.
+        for label in (element.get_attribute("aria-label") or "", element.inner_text()):
+            match = re.search(r"(?<!\d)(16\s*:\s*9|9\s*:\s*16)(?!\d)", label)
+            if match:
+                return re.sub(r"\s+", "", match.group(1))
+            # Retain support for the previous English-only button labels.
+            if label.strip().lower() in ("landscape", "横向", "横屏"):
+                return "16:9"
+            if label.strip().lower() in ("portrait", "纵向", "竖屏"):
+                return "9:16"
+        return None
+
+    def _aspect_button(self, page):
+        for button in page.query_selector_all(self._ASPECT_BUTTON_SELECTOR):
+            if button.is_visible() and self._native_aspect(button):
+                return button
+        return None
+
+    def _configure_video_aspect(self, page, aspect: str, logs: list) -> None:
+        if aspect not in ("16:9", "9:16"):
+            raise GeminiVideoSettingsError(
+                f"Gemini 网页视频当前仅支持 16:9 / 9:16，不能提交 {aspect}；请更改比例。"
+            )
+        try:
+            page.wait_for_selector(self._ASPECT_BUTTON_SELECTOR, state="visible", timeout=5000)
+            button = self._aspect_button(page)
+            if not button or not button.is_enabled():
+                raise GeminiVideoSettingsError("未找到可用的 Gemini 原生比例控件，已停止提交，避免生成错误画幅。")
+            if self._native_aspect(button) == aspect:
+                logs.append(f"已核验 Gemini 原生画幅: {aspect}")
+                return
+
+            button.click(timeout=5000)
+            page.wait_for_selector(self._ASPECT_OPTION_SELECTOR, state="visible", timeout=4000)
+            option = next((item for item in page.query_selector_all(self._ASPECT_OPTION_SELECTOR)
+                           if item.is_visible() and self._native_aspect(item) == aspect), None)
+            if not option or not option.is_enabled() or option.get_attribute("aria-disabled") == "true":
+                raise GeminiVideoSettingsError(f"Gemini 比例菜单未提供可用的 {aspect} 选项，已停止提交。")
+            option.click(timeout=5000)
+            # A successful click is not proof the option took effect. Re-read the
+            # live button after the menu closes (the option node may be detached).
+            for _ in range(8):
+                current = self._aspect_button(page)
+                if current and self._native_aspect(current) == aspect:
+                    logs.append(f"已切换并核验 Gemini 原生画幅: {aspect}")
+                    return
+                self._pause(page, 0.25)
+            raise GeminiVideoSettingsError(f"Gemini 未确认切换为 {aspect}，已停止提交，未消耗生成次数。")
+        except GeminiVideoSettingsError:
+            raise
+        except Exception as exc:
+            raise GeminiVideoSettingsError(
+                f"无法核验 Gemini 原生比例 {aspect}，已停止提交；请检查网页控件或视频权限。"
+            ) from exc
+
+    @staticmethod
+    def _validate_video_output(path: Path, aspect: str, requested_duration: int, logs: list) -> None:
+        import cv2
+
+        capture = cv2.VideoCapture(str(path))
+        try:
+            if not capture.isOpened():
+                raise GeminiVideoSettingsError("Gemini 返回的文件无法读取为视频。", "VIDEO_OUTPUT_INVALID")
+            width = capture.get(cv2.CAP_PROP_FRAME_WIDTH)
+            height = capture.get(cv2.CAP_PROP_FRAME_HEIGHT)
+            fps = capture.get(cv2.CAP_PROP_FPS)
+            frames = capture.get(cv2.CAP_PROP_FRAME_COUNT)
+            # Reject unreadable/non-finite metadata before int conversion or
+            # duration arithmetic, so invalid media cannot be marked successful.
+            if not all(isinstance(value, (int, float)) and math.isfinite(value) and value > 0
+                       for value in (width, height, fps, frames)):
+                raise GeminiVideoSettingsError("Gemini 返回的视频缺少有效尺寸或时长。", "VIDEO_OUTPUT_INVALID")
+            width, height = int(width), int(height)
+            if width <= 0 or height <= 0:
+                raise GeminiVideoSettingsError("Gemini 返回的视频尺寸无效。", "VIDEO_OUTPUT_INVALID")
+            duration = frames / fps
+            logs.append(f"Gemini 实际成片: {width}×{height} · {duration:.1f} 秒")
+            numerator, denominator = (int(part) for part in aspect.split(":"))
+            if abs((width / height) / (numerator / denominator) - 1) > 0.02:
+                raise GeminiVideoSettingsError(
+                    f"请求画幅 {aspect}，Gemini 实际返回 {width}×{height}；已拦截错误画幅，未标记成功。",
+                    "VIDEO_ASPECT_MISMATCH",
+                )
+            if requested_duration and abs(duration - requested_duration) > 0.5:
+                raise GeminiVideoSettingsError(
+                    f"请求 {requested_duration} 秒，Gemini 实际返回 {duration:.1f} 秒；已拦截时长不符的产物，未标记成功。",
+                    "VIDEO_DURATION_MISMATCH",
+                )
+        finally:
+            capture.release()
+
+    def _execute_browser_task(self, task: Task, profile: Profile) -> Dict[str, Any]:
         worker_name = threading.current_thread().name
         profile_dir = self._resolve_profile_dir(profile)
         
@@ -148,11 +359,14 @@ class GeminiWebWorker:
 
         output_video_path = self.output_dir / f"{task.id}.mp4"
 
+        control = self.begin_task(task.id)
+        request_submitted = False
+        outcome = {}
         try:
+            control.check()
+            self._validate_request(task)
             with sync_playwright() as p:
-                launch_args = [
-                                        "--no-sandbox"
-                ]
+                launch_args = ["--disable-infobars"]
                 
                 logs.append("正在拉起 Chrome 浏览器会话...")
                 try:
@@ -160,41 +374,44 @@ class GeminiWebWorker:
                         user_data_dir=str(profile_dir.resolve()),
                         channel="chrome",
                         headless=self.headless,
-                        args=launch_args
+                        args=launch_args, timeout=self._timeout(15000)
                     )
                     with self._sessions_lock:
-                        self._active_sessions[task.id] = {
-                            "browser": browser,
-                            "profile": profile,
-                            "cancelled": False
-                        }
+                        self._active_sessions.setdefault(task.id, {}).update(browser=browser, profile=profile)
+                except ExecutionStopped:
+                    raise
                 except Exception as launch_exc:
                     lexc_str = str(launch_exc).lower()
                     logs.append(f"拉起浏览器异常: {launch_exc}")
                     if any(k in lexc_str for k in ["target closed", "browser has been closed", "singleton", "lock", "in use", "already running"]):
                         logs.append("【检测到目录锁】Chrome Profile 正在被外部浏览器窗口独占占用。")
-                        return {
+                        outcome.update({
                             "success": False,
                             "pid": os.getpid(),
                             "error_code": "PROFILE_LOCKED",
                             "error_message": f"Profile [{profile.name}] 正在被运行中的 Chrome 窗口占用。请在桌面关闭 Chrome 窗口或在控制台点击【⏹ 关闭占用 Chrome】后再试。",
                             "output_video_path": None,
                             "logs": "\n".join(logs)
-                        }
+                        })
+                        return outcome
                     raise launch_exc
 
                 try:
                     page = browser.new_page()
+                    page.set_default_timeout(5000)
+                    page.set_default_navigation_timeout(15000)
                     
                     # 1. 优先直达原生视频生成工作台
                     logs.append("正在打开 Gemini 视频工作区 https://gemini.google.com/videos ...")
                     try:
-                        page.goto("https://gemini.google.com/videos", timeout=35000)
+                        page.goto("https://gemini.google.com/videos", timeout=self._timeout(15000))
+                    except ExecutionStopped:
+                        raise
                     except Exception as ge:
                         logs.append(f"直接打开 /videos 超时或异常，尝试主入口 /app ... ({ge})")
-                        page.goto("https://gemini.google.com/app", timeout=35000)
+                        page.goto("https://gemini.google.com/app", timeout=self._timeout(15000))
 
-                    page.wait_for_timeout(3000)
+                    self._pause(page, 3)
                     self._dismiss_overlays(page, logs)
 
                     cur_url = page.url
@@ -215,11 +432,13 @@ class GeminiWebWorker:
                             try:
                                 vnav = page.query_selector(nav_sel)
                                 if vnav and vnav.is_visible():
-                                    vnav.click(force=True)
-                                    page.wait_for_timeout(2000)
+                                    vnav.click(timeout=self._timeout())
+                                    self._pause(page, 2)
                                     self._dismiss_overlays(page, logs)
                                     logs.append(f"成功切换至视频工作区: URL='{page.url}'")
                                     break
+                            except ExecutionStopped:
+                                raise
                             except Exception:
                                 pass
 
@@ -227,8 +446,10 @@ class GeminiWebWorker:
                     input_selector = 'rich-textarea div[contenteditable="true"], div.ql-editor[contenteditable="true"], [contenteditable="true"], textarea'
                     has_input = False
                     try:
-                        page.wait_for_selector(input_selector, timeout=8000)
+                        page.wait_for_selector(input_selector, timeout=self._timeout(8000))
                         has_input = True
+                    except ExecutionStopped:
+                        raise
                     except Exception:
                         has_input = False
 
@@ -243,14 +464,15 @@ class GeminiWebWorker:
 
                     if is_unauth:
                         logs.append("【拦截告警】检测到账号未在 Gemini 网页版登录或 Google 登录态已失效！")
-                        return {
+                        outcome.update({
                             "success": False,
                             "pid": os.getpid(),
                             "error_code": "AUTH_EXPIRED",
                             "error_message": f"Gemini 网页版未登录或会话已过期 (Profile: {profile.name})。请在控制台【账号管理】点击【🌐 登录 Gemini 网页版】完成登录授权，登录后请关闭弹出的 Chrome 窗口。",
                             "output_video_path": None,
                             "logs": "\n".join(logs)
-                        }
+                        })
+                        return outcome
 
                     # 3. 定位输入框
                     input_el = page.query_selector(input_selector)
@@ -261,52 +483,31 @@ class GeminiWebWorker:
                             if el and el.is_visible():
                                 txt = el.inner_text().lower()
                                 if any(k in txt for k in ["quota", "limit", "额度", "上限"]):
-                                    return {
+                                    outcome.update({
                                         "success": False,
                                         "pid": os.getpid(),
                                         "error_code": "QUOTA_EXHAUSTED",
                                         "error_message": f"检测到 Gemini 页面明确提示额度或频率限制 (Profile: {profile.name})",
                                         "output_video_path": None,
                                         "logs": "\n".join(logs)
-                                    }
-                        return {
+                                    })
+                                    return outcome
+                        outcome.update({
                             "success": False,
                             "pid": os.getpid(),
                             "error_code": "ELEMENT_NOT_FOUND",
                             "error_message": "未在页面找到 Gemini 输入框，可能界面更新或处于非对话状态",
                             "output_video_path": None,
                             "logs": "\n".join(logs)
-                        }
+                        })
+                        return outcome
 
-                    # 4. 原生画幅比例设置 (Landscape 16:9 vs Portrait 9:16)
+                    # Validate support now; apply the native setting after model
+                    # selection and reference upload, which can reset the ratio.
                     aspect = getattr(task, "aspect_ratio", "16:9") or "16:9"
-                    try:
-                        aspect_btn = page.query_selector('button:has-text("Landscape"), button:has-text("Portrait"), button:has-text("16:9"), button:has-text("9:16")')
-                        if aspect_btn and aspect_btn.is_visible():
-                            btn_text = aspect_btn.inner_text()
-                            need_switch = False
-                            target_kw = "Landscape (16:9)" if aspect == "16:9" else "Portrait (9:16)"
-                            if aspect == "9:16" and "portrait" not in btn_text.lower():
-                                need_switch = True
-                            elif aspect == "16:9" and "landscape" not in btn_text.lower():
-                                need_switch = True
-                            
-                            if need_switch:
-                                logs.append(f"检测到原生比例调节按钮 (当前: {btn_text.strip()})，正在切换至目标比例 [{target_kw}]...")
-                                aspect_btn.click(force=True)
-                                page.wait_for_timeout(600)
-                                opt = page.query_selector(f'[role="menuitem"]:has-text("{target_kw}"), [role="option"]:has-text("{target_kw}"), mat-option:has-text("{target_kw}"), span:has-text("{target_kw}")')
-                                if opt and opt.is_visible():
-                                    opt.click(force=True)
-                                    logs.append(f"成功将画幅切换为: {target_kw}")
-                                    page.wait_for_timeout(500)
-                                else:
-                                    logs.append(f"未直接点击到 [{target_kw}] 选项，关闭菜单继续")
-                                    page.keyboard.press("Escape")
-                            else:
-                                logs.append(f"当前画幅设置已与任务目标匹配: {btn_text.strip()}")
-                    except Exception as ae:
-                        logs.append(f"画幅设置容错处理: {ae}")
+                    if aspect not in ("16:9", "9:16"):
+                        raise GeminiVideoSettingsError(f"Gemini 网页视频不支持 {aspect}；请选择 16:9 或 9:16。")
+                    logs.append(f"时长说明: 请求 {task.duration_sec} 秒；当前 Gemini 网页不提供可核验的秒数控件，时长由网页模式决定，不会静默裁切。")
 
                     # 5. 原生模型选择 (Flash vs 3.8 Flash vs 3.1 Pro 等)
                     model_info = getattr(task, "model", "auto") or "auto"
@@ -315,19 +516,24 @@ class GeminiWebWorker:
                             model_btn = page.query_selector('button:has-text("Flash"), button:has-text("Pro"), button[aria-label*="model"], [data-test-id="model-selector-button"]')
                             if model_btn and model_btn.is_visible():
                                 logs.append(f"正在匹配 Gemini 页面模型选择 [{model_info}] ...")
-                                model_btn.click(force=True)
-                                page.wait_for_timeout(800)
+                                model_btn.click(timeout=self._timeout())
+                                self._pause(page, 0.8)
                                 kw = "3.8" if "3.8" in model_info else ("pro" if "pro" in model_info.lower() else ("flash" if "flash" in model_info.lower() else model_info))
                                 opt_el = page.query_selector(f'[role="menuitem"]:has-text("{kw}"), [role="option"]:has-text("{kw}"), mat-option:has-text("{kw}"), button:has-text("{kw}")')
                                 if opt_el and opt_el.is_visible():
-                                    opt_el.click(force=True)
+                                    opt_el.click(timeout=self._timeout())
                                     logs.append(f"已成功切换模型至目标模式 [{kw}]")
-                                    page.wait_for_timeout(800)
+                                    self._pause(page, 0.8)
                                 else:
-                                    logs.append(f"模型下拉选项中未直接匹配到 [{kw}]，已采用默认就绪模型")
-                                    page.keyboard.press("Escape")
+                                    raise GeminiVideoSettingsError(f"所选 Gemini 模型 {model_info} 在该账号网页不可用；请求未提交。")
+                            else:
+                                raise GeminiVideoSettingsError("未找到 Gemini 网页模型选择控件；请求未提交。")
+                        except GeminiVideoSettingsError:
+                            raise
+                        except ExecutionStopped:
+                            raise
                         except Exception as me:
-                            logs.append(f"切换模型提示 (不阻断主流程): {me}")
+                            raise GeminiVideoSettingsError(f"无法确认 Gemini 模型设置：{me}") from me
 
                     # 6. 如果有多模态素材输入 (参考视频或参考图)，附加素材到 Gemini 输入框
                     media_files = []
@@ -346,9 +552,10 @@ class GeminiWebWorker:
                         if file_input:
                             file_input.set_input_files(media_files)
                             logs.append(f"已通过文件输入口上传多模态素材: {[Path(m).name for m in media_files]}")
-                            page.wait_for_timeout(3500)
+                            self._wait_for_attachments(
+                                page, len(media_files), image_count=1 if task.start_image_path else 0)
                         else:
-                            logs.append("未发现独立 file input，尝试通过提示词上下文协同")
+                            raise GeminiVideoSettingsError("参考素材上传入口不存在；请求未提交，不会丢弃素材。")
 
                     # 7. 填充提示词并安全提交
                     final_prompt = task.prompt.strip()
@@ -356,11 +563,15 @@ class GeminiWebWorker:
 
                     # 聚焦并输入，避免被浮层截获 pointer events
                     input_el.scroll_into_view_if_needed()
-                    input_el.click(force=True)
-                    page.wait_for_timeout(300)
+                    input_el.click(timeout=self._timeout())
+                    self._pause(page, 0.3)
                     input_el.fill(final_prompt)
                     logs.append(f"已填入生成提示词: {final_prompt} (引擎: Gemini网页版, 指定模型: {model_info}, 画幅: {aspect})")
-                    page.wait_for_timeout(1000)
+                    self._pause(page, 1)
+
+                    # Configure and verify after all uploads, immediately before
+                    # submitting. Failure must never fall through to Send/Enter.
+                    self._configure_video_aspect(page, aspect, logs)
 
                     # 发送提交
                     send_selectors = [
@@ -371,22 +582,22 @@ class GeminiWebWorker:
                         '[data-test-id="send-button"]',
                         'button.send-button'
                     ]
-                    submitted = False
-                    for s_sel in send_selectors:
-                        s_btn = page.query_selector(s_sel)
-                        if s_btn and s_btn.is_visible():
-                            try:
-                                s_btn.click(force=True)
-                                submitted = True
-                                logs.append(f"已成功通过发送按钮 ({s_sel}) 提交生成任务")
-                                break
-                            except Exception:
-                                pass
-                    if not submitted:
+                    baseline_response_count = len(page.query_selector_all('model-response'))
+                    baseline_media = {VidsWorker.media_identity(v.get_attribute("src") or "")
+                                      for v in page.query_selector_all('model-response video')}
+                    control.check()
+                    s_btn = next((b for selector in send_selectors
+                                  if (b := page.query_selector(selector)) and b.is_visible() and b.is_enabled()), None)
+                    # A lost click acknowledgement is not permission to resubmit.
+                    self._mark_submission(task.id)
+                    request_submitted = True
+                    if s_btn:
+                        s_btn.click(timeout=self._timeout())
+                    else:
                         page.keyboard.press("Enter")
-                        logs.append("已通过回车键 (Enter) 提交任务")
+                    logs.append("已提交一次生成请求；未知结果不会自动重试。")
 
-                    page.wait_for_timeout(3000)
+                    self._pause(page, 3)
 
                     # 8. 智能轮询等待视频渲染结果
                     logs.append("任务已提交，开始轮询等待视频生成渲染结果...")
@@ -394,8 +605,11 @@ class GeminiWebWorker:
                     video_found = False
 
                     while (time.time() - start_wait_t) < self.timeout_sec:
-                        time.sleep(4.0)
+                        self._pause(page, 0.5)
                         elapsed = int(time.time() - start_wait_t)
+
+                        if len(page.query_selector_all('model-response')) <= baseline_response_count:
+                            continue
 
                         # A. 检查额度与频控提示
                         for err_sel in ["gemini-quota-banner", ".quota-exceeded-message", "div[role='alert']", "model-response:last-child"]:
@@ -404,24 +618,26 @@ class GeminiWebWorker:
                                 txt = el.inner_text().lower()
                                 if any(k in txt for k in ["quota exceeded", "reached your limit", "额度已达上限", "今日额度已用完", "try again tomorrow", "limit for today"]):
                                     logs.append("【额度耗尽】捕获到 Gemini 真实可见额度上限提示")
-                                    return {
+                                    outcome.update({
                                         "success": False,
                                         "pid": os.getpid(),
                                         "error_code": "QUOTA_EXHAUSTED",
                                         "error_message": f"Gemini 今日生成额度已达上限 (Profile: {profile.name})，系统已自动换号。",
                                         "output_video_path": None,
                                         "logs": "\n".join(logs)
-                                    }
+                                    })
+                                    return outcome
                                 if any(k in txt for k in ["too many requests", "rate limit", "请求过于频繁", "请稍后再试"]):
                                     logs.append("【频控拦截】捕获到 Gemini 真实可见频控提示")
-                                    return {
+                                    outcome.update({
                                         "success": False,
                                         "pid": os.getpid(),
                                         "error_code": "RATE_LIMITED",
                                         "error_message": f"Gemini 请求频控保护 (Profile: {profile.name})，系统将自动切入冷却并换号。",
                                         "output_video_path": None,
                                         "logs": "\n".join(logs)
-                                    }
+                                    })
+                                    return outcome
 
                         # B. 检查是否有明确的文本拒答（提前阻断，杜绝无休止死等）
                         model_responses = page.query_selector_all("model-response")
@@ -437,29 +653,36 @@ class GeminiWebWorker:
                             is_refusal = any(rw in last_txt.lower() for rw in refusal_keywords)
                             if is_refusal:
                                 logs.append(f"【智能拒答阻断】Gemini 明确返回了文本拒答: {last_txt[:100]}...")
-                                return {
+                                outcome.update({
                                     "success": False,
                                     "pid": os.getpid(),
                                     "error_code": "FEATURE_REFUSED",
                                     "error_message": f"Gemini 网页端当前账号回复了纯文本拒答而非视频内容。建议切换至更成熟的 Google Flow (Veo) 引擎直接生成成片视频。",
                                     "output_video_path": None,
                                     "logs": "\n".join(logs)
-                                }
+                                })
+                                return outcome
 
                         # C. 检查生成的 video 元素
-                        videos = page.query_selector_all('video')
+                        videos = page.query_selector_all('model-response:last-child video')
                         for v in videos:
                             src = v.get_attribute("src")
-                            if src and (src.startswith("http") or src.startswith("blob:")):
-                                logs.append(f"发现生成的视频元素: src={src[:80]}...")
+                            if (src and VidsWorker.media_identity(src) not in baseline_media
+                                    and (src.startswith("https://") or src.startswith("blob:"))):
+                                logs.append("当前回复内出现新的生成视频，准备本地归档。")
                                 logs.append("正在提取完整视频成片...")
                                 try:
                                     b64_data = page.evaluate("""
                                         async (video) => {
                                             try {
-                                                const res = await fetch(video.src, { credentials: 'include' });
+                                                const abort = new AbortController();
+                                                const timer = setTimeout(() => abort.abort(), 15000);
+                                                let res;
+                                                try {res = await fetch(video.src, { credentials: 'include', signal: abort.signal });}
+                                                finally {clearTimeout(timer);}
                                                 if (!res.ok) return null;
                                                 const blob = await res.blob();
+                                                if (blob.size > 64*1024*1024) throw Error('video exceeds 64MiB');
                                                 return new Promise((resolve) => {
                                                     const reader = new FileReader();
                                                     reader.onloadend = () => resolve(reader.result);
@@ -480,25 +703,29 @@ class GeminiWebWorker:
                                             break
                                         else:
                                             logs.append(f"上下文返回内容未就绪 (大小: {len(raw_bytes)} 字节)，继续等待渲染...")
+                                except ExecutionStopped:
+                                    raise
                                 except Exception as e_ev:
                                     logs.append(f"页面内视频流提取提示: {e_ev}")
 
                         # D. 兜底方案：通过页面原生下载按钮
                         if not video_found:
-                            dl_btns = page.query_selector_all("a[download], button[aria-label*='Download video'], button[aria-label*='Download'], button[aria-label*='下载视频']")
+                            dl_btns = page.query_selector_all("model-response:last-child a[download], model-response:last-child button[aria-label*='Download video'], model-response:last-child button[aria-label*='下载视频']")
                             if dl_btns and len(dl_btns) > 0:
                                 dl_btn = dl_btns[-1]
                                 if dl_btn.is_visible():
                                     try:
                                         logs.append("检测到成片下载按钮，尝试直接触发原生文件下载...")
-                                        with page.expect_download(timeout=8000) as dl_info:
-                                            dl_btn.click(force=True)
+                                        with page.expect_download(timeout=self._timeout(8000)) as dl_info:
+                                            dl_btn.click(timeout=self._timeout())
                                         download = dl_info.value
                                         download.save_as(str(output_video_path))
                                         if output_video_path.exists() and output_video_path.stat().st_size > 20000:
                                             logs.append(f"已成功通过下载通道获取成片 ({output_video_path.stat().st_size} 字节)")
                                             video_found = True
                                             break
+                                    except ExecutionStopped:
+                                        raise
                                     except Exception as de:
                                         logs.append(f"原生下载尝试提示: {de}")
 
@@ -509,24 +736,27 @@ class GeminiWebWorker:
                             logs.append(f"等待生成中... 已耗时 {elapsed}s")
 
                     if video_found and output_video_path.exists() and output_video_path.stat().st_size > 1024:
-                        return {
+                        self._validate_video_output(output_video_path, aspect, task.duration_sec, logs)
+                        outcome.update({
                             "success": True,
                             "pid": os.getpid(),
                             "error_code": None,
                             "error_message": None,
                             "output_video_path": str(output_video_path.resolve()),
                             "logs": "\n".join(logs)
-                        }
+                        })
+                        return outcome
                     else:
                         logs.append("超时或未捕获到生成的视频流")
-                        return {
+                        outcome.update({
                             "success": False,
                             "pid": os.getpid(),
-                            "error_code": "VIDEO_GEN_TIMEOUT",
+                            "error_code": "GEMINI_RESULT_UNCONFIRMED",
                             "error_message": f"Gemini 视频生成超时或未能在页面提取到视频元素 (耗时: {self.timeout_sec}s)",
                             "output_video_path": None,
                             "logs": "\n".join(logs)
-                        }
+                        })
+                        return outcome
 
                 finally:
                     browser.close()
@@ -535,18 +765,27 @@ class GeminiWebWorker:
         except Exception as exc:
             logs.append(f"执行异常: {exc}")
             err_str = str(exc)
-            err_code = "EXCEPTION"
-            if any(k in err_str.lower() for k in ["target closed", "browser has been closed", "singleton", "lock", "in use", "already running"]):
+            err_code = getattr(exc, "code", "INVALID_VIDEO_REQUEST" if isinstance(exc, VideoRequestError) else "EXCEPTION")
+            if request_submitted and err_code not in ("USER_CANCELLED", "VIDEO_ASPECT_MISMATCH", "VIDEO_DURATION_MISMATCH", "VIDEO_OUTPUT_INVALID"):
+                err_code = "GEMINI_RESULT_UNCONFIRMED"
+            if not request_submitted and any(k in err_str.lower() for k in ["target closed", "browser has been closed", "singleton", "lock", "in use", "already running"]):
                 err_code = "PROFILE_LOCKED"
                 err_str = f"Chrome Profile 目录被独占占用 ({profile.name})。通常是因为此前点击【登录】打开的 Chrome 窗口尚未关闭。请先关闭 Chrome 窗口再重试。"
-            return {
+            outcome.update({
                 "success": False,
                 "pid": os.getpid(),
                 "error_code": err_code,
                 "error_message": err_str,
                 "output_video_path": None,
                 "logs": "\n".join(logs)
-            }
+            })
+            return outcome
+
+        finally:
+            outcome["submission_possible"] = request_submitted
+            with self._sessions_lock:
+                self._active_sessions.pop(task.id, None)
+            self._execution.control = None
 
     def _synthesize_tts_file(self, text: str, voice: str, out_path: Path) -> bool:
         """本地配音功能已下线"""
@@ -619,14 +858,15 @@ class GeminiWebWorker:
         image_path: Optional[str] = None,
         voice: str = "zh-CN-YunxiNeural",
         aspect_ratio: str = "16:9",
-        timeout_sec: int = 120
+        timeout_sec: int = 120,
+        execution_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Gemini 网页端综合多模态交互工作台：
         - 支持文字对话、多轮交互
         - 支持上传任意本地视频 (.mp4, .mov 等)，让 Gemini 网页端分析画面并生成配音文案与音频
         - 支持 AI 绘画（文生图/图生图），自动提取生成的图片并转存到资产库
-        - 采用稳定 Playwright 驱动，内置自动解除 Profile 锁、 Quilling 键盘输入及 Agree 协议确认
+        - 稳定 Playwright 驱动；不强杀占用的浏览器，不自动接受协议
         """
         worker_name = threading.current_thread().name
         profile_dir = self._resolve_profile_dir(profile)
@@ -641,25 +881,37 @@ class GeminiWebWorker:
         if not profile_dir.exists():
             profile_dir.mkdir(parents=True, exist_ok=True)
 
+        session_id = execution_id or f"chat_{out_id}"
+        control = self.begin_task(session_id, timeout_sec)
         prof_lock = get_profile_lock(profile.name)
-        acquired = prof_lock.acquire(timeout=90)
+        request_submitted = False
+        acquired = False
+        while control.remaining and not acquired:
+            if control.cancel_event.is_set():
+                break
+            acquired = prof_lock.acquire(timeout=min(0.25, control.remaining))
         if not acquired:
+            with self._sessions_lock:
+                self._active_sessions.pop(session_id, None)
+            self._execution.control = None
             return {
                 "success": False,
-                "error_code": "PROFILE_BUSY",
-                "error_message": f"账号 [{profile.name}] 当前正在执行前序对话，请稍候片刻再试。",
+                "error_code": "USER_CANCELLED" if control.cancel_event.is_set() else "PROFILE_BUSY",
+                "error_message": "任务已停止，尚未提交网页请求。" if control.cancel_event.is_set() else f"账号 [{profile.name}] 当前正在执行前序对话，请稍候片刻再试。",
                 "text": "",
                 "audio_url": None,
                 "image_urls": [],
-                "logs": f"[{worker_name}] 获取账号锁超时"
+                "logs": f"[{worker_name}] 等待账号锁时已取消" if control.cancel_event.is_set() else f"[{worker_name}] 获取账号锁超时"
             }
 
         try:
-            # 独占锁保障下，安全排查并清理属于当前账号的孤儿僵尸进程
-            unlock_profile_processes(profile_dir, profile.name)
+            control.check()
 
-            has_video = bool(video_path and Path(video_path).exists())
-            has_image = bool(image_path and Path(image_path).exists())
+            for supplied in (video_path, image_path):
+                if supplied and not Path(supplied).is_file():
+                    raise GeminiVideoSettingsError("参考素材不存在，请求未提交。", "INVALID_IMAGE_REQUEST")
+            has_video = bool(video_path)
+            has_image = bool(image_path)
             if has_video:
                 logs.append(f"已附加本地参考视频: {Path(video_path).name}")
             if has_image:
@@ -675,14 +927,12 @@ class GeminiWebWorker:
                         user_data_dir=str(profile_dir.resolve()),
                         channel="chrome",
                         headless=self.headless,
-                        args=launch_args
+                        args=launch_args, timeout=self._timeout(15000)
                     )
                     with self._sessions_lock:
-                        self._active_sessions[task.id] = {
-                            "browser": browser,
-                            "profile": profile,
-                            "cancelled": False
-                        }
+                        self._active_sessions[session_id].update(browser=browser, profile=profile)
+                except ExecutionStopped:
+                    raise
                 except Exception as launch_exc:
                     lexc_str = str(launch_exc).lower()
                     logs.append(f"拉起浏览器异常: {launch_exc}")
@@ -700,13 +950,17 @@ class GeminiWebWorker:
 
                 try:
                     page = browser.new_page()
+                    page.set_default_timeout(5000)
+                    page.set_default_navigation_timeout(15000)
                     logs.append("正在导航至 Gemini 主工作区 https://gemini.google.com/app ...")
                     try:
-                        page.goto("https://gemini.google.com/app", timeout=35000)
+                        page.goto("https://gemini.google.com/app", timeout=self._timeout(15000))
+                    except ExecutionStopped:
+                        raise
                     except Exception as ge:
                         logs.append(f"页面初次加载提醒: {ge}")
 
-                    page.wait_for_timeout(2500)
+                    self._pause(page, 2.5)
                     self._dismiss_overlays(page, logs)
 
                     # 记录初始回复节点数量，避免读到历史旧对话
@@ -716,8 +970,10 @@ class GeminiWebWorker:
                     input_selector = 'rich-textarea div[contenteditable="true"], div.ql-editor[contenteditable="true"], [contenteditable="true"], textarea'
                     has_input = False
                     try:
-                        page.wait_for_selector(input_selector, timeout=8000)
+                        page.wait_for_selector(input_selector, timeout=self._timeout(8000))
                         has_input = True
+                    except ExecutionStopped:
+                        raise
                     except Exception:
                         has_input = False
 
@@ -735,51 +991,27 @@ class GeminiWebWorker:
 
                     input_el = page.query_selector(input_selector)
 
-                    # 上传多模态文件附件
+                    # Upload all requested files, then verify every attachment before Send.
                     if has_video or has_image:
                         upload_btn = page.query_selector('button[aria-label="Upload & tools"], button[aria-label*="Upload"], button[aria-label*="Add"], button:has-text("+")')
                         if upload_btn:
-                            upload_btn.click(force=True)
-                            page.wait_for_timeout(1000)
-
+                            upload_btn.click(timeout=self._timeout())
+                            self._pause(page, 1)
                         file_input = page.query_selector('input[type="file"]')
-                        if has_video and has_image:
-                            v_res = str(Path(video_path).resolve())
-                            i_res = str(Path(image_path).resolve())
-                            if file_input:
-                                try:
-                                    file_input.set_input_files([v_res, i_res])
-                                    logs.append(f"已同时上传视频与图片素材: {Path(video_path).name}, {Path(image_path).name}")
-                                except Exception:
-                                    file_input.set_input_files(v_res)
-                                    logs.append(f"已上传视频素材: {Path(video_path).name}")
-                                for _ in range(35):
-                                    page.wait_for_timeout(1000)
-                                    chips = page.query_selector_all('uploader-file-preview, [class*="file-preview"]')
-                                    spinners = page.query_selector_all('uploader-file-preview mat-spinner, uploader-file-preview [role="progressbar"], uploader-file-preview .loading')
-                                    if len(chips) > 0 and len(spinners) == 0:
-                                        logs.append("多模态附件上传与预处理完成！")
-                                        break
-                        elif has_video:
-                            v_res = str(Path(video_path).resolve())
-                            if file_input:
-                                file_input.set_input_files(v_res)
-                                logs.append(f"已上传视频素材: {Path(video_path).name}，正在等待 Gemini 网页端解析处理...")
-                                for _ in range(35):
-                                    page.wait_for_timeout(1000)
-                                    chips = page.query_selector_all('uploader-file-preview, [class*="file-preview"]')
-                                    spinners = page.query_selector_all('uploader-file-preview mat-spinner, uploader-file-preview [role="progressbar"], uploader-file-preview .loading')
-                                    if len(chips) > 0 and len(spinners) == 0:
-                                        logs.append("视频上传与预处理完成！")
-                                        break
-                        elif has_image:
-                            i_res = str(Path(image_path).resolve())
-                            img_inputs = page.query_selector_all('input[type="file"][accept*="image"], input[type="file"]')
-                            target_inp = img_inputs[0] if img_inputs else file_input
-                            if target_inp:
-                                target_inp.set_input_files(i_res)
-                                logs.append(f"已上传参考图片素材: {Path(image_path).name}")
-                                page.wait_for_timeout(2000)
+                        if has_image and not has_video:
+                            image_inputs = page.query_selector_all('input[type="file"][accept*="image"]')
+                            file_input = image_inputs[0] if image_inputs else file_input
+                        if not file_input:
+                            raise GeminiVideoSettingsError("参考素材上传入口不存在，请求未提交，不会丢弃素材。")
+                        files = [str(Path(supplied).resolve()) for supplied in (video_path, image_path) if supplied]
+                        try:
+                            file_input.set_input_files(files, timeout=self._timeout(15000))
+                        except ExecutionStopped:
+                            raise
+                        except Exception as exc:
+                            raise GeminiVideoSettingsError("网页未接受全部参考素材，请求未提交，不会丢弃素材。") from exc
+                        self._wait_for_attachments(page, len(files), int(has_image))
+                        logs.append(f"全部 {len(files)} 个附件上传与预处理已确认完成")
 
                     # 整理提示词
                     clean_prompt = prompt.strip() if prompt else ""
@@ -792,8 +1024,8 @@ class GeminiWebWorker:
                     # 填写内容（使用 execCommand insertText 富文本原子插入，支持多行上下文且避免 \n 触发换行过早发送）
                     if clean_prompt and input_el:
                         input_el.scroll_into_view_if_needed()
-                        input_el.click(force=True)
-                        page.wait_for_timeout(200)
+                        input_el.click(timeout=self._timeout())
+                        self._pause(page, 0.2)
                         inserted = page.evaluate("""(txt) => {
                             const el = document.querySelector('rich-textarea div[contenteditable="true"]');
                             if (el) {
@@ -805,8 +1037,9 @@ class GeminiWebWorker:
                         if not inserted:
                             page.keyboard.insert_text(clean_prompt)
                         logs.append(f"已输入提示词 ({len(clean_prompt)} 字): {clean_prompt[:60]}...")
-                        page.wait_for_timeout(500)
+                        self._pause(page, 0.5)
 
+                    previous_count = len(page.query_selector_all("model-response"))
                     # 发送请求
                     send_selectors = [
                         'button[aria-label="Send message"]',
@@ -819,24 +1052,19 @@ class GeminiWebWorker:
                     for s_sel in send_selectors:
                         s_btn = page.query_selector(s_sel)
                         if s_btn and s_btn.is_visible() and s_btn.is_enabled():
-                            s_btn.click(force=True)
+                            request_submitted = True
+                            s_btn.click(timeout=self._timeout())
                             submitted = True
                             logs.append("已点击发送按钮提交多模态请求")
                             break
                     if not submitted:
+                        request_submitted = True
                         page.keyboard.press("Enter")
                         logs.append("已通过 Enter 键提交多模态请求")
 
-                    page.wait_for_timeout(1000)
+                    self._pause(page, 1)
 
-                    # 检测并点击视频协议提示弹窗 (A reminder about creating videos -> Agree)
-                    agree_btns = page.query_selector_all('button:has-text("Agree"), button:has-text("同意"), button:has-text("I agree")')
-                    for ab in agree_btns:
-                        if ab.is_visible():
-                            logs.append("检测到视频创建协议弹窗，自动点击同意授权...")
-                            ab.click(force=True)
-                            page.wait_for_timeout(1000)
-                            break
+                    self._dismiss_overlays(page, logs)
 
                     # 等待模型回复
                     logs.append("等待 Gemini 响应流...")
@@ -847,19 +1075,14 @@ class GeminiWebWorker:
                     stable_count = 0
 
                     while (time.time() - start_t) < max(timeout_sec, 90):
-                        time.sleep(1.0)
-                        # 循环中持续检测视频协议弹窗
-                        agree_btns = page.query_selector_all('button:has-text("Agree"), button:has-text("同意"), button:has-text("I agree")')
-                        for ab in agree_btns:
-                            if ab.is_visible():
-                                logs.append("检测到视频创建协议弹窗，自动点击同意授权...")
-                                ab.click(force=True)
-                                page.wait_for_timeout(500)
-                                break
-
-                        stop_btn = page.query_selector('button[aria-label*="Stop"], button[aria-label*="停止"]')
+                        self._pause(page, 0.5)
+                        self._dismiss_overlays(page, logs)
+                        control.check()
                         model_responses = page.query_selector_all("model-response")
-                        if stop_btn or len(model_responses) > initial_resp_count:
+                        if len(model_responses) <= previous_count:
+                            continue
+                        stop_btn = page.query_selector('button[aria-label*="Stop"], button[aria-label*="停止"]')
+                        if stop_btn or len(model_responses) > previous_count:
                             generation_started = True
 
                         elapsed = int(time.time() - start_t)
@@ -902,13 +1125,11 @@ class GeminiWebWorker:
 
                     # 检查图片产物 (如果是绘画模式或包含生图)
                     if mode == "image" or any(k in clean_prompt for k in ["画", "生图", "image", "插画"]) or (model_responses and model_responses[-1].query_selector("img")):
-                        page.wait_for_timeout(2500)
+                        self._pause(page, 2.5)
                         target_resp = model_responses[-1] if model_responses else page
                         img_elems = target_resp.query_selector_all("img, .generated-image img, .image-container img")
                         for idx, im in enumerate(img_elems):
                             box = im.bounding_box()
-                            if box and (box['width'] < 80 or box['height'] < 80):
-                                continue
                             img_save_path = self.output_dir / f"gemini_img_{out_id}_{idx}.png"
                             saved = False
                             # 优先尝试从原图 Blob / Fetch 提取全分辨率原图数据
@@ -916,8 +1137,10 @@ class GeminiWebWorker:
                                 b64_data = page.evaluate("""
                                     async (img) => {
                                         try {
-                                            const res = await fetch(img.src);
+                                            const res = await fetch(img.currentSrc || img.src, {signal: AbortSignal.timeout(15000)});
+                                            if (!res.ok) return null;
                                             const blob = await res.blob();
+                                            if (blob.size > 32*1024*1024) return null;
                                             return new Promise((resolve) => {
                                                 const reader = new FileReader();
                                                 reader.onloadend = () => resolve(reader.result);
@@ -934,6 +1157,8 @@ class GeminiWebWorker:
                                         output_images.append(f"/media/outputs/{img_save_path.name}")
                                         logs.append(f"Blob原生提取高清原图成功: {img_save_path.name} (大小: {len(raw)} 字节)")
                                         saved = True
+                            except ExecutionStopped:
+                                raise
                             except Exception as ie:
                                 logs.append(f"Blob提取原图异常，切换截图备选: {ie}")
 
@@ -945,8 +1170,13 @@ class GeminiWebWorker:
                                         output_images.append(f"/media/outputs/{img_save_path.name}")
                                         logs.append(f"元素截图提取图片备选成功: {img_save_path.name} (大小: {img_save_path.stat().st_size} 字节)")
                                         saved = True
+                                except ExecutionStopped:
+                                    raise
                                 except Exception as se:
                                     logs.append(f"元素截图提取失败: {se}")
+
+                    if mode == "image" and not output_images:
+                        raise GeminiVideoSettingsError("本次回复没有可验证的新图片，不能把文本算作生图成功。", "IMAGE_RESULT_UNCONFIRMED")
 
                     # 本地配音功能已下线，纯净返回 AI 文本与视觉产物
                     audio_url = None
@@ -965,20 +1195,23 @@ class GeminiWebWorker:
 
                 finally:
                     with self._sessions_lock:
-                        self._active_sessions.pop(task.id, None)
+                        self._active_sessions.pop(session_id, None)
                     try:
                         browser.close()
+                    except ExecutionStopped:
+                        raise
                     except Exception:
                         pass
-                    unlock_profile_processes(profile_dir, profile.name)
-                    logs.append("Chrome 进程已安全回收，锁文件已清理，系统内存已释放。")
+                    logs.append("本次 Chrome 会话已安全退出；未终止其他浏览器或删除锁文件。")
 
         except Exception as exc:
             logs.append(f"执行 Gemini 多模态交互异常: {exc}")
-            unlock_profile_processes(profile_dir, profile.name)
+            code = getattr(exc, "code", "EXCEPTION")
+            if request_submitted and code != "USER_CANCELLED":
+                code = "IMAGE_RESULT_UNCONFIRMED" if mode == "image" else "GEMINI_RESULT_UNCONFIRMED"
             return {
                 "success": False,
-                "error_code": "EXCEPTION",
+                "error_code": code,
                 "error_message": str(exc),
                 "text": "",
                 "audio_url": None,
@@ -986,4 +1219,8 @@ class GeminiWebWorker:
                 "logs": "\n".join(logs)
             }
         finally:
-            prof_lock.release()
+            with self._sessions_lock:
+                self._active_sessions.pop(session_id, None)
+            self._execution.control = None
+            if acquired:
+                prof_lock.release()

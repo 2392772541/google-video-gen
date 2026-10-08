@@ -39,16 +39,24 @@ class WireFormatGuardTests(TestCase):
             class FakeProcess:
                 pid = 123
                 returncode = 7
-                def communicate(self, timeout=None):
-                    return ('{"error":{"class":"WireFormatError"}}', "")
+                def poll(self):
+                    return self.returncode
+                def cleanup(self):
+                    return True
+                def is_alive(self):
+                    return False
+                def wait(self, timeout=None):
+                    return self.returncode
 
             def fake_popen(cmd, **kwargs):
                 commands.append(cmd)
+                kwargs["stdout"].write(b'{"error":{"class":"WireFormatError"}}')
+                kwargs["stdout"].flush()
                 return FakeProcess()
 
             worker = VideoWorker(gflow_dir=root, output_dir=root / "outputs")
             with patch.object(worker, "_ensure_profile_marker"), patch(
-                "video_farm.worker.subprocess.Popen", side_effect=fake_popen
+                "video_farm.worker.VideoWorker._launch_cli", side_effect=fake_popen
             ):
                 result = worker.execute_task(task, profile)
             cmd = commands[0]

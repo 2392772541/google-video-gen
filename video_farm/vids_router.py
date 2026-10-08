@@ -30,6 +30,28 @@ router = APIRouter(prefix="/api/vids", tags=["Google Vids"])
 # -------------------------------------------------------------
 # 智能语义化命名与剪辑资产交付系统
 # -------------------------------------------------------------
+def _runtime_workflow(workflow_id):
+    wf = db.get_vids_workflow(workflow_id)
+    if wf:
+        from . import web
+        active = web.mgr.scheduler.active_tasks if web.mgr.scheduler else {}
+        for shot in wf.get("shots", []):
+            if shot.get("status") == "cancelled" and shot.get("task_id") in active:
+                shot["status"] = "stopping"
+                shot["error_message"] = "停止请求已发送；等待执行线程退出和账号释放"
+    return wf
+
+
+def _require_shot_released(shot):
+    from . import web
+    tid = shot.get("task_id")
+    if tid:
+        web.require_task_released(tid)
+        task = db.get_task(tid)
+        if task and task.status in ("queued", "retry_wait", "dispatching", "running", "verifying"):
+            raise HTTPException(409, "镜头仍在排队或执行，请先停止并等待后台退出")
+
+
 def sanitize_filename_part(s: str, max_len: int = 24) -> str:
     """清理文件名片段，移除非法字符并适度截断"""
     if not s or not isinstance(s, str):
@@ -55,7 +77,7 @@ def build_semantic_shot_filename(shot: Dict[str, Any], wf: Optional[Dict[str, An
     raw_name = shot.get("name") or f"Shot{seq}"
     # 如果名字以 "镜头 01" 开头，清理格式
     name = sanitize_filename_part(raw_name, 16)
-    
+
     mode = shot.get("mode") or "text2video"
     mode_map = {
         "first_last_frame": "首尾帧过渡",
@@ -65,17 +87,17 @@ def build_semantic_shot_filename(shot: Dict[str, Any], wf: Optional[Dict[str, An
     }
     mode_cn = mode_map.get(mode, "视频")
     res = (shot.get("resolution") or (wf.get("resolution") if wf else "1080p") or "1080p").strip()
-    
+
     # 优先提取台词，若无台词则提取提示词前段
     summary_raw = (shot.get("narration") or "").strip()
     if not summary_raw:
         summary_raw = (shot.get("prompt") or "").strip()
     summary = sanitize_filename_part(summary_raw, 22)
-    
+
     parts = [f"{seq:02d}", name, f"Scene{scene}", mode_cn, res]
     if summary:
         parts.append(summary)
-    
+
     filename = "_".join(p for p in parts if p)
     clean_ext = ext.lstrip(".").lower()
     if not filename.lower().endswith(f".{clean_ext}"):
@@ -206,6 +228,12 @@ def get_sample_import_json():
 
 @router.post("/batch_import")
 def batch_import_json(payload: Dict[str, Any] = Body(...)):
+    from . import web
+    with web._scheduler_guard():
+        return _batch_import_json_locked(payload)
+
+
+def _batch_import_json_locked(payload: Dict[str, Any]):
     """
     批量导入 JSON 分镜资产：
     支持各种格式：
@@ -221,12 +249,12 @@ def batch_import_json(payload: Dict[str, Any] = Body(...)):
         ui_engine = str(ui_engine).strip().lower()
         if ui_engine not in ("vids", "flow", "gemini"):
             ui_engine = "vids"
-    
+
     raw_data = payload.get("data") if "data" in payload else payload
-    
+
     target_wf = None
     if target_wf_id and import_mode != "new":
-        target_wf = db.get_vids_workflow(target_wf_id)
+        target_wf = _runtime_workflow(target_wf_id)
         if not target_wf:
             import_mode = "new"
 
@@ -238,82 +266,57 @@ def batch_import_json(payload: Dict[str, Any] = Body(...)):
 
     chosen_engine = ui_engine or normalized.get("engine") or (target_wf.get("engine") if target_wf else None) or "vids"
 
-    if import_mode == "new" or not target_wf:
-        wf = db.create_vids_workflow(
-            title=normalized.get("title") or "批量导入工作流",
-            doc_url=normalized.get("doc_url") or "https://docs.google.com/videos/d/1EXFiC89I2CzVObDNGCXejn-FYySYoaKPjRIG8Fa6nS4/edit",
-            style_prompt=normalized.get("style_prompt") or "",
-            aspect_ratio=normalized.get("aspect_ratio") or "16:9",
-            duration_per_shot=normalized.get("duration_per_shot") or 10,
-            resolution=normalized.get("resolution") or "1080p",
-            model_name=normalized.get("model_name") or "Omni",
-            engine=chosen_engine
-        )
-        wf_id = wf["id"]
-        start_seq = 1
-    else:
-        wf_id = target_wf["id"]
-        updates = {}
-        if chosen_engine:
-            updates["engine"] = chosen_engine
-        if normalized.get("style_prompt"):
-            updates["style_prompt"] = normalized["style_prompt"]
-        if normalized.get("resolution"):
-            updates["resolution"] = normalized["resolution"]
-        if normalized.get("model_name"):
-            updates["model_name"] = normalized["model_name"]
-        if normalized.get("aspect_ratio"):
-            updates["aspect_ratio"] = normalized["aspect_ratio"]
-        if updates:
-            db.update_vids_workflow(wf_id, updates)
-
-        if import_mode == "replace":
-            old_shots = db.list_vids_shots(wf_id)
-            for os_item in old_shots:
-                db.delete_vids_shot(os_item["id"])
-            start_seq = 1
-        else:
-            existing_shots = db.list_vids_shots(wf_id)
-            start_seq = (existing_shots[-1]["sequence"] + 1) if existing_shots else 1
-
-    created_shots = []
-    default_res = normalized.get("resolution") or "1080p"
-    default_model = normalized.get("model_name") or "Omni"
-
-    for idx, shot in enumerate(normalized.get("shots", []), start=start_seq):
-        shot_eng = shot.get("engine") or chosen_engine or "vids"
-        s = db.create_vids_shot(
-            workflow_id=wf_id,
-            name=shot.get("name") or f"镜头 {idx}",
-            prompt=shot.get("prompt", ""),
-            narration=shot.get("narration", ""),
-            duration=shot.get("duration", 10),
-            sequence=idx,
-            scene_index=idx,
-            mode=shot.get("mode", "text2video"),
-            image_url=shot.get("image_url", ""),
-            end_image_url=shot.get("end_image_url", ""),
-            resolution=shot.get("resolution") or default_res,
-            model_name=shot.get("model_name") or default_model,
-            engine=shot_eng
-        )
-        created_shots.append(s)
-
-    full_wf = db.get_vids_workflow(wf_id)
-
     auto_start = payload.get("auto_start")
     if auto_start is None and isinstance(raw_data, dict):
         auto_start = raw_data.get("auto_start")
     if auto_start is None:
         auto_start = True
+    if auto_start:
+        preflight_wf = dict(target_wf or {}, **normalized)
+        preflight_wf["engine"] = chosen_engine
+        for imported_shot in normalized.get("shots", []):
+            _prepare_shot_task(imported_shot, preflight_wf)
+    if import_mode == "replace" and target_wf:
+        for existing in target_wf.get("shots", []):
+            _require_shot_released(existing)
 
-    task_ids = []
-    if auto_start and created_shots:
-        for s in created_shots:
-            tid = _enqueue_shot_task(s, full_wf)
-            task_ids.append(tid)
-        db.update_vids_workflow(wf_id, {"status": "generating"})
-        full_wf = db.get_vids_workflow(wf_id)
+    if import_mode == "new" or not target_wf:
+        import_mode = "new"
+        wf = {
+            "id": f"vw_{uuid.uuid4().hex[:10]}", "title": normalized.get("title") or "批量导入工作流",
+            "doc_url": normalized.get("doc_url") or "",
+            "style_prompt": normalized.get("style_prompt") or "", "aspect_ratio": normalized.get("aspect_ratio") or "16:9",
+            "duration_per_shot": normalized.get("duration_per_shot") or 10, "resolution": normalized.get("resolution") or "1080p",
+            "model_name": normalized.get("model_name") or "Omni", "engine": chosen_engine,
+        }
+        expected_bindings = {}
+        start_seq = 1
+    else:
+        wf = dict(target_wf)
+        wf["engine"] = chosen_engine
+        for field in ("style_prompt", "resolution", "model_name", "aspect_ratio"):
+            if normalized.get(field):
+                wf[field] = normalized[field]
+        expected_bindings = {s['id']: s.get('task_id') or '' for s in target_wf.get('shots', [])}
+        start_seq = 1 if import_mode == "replace" else max((s['sequence'] for s in target_wf.get('shots', [])), default=0) + 1
+    wf_id = wf["id"]
+    created_shots = []
+    for index, shot in enumerate(normalized.get("shots", []), start=start_seq):
+        created_shots.append({
+            "id": f"vs_{uuid.uuid4().hex[:10]}", "workflow_id": wf_id,
+            "name": shot.get("name") or f"镜头 {index}", "prompt": shot.get("prompt", ""),
+            "narration": shot.get("narration", ""), "duration": shot.get("duration", 10),
+            "mode": shot.get("mode", "text2video"), "image_url": shot.get("image_url", ""),
+            "end_image_url": shot.get("end_image_url", ""), "resolution": shot.get("resolution") or wf["resolution"],
+            "model_name": shot.get("model_name") or wf["model_name"], "engine": shot.get("engine") or chosen_engine,
+        })
+    entries = [(s['id'], _prepare_shot_task(s, wf), '') for s in created_shots] if auto_start else []
+    try:
+        db.import_vids_batch(wf, created_shots, entries, import_mode, expected_bindings)
+    except db.TaskOperationConflict as exc:
+        raise HTTPException(409, str(exc)) from exc
+    task_ids = [task.id for _, task, _ in entries]
+    full_wf = _runtime_workflow(wf_id)
 
     return {
         "success": True,
@@ -329,16 +332,17 @@ def batch_import_json(payload: Dict[str, Any] = Body(...)):
 @router.get("/workflows/{workflow_id}/export_json")
 def export_workflow_json(workflow_id: str):
     """导出工作流为完整、可重用的规范 JSON"""
-    wf = db.get_vids_workflow(workflow_id)
+    wf = _runtime_workflow(workflow_id)
     if not wf:
         raise HTTPException(status_code=404, detail="工作流不存在")
-    
+
     clean_shots = []
     for s in wf.get("shots", []):
         clean_shots.append({
             "name": s.get("name"),
             "sequence": s.get("sequence"),
             "scene_index": s.get("scene_index"),
+            "engine": s.get("engine", wf.get("engine", "vids")),
             "mode": s.get("mode", "text2video"),
             "prompt": s.get("prompt", ""),
             "narration": s.get("narration", ""),
@@ -350,6 +354,7 @@ def export_workflow_json(workflow_id: str):
         })
 
     export_data = {
+        "engine": wf.get("engine", "vids"),
         "title": wf.get("title"),
         "doc_url": wf.get("doc_url", ""),
         "style_prompt": wf.get("style_prompt", ""),
@@ -388,7 +393,7 @@ async def upload_asset(file: UploadFile = File(...)):
         raise HTTPException(400, "上传文件不是有效图片")
     finally:
         await file.close()
-    
+
     return {
         "success": True,
         "filename": file_id,
@@ -443,40 +448,45 @@ def create_workflow(req: CreateWorkflowRequest):
                 model_name=shot.get("model_name", req.model_name),
                 engine=shot.get("engine") or wf_engine
             )
-    return db.get_vids_workflow(wf["id"])
+    return _runtime_workflow(wf["id"])
 
 
 @router.get("/workflows/{workflow_id}")
 def get_workflow(workflow_id: str):
-    wf = db.get_vids_workflow(workflow_id)
+    wf = _runtime_workflow(workflow_id)
     if not wf:
         raise HTTPException(status_code=404, detail="工作流不存在")
+
     return wf
 
 
 @router.put("/workflows/{workflow_id}")
 def update_workflow(workflow_id: str, req: UpdateWorkflowRequest):
-    wf = db.get_vids_workflow(workflow_id)
+    wf = _runtime_workflow(workflow_id)
     if not wf:
         raise HTTPException(status_code=404, detail="工作流不存在")
     updates = {k: v for k, v in req.dict().items() if v is not None}
     if updates:
         db.update_vids_workflow(workflow_id, updates)
-    return db.get_vids_workflow(workflow_id)
+    return _runtime_workflow(workflow_id)
 
 
 @router.delete("/workflows/{workflow_id}")
 def delete_workflow(workflow_id: str):
-    wf = db.get_vids_workflow(workflow_id)
+    wf = _runtime_workflow(workflow_id)
     if not wf:
         raise HTTPException(status_code=404, detail="工作流不存在")
-    db.delete_vids_workflow(workflow_id)
+    from . import web
+    with web._scheduler_guard():
+        for shot in wf.get("shots", []):
+            _require_shot_released(shot)
+        db.delete_vids_workflow(workflow_id)
     return {"success": True, "deleted_id": workflow_id}
 
 
 @router.post("/workflows/{workflow_id}/shots")
 def add_shot(workflow_id: str, req: CreateShotRequest):
-    wf = db.get_vids_workflow(workflow_id)
+    wf = _runtime_workflow(workflow_id)
     if not wf:
         raise HTTPException(status_code=404, detail="工作流不存在")
     shots = db.list_vids_shots(workflow_id)
@@ -516,23 +526,26 @@ def delete_shot(shot_id: str):
     shot = db.get_vids_shot(shot_id)
     if not shot:
         raise HTTPException(status_code=404, detail="分镜不存在")
-    db.delete_vids_shot(shot_id)
+    from . import web
+    with web._scheduler_guard():
+        _require_shot_released(shot)
+        db.delete_vids_shot(shot_id)
     return {"success": True, "deleted_shot_id": shot_id}
 
 
 @router.post("/workflows/{workflow_id}/reorder")
 def reorder_shots(workflow_id: str, req: ReorderShotsRequest):
-    wf = db.get_vids_workflow(workflow_id)
+    wf = _runtime_workflow(workflow_id)
     if not wf:
         raise HTTPException(status_code=404, detail="工作流不存在")
     for idx, sid in enumerate(req.shot_ids, start=1):
         db.update_vids_shot(sid, {"sequence": idx, "scene_index": idx})
-    return db.get_vids_workflow(workflow_id)
+    return _runtime_workflow(workflow_id)
 
 
 @router.get("/workflows/{workflow_id}/next_pending")
 def get_next_pending_shot(workflow_id: str):
-    wf = db.get_vids_workflow(workflow_id)
+    wf = _runtime_workflow(workflow_id)
     if not wf:
         raise HTTPException(status_code=404, detail="工作流不存在")
     shots = wf.get("shots", [])
@@ -612,90 +625,67 @@ def _resolve_local_image_path(p_str: str) -> str:
     return unquoted or p_str
 
 
-def _enqueue_shot_task(shot: Dict[str, Any], wf: Dict[str, Any]) -> str:
-    """将分镜转换为底层的真实 Task 并写入 tasks 数据库进入队列调度"""
-    raw_start = shot.get("image_url") or ""
-    raw_end = shot.get("end_image_url") or ""
-    start_path = _resolve_local_image_path(raw_start)
-    end_path = _resolve_local_image_path(raw_end)
-    
+def _prepare_shot_task(shot: Dict[str, Any], wf: Dict[str, Any]) -> Task:
+    """Read-only preflight, shared by single, batch and JSON auto-start."""
+    from .video_contract import validate_video_request, VideoRequestError
+    from . import web
+    if shot.get("task_id"):
+        web.require_task_released(shot["task_id"])
+    old = db.get_task(shot["task_id"]) if shot.get("task_id") else None
+    if old and old.status in ("queued", "retry_wait", "dispatching", "running", "verifying"):
+        raise HTTPException(409, "该镜头已有排队或运行中的任务，请先停止，不会重复提交")
     mode = shot.get("mode") or "text2video"
-    is_first_last = (mode == "first_last_frame") or (bool(start_path) and bool(end_path))
-    
-    shot_model = (shot.get("model_name") or wf.get("model_name") or "Omni").strip()
-    shot_res = (shot.get("resolution") or wf.get("resolution") or "1080p").strip()
-    
     engine = (shot.get("engine") or wf.get("engine") or "vids").strip().lower()
     if engine not in ("vids", "flow", "gemini"):
-        engine = "vids"
-
-    adapter_note = ""
-    if is_first_last and engine == "vids":
-        # Google Vids 原生页面仅支持单图 Animate 微动，不支持尾帧输入。
-        # 为确保用户的首尾关键帧过渡能够真正生效，自动通过 Generation Adapter 调度至 Google Flow (Veo 3.1)
-        engine = "flow"
-        final_model = "veo-lite"
-        adapter_note = " [首尾双帧自适应调度至 Flow (Veo 3.1)]"
-    elif engine == "vids":
-        # Google Vids 原生模型与画质规格: Omni 多模态引擎，支持 1080p (超清) 与 720p (标清)
-        final_model = f"Omni ({shot_res})" if shot_res in ("1080p", "720p") else "Omni (1080p)"
-    elif engine == "flow":
-        final_model = shot_model if shot_model and shot_model != "Omni" else "veo-lite"
-    else:
-        final_model = shot_model or "gemini-video"
-
-    duration_sec = shot.get("duration") or wf.get("duration") or 10
-
-    aspect_ratio = wf.get("aspect_ratio") or "16:9"
-    if aspect_ratio not in ("16:9", "9:16"):
-        aspect_ratio = "9:16" if ("9:16" in aspect_ratio or "竖" in aspect_ratio) else "16:9"
-
-    task_id = f"task_{uuid.uuid4().hex[:10]}"
-    
+        raise HTTPException(422, "不支持的生成平台")
+    if mode == "extend":
+        raise HTTPException(422, "视频延续尚未接入此分镜适配器，请勿按文生视频提交")
+    start = _resolve_local_image_path(shot.get("image_url") or "")
+    end = _resolve_local_image_path(shot.get("end_image_url") or "")
+    if mode in ("image2video", "first_last_frame") and not start:
+        raise HTTPException(422, "图片生成模式必须提供首帧/参考图片")
+    resolution = (shot.get("resolution") or wf.get("resolution") or "1080p").strip()
+    model = (shot.get("model_name") or wf.get("model_name") or "Omni").strip()
+    if engine == "vids":
+        if resolution not in ("720p", "1080p"):
+            raise HTTPException(422, "Google Vids 画质仅支持 720p 或 1080p")
+        model = f"Omni ({resolution})"
+    elif engine == "flow" and model == "Omni":
+        model = "veo-lite"
     task = Task(
-        id=task_id,
-        prompt=shot.get("prompt", "").strip(),
-        start_image_path=start_path if (is_first_last or mode in ("image2video", "extend") or start_path) else "",
-        end_image_path=end_path if is_first_last else "",
-        engine=engine,
-        task_type="video",
-        model=final_model,
-        project_id=wf.get("doc_url", ""),
-        aspect_ratio=aspect_ratio,
-        duration_sec=duration_sec,
-        status="queued",
-        priority=10,
-        require_clean_watermark=False,
-        assigned_profile_id=None  # 由账号池空闲可用账号动态调度抢占
+        id=f"task_{uuid.uuid4().hex[:10]}", prompt=shot.get("prompt", "").strip(),
+        start_image_path=start, end_image_path=end, engine=engine, task_type="video",
+        model=model, project_id=(wf.get("doc_url") or "") if engine == "vids" else "",
+        aspect_ratio=wf.get("aspect_ratio") or "16:9",
+        duration_sec=shot.get("duration") or wf.get("duration_per_shot") or 10,
+        status="queued", priority=10, assigned_profile_id=None,
     )
-    
-    db.add_task(task)
-    engine_name_cn = "Google Vids 原生工作流" if engine == "vids" else ("Google Flow 首尾帧模式" if engine == "flow" else "Gemini")
-    db.log_task_event(
-        task_id,
-        "TASK_CREATED_VIDS",
-        f"分镜任务下发 [{engine_name_cn}{adapter_note}]: [{shot.get('name')}] (所属工程: {wf.get('title')}), 模型: {final_model}, 画质: {shot_res}, 时长: {duration_sec}s"
-    )
-    
-    old_task_id = shot.get("task_id")
-    if old_task_id:
-        try:
-            old_task = db.get_task(old_task_id)
-            if old_task and old_task.status in ("queued", "running", "retry_wait"):
-                db.update_task_status(old_task_id, status="cancelled", error_message="用户重新下发分镜生成，取消旧排队任务")
-        except Exception:
-            pass
+    try:
+        validate_video_request(task, require_pair=mode == "first_last_frame")
+    except (VideoRequestError, ValueError) as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return task
 
-    db.update_vids_shot(shot["id"], {
-        "task_id": task_id,
-        "status": "running",
-        "progress": 5,
-        "video_url": "",
-        "local_video_path": "",
-        "error_message": ""
-    })
-    
-    return task_id
+
+def _enqueue_shot_tasks_locked(shots: List[Dict[str, Any]], wf: Dict[str, Any]) -> List[str]:
+    entries = [(s["id"], _prepare_shot_task(s, wf), s.get("task_id") or "") for s in shots]
+    try:
+        db.enqueue_vids_shot_tasks(wf["id"], entries)
+    except db.TaskOperationConflict as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return [task.id for _, task, _ in entries]
+
+
+def _enqueue_shot_task(shot: Dict[str, Any], wf: Dict[str, Any]) -> str:
+    from . import web
+    with web._scheduler_guard():
+        fresh_shot = db.get_vids_shot(shot["id"])
+        if not fresh_shot:
+            raise HTTPException(404, "分镜已删除")
+        fresh_wf = _runtime_workflow(fresh_shot["workflow_id"])
+        if not fresh_wf:
+            raise HTTPException(404, "工作流已删除")
+        return _enqueue_shot_tasks_locked([fresh_shot], fresh_wf)[0]
 
 
 @router.post("/shots/{shot_id}/generate")
@@ -704,10 +694,10 @@ def generate_single_shot(shot_id: str):
     shot = db.get_vids_shot(shot_id)
     if not shot:
         raise HTTPException(status_code=404, detail="分镜不存在")
-    wf = db.get_vids_workflow(shot["workflow_id"])
+    wf = _runtime_workflow(shot["workflow_id"])
     if not wf:
         raise HTTPException(status_code=404, detail="所属工作流不存在")
-    
+
     task_id = _enqueue_shot_task(shot, wf)
     updated_shot = db.get_vids_shot(shot_id)
     return {
@@ -721,24 +711,19 @@ def generate_single_shot(shot_id: str):
 @router.post("/workflows/{workflow_id}/generate_all")
 def generate_all_shots(workflow_id: str):
     """整个工作流连续批量排队生成"""
-    wf = db.get_vids_workflow(workflow_id)
-    if not wf:
-        raise HTTPException(status_code=404, detail="工作流不存在")
-    
-    shots = wf.get("shots", [])
-    target_shots = [s for s in shots if s.get("status") in ("pending", "failed")]
-    if not target_shots:
-        target_shots = [s for s in shots if s.get("status") != "completed"]
-    if not target_shots:
-        raise HTTPException(status_code=400, detail="没有待生成的镜头。如需全量重新生成，请先点击【重置全部状态】。")
-        
-    task_ids = []
-    for s in target_shots:
-        tid = _enqueue_shot_task(s, wf)
-        task_ids.append(tid)
-        
-    db.update_vids_workflow(workflow_id, {"status": "generating"})
-    updated_wf = db.get_vids_workflow(workflow_id)
+    from . import web
+    with web._scheduler_guard():
+        wf = _runtime_workflow(workflow_id)
+        if not wf:
+            raise HTTPException(404, "工作流不存在")
+        shots = wf.get("shots", [])
+        target_shots = [s for s in shots if s.get("status") in ("pending", "failed")]
+        if not target_shots:
+            target_shots = [s for s in shots if s.get("status") != "completed"]
+        if not target_shots:
+            raise HTTPException(400, "没有待生成的镜头。如需全量重新生成，请先点击【重置全部状态】。")
+        task_ids = _enqueue_shot_tasks_locked(target_shots, wf)
+    updated_wf = _runtime_workflow(workflow_id)
     return {
         "success": True,
         "queued_count": len(task_ids),
@@ -751,34 +736,20 @@ def generate_all_shots(workflow_id: str):
 @router.post("/workflows/{workflow_id}/reset_status")
 def reset_workflow_shots_status(workflow_id: str):
     """重置工作流全部镜头状态为待生成"""
-    wf = db.get_vids_workflow(workflow_id)
-    if not wf:
-        raise HTTPException(status_code=404, detail="工作流不存在")
-    
-    shots = db.list_vids_shots(workflow_id)
-    for s in shots:
-        old_tid = s.get("task_id")
-        if old_tid:
-            try:
-                old_task = db.get_task(old_tid)
-                if old_task and old_task.status in ("queued", "running", "retry_wait"):
-                    db.update_task_status(old_tid, status="cancelled", error_message="用户已重置工作流分镜状态")
-            except Exception:
-                pass
-        # 保留已有成片记录，防止用户点击重置后历史成片丢失
-        existing_video_url = s.get("video_url") or ""
-        existing_local_path = s.get("local_video_path") or ""
-        db.update_vids_shot(s["id"], {
-            "status": "pending",
-            "progress": 0,
-            "error_message": "",
-            "video_url": existing_video_url,
-            "local_video_path": existing_local_path,
-            "task_id": ""
-        })
-        
-    db.update_vids_workflow(workflow_id, {"status": "draft"})
-    updated_wf = db.get_vids_workflow(workflow_id)
+    from . import web
+    with web._scheduler_guard():
+        wf = _runtime_workflow(workflow_id)
+        if not wf:
+            raise HTTPException(404, "工作流不存在")
+        shots = wf.get("shots", [])
+        for shot in shots:
+            _require_shot_released(shot)
+        try:
+            db.reset_vids_workflow_shots(workflow_id,
+                {s["id"]: s.get("task_id") or "" for s in shots})
+        except db.TaskOperationConflict as exc:
+            raise HTTPException(409, str(exc)) from exc
+    updated_wf = _runtime_workflow(workflow_id)
     return {
         "success": True,
         "workflow": updated_wf,
@@ -792,7 +763,7 @@ def get_shot_semantic_name(shot_id: str):
     shot = db.get_vids_shot(shot_id)
     if not shot:
         raise HTTPException(status_code=404, detail="分镜不存在")
-    wf = db.get_vids_workflow(shot["workflow_id"]) if shot.get("workflow_id") else None
+    wf = _runtime_workflow(shot["workflow_id"]) if shot.get("workflow_id") else None
     filename = build_semantic_shot_filename(shot, wf)
     return {
         "shot_id": shot_id,
@@ -812,8 +783,8 @@ def download_shot_video(shot_id: str):
     shot = db.get_vids_shot(shot_id)
     if not shot:
         raise HTTPException(status_code=404, detail="分镜不存在")
-    wf = db.get_vids_workflow(shot["workflow_id"]) if shot.get("workflow_id") else None
-    
+    wf = _runtime_workflow(shot["workflow_id"]) if shot.get("workflow_id") else None
+
     video_path = None
     local_p = shot.get("local_video_path")
     if local_p and Path(local_p).exists() and Path(local_p).is_file():
@@ -829,14 +800,14 @@ def download_shot_video(shot_id: str):
             cand = Path(v_url.replace("/media/file?path=", ""))
             if cand.exists() and cand.is_file():
                 video_path = cand
-    
+
     if not video_path or not video_path.exists():
         raise HTTPException(status_code=404, detail="成片视频文件尚未生成或不存在")
-        
+
     video_path = local_file(str(video_path))
     filename = build_semantic_shot_filename(shot, wf, ext=video_path.suffix or ".mp4")
     quoted_filename = urllib.parse.quote(filename)
-    
+
     headers = {
         'Content-Disposition': f'attachment; filename="{quoted_filename}"; filename*=UTF-8\'\'{quoted_filename}',
         "X-Semantic-Filename": quoted_filename,
@@ -853,10 +824,10 @@ def download_shot_video(shot_id: str):
 @router.get("/workflows/{workflow_id}/package_zip")
 def package_workflow_zip(workflow_id: str):
     """一键打包当前工程全部分镜成片（规范语义命名）并附带剪辑分镜与台词对齐清单"""
-    wf = db.get_vids_workflow(workflow_id)
+    wf = _runtime_workflow(workflow_id)
     if not wf:
         raise HTTPException(status_code=404, detail="工作流不存在")
-    
+
     shots = wf.get("shots") or []
     completed_shots = []
     for s in shots:
@@ -873,10 +844,10 @@ def package_workflow_zip(workflow_id: str):
                     v_path = cand
         if v_path and v_path.exists():
             completed_shots.append((s, v_path))
-            
+
     if not completed_shots:
         raise HTTPException(status_code=400, detail="当前工程暂无可打包的已完成视频成片")
-        
+
     export_dir = DATA_ROOT / "exports"
     export_dir.mkdir(parents=True, exist_ok=True)
     fd, temp_name = tempfile.mkstemp(prefix="vids_package_", suffix=".zip", dir=export_dir)
@@ -900,11 +871,11 @@ def package_workflow_zip(workflow_id: str):
                 "3. 剪映用户建议：将所有视频拖入视频轨，将下方台词复制到剪映「文本朗读」或直接作为字幕轨道对齐。\n",
                 "--------------------------------------------------\n"
             ]
-            
+
             csv_rows = [
                 ["序号", "分镜ID", "分镜名称", "场景号", "规范文件名", "时长(秒)", "运镜模式", "画质", "旁白台词", "画面提示词"]
             ]
-            
+
             for shot, v_path in completed_shots:
                 fn = build_semantic_shot_filename(shot, wf, ext=v_path.suffix or ".mp4")
                 zf.write(str(v_path), arcname=f"videos/{fn}")
@@ -930,13 +901,13 @@ def package_workflow_zip(workflow_id: str):
 
             txt_content = "\n".join(manifest_lines)
             zf.writestr("00_剪辑分镜与台词对齐表.txt", txt_content.encode("utf-8-sig"))
-            
+
             csv_buffer = io.StringIO()
             csv_writer = csv.writer(csv_buffer)
             # Spreadsheet text must not execute formula prefixes when opened in Excel.
             csv_writer.writerows([["'"+v if isinstance(v,str) and v.lstrip().startswith(("=","+","-","@")) else v for v in row] for row in csv_rows])
             zf.writestr("00_剪辑分镜与台词对齐表.csv", csv_buffer.getvalue().encode("utf-8-sig"))
-            
+
             clean_wf_backup = {k: v for k, v in wf.items() if k != "shots"}
             clean_wf_backup["shots"] = [
                 {k: v for k, v in s.items()} for s in shots
@@ -950,7 +921,7 @@ def package_workflow_zip(workflow_id: str):
     date_str = datetime.now().strftime("%Y%m%d_%H%M%S")
     zip_name = f"{safe_wf_title}_剪辑素材包_{date_str}.zip"
     quoted_zip_name = urllib.parse.quote(zip_name)
-    
+
     headers = {
         'Content-Disposition': f'attachment; filename="{quoted_zip_name}"; filename*=UTF-8\'\'{quoted_zip_name}',
         "Access-Control-Expose-Headers": "Content-Disposition"
@@ -962,7 +933,7 @@ def package_workflow_zip(workflow_id: str):
 @router.put("/workflows/{workflow_id}/rename")
 def rename_workflow(workflow_id: str, payload: Dict[str, Any] = Body(...)):
     """重命名工作流工程标题"""
-    wf = db.get_vids_workflow(workflow_id)
+    wf = _runtime_workflow(workflow_id)
     if not wf:
         raise HTTPException(status_code=404, detail="工作流不存在")
     new_title = (payload.get("title") or "").strip()
@@ -1012,43 +983,37 @@ def get_workflows_stats():
 
 @router.post("/workflows/{workflow_id}/stop_all")
 def stop_workflow_generation(workflow_id: str):
-    """强行中止当前工作流中所有正在运行或排队的分镜任务"""
-    wf = db.get_vids_workflow(workflow_id)
+    wf = _runtime_workflow(workflow_id)
     if not wf:
-        raise HTTPException(status_code=404, detail="工作流不存在")
-    shots = db.list_vids_shots(workflow_id)
-    stopped = 0
+        raise HTTPException(404, "工作流不存在")
     from . import web
-    for s in shots:
-        tid = s.get("task_id")
-        if tid:
-            try:
-                if web.mgr and web.mgr.scheduler:
-                    web.mgr.scheduler.cancel_task(tid)
-                db.transition_task(tid, "stop", web.DB_PATH)
-                stopped += 1
-            except Exception:
-                pass
-        if s.get("status") in ("running", "queued"):
-            db.update_vids_shot(s["id"], {"status": "pending", "progress": 0, "error_message": "用户手动停止生成"})
-    db.update_vids_workflow(workflow_id, {"status": "draft"})
-    return {"success": True, "stopped_count": stopped, "message": f"已成功停止 {stopped} 个镜头的生成任务并释放资源"}
+    stopped, errors = [], []
+    for shot in wf.get("shots", []):
+        tid = shot.get("task_id")
+        if not tid:
+            continue
+        task = db.get_task(tid)
+        if task and task.status in ("completed", "failed"):
+            continue
+        try:
+            web.stop_task_endpoint(tid)
+            stopped.append(tid)
+        except HTTPException as exc:
+            errors.append({"task_id": tid, "error": str(exc.detail)})
+    if not errors:
+        db.update_vids_workflow(workflow_id, {"status": "draft"})
+    return {"success": not errors, "stopped_count": len(stopped), "errors": errors,
+            "message": f"已发送{len(stopped)}个镜头的停止请求；后台退出后才释放资源" + (f"；{len(errors)}个失败，请查看错误" if errors else "")}
 
 
 @router.post("/shots/{shot_id}/cancel")
 def cancel_shot_generation(shot_id: str):
-    """强行中止单个分镜的生成任务"""
     shot = db.get_vids_shot(shot_id)
     if not shot:
-        raise HTTPException(status_code=404, detail="分镜不存在")
-    tid = shot.get("task_id")
+        raise HTTPException(404, "分镜不存在")
     from . import web
-    if tid:
-        try:
-            if web.mgr and web.mgr.scheduler:
-                web.mgr.scheduler.cancel_task(tid)
-            db.transition_task(tid, "stop", web.DB_PATH)
-        except Exception:
-            pass
-    db.update_vids_shot(shot_id, {"status": "pending", "progress": 0, "error_message": "用户手动停止生成"})
-    return {"success": True, "message": f"分镜 [{shot.get('name')}] 生成任务已成功停止并释放资源"}
+    if shot.get("task_id"):
+        web.stop_task_endpoint(shot["task_id"])
+    else:
+        db.update_vids_shot(shot_id, {"status": "cancelled", "progress": 0})
+    return {"success": True, "message": "停止请求已发送；后台退出后可重新生成。平台已提交的生成可能仍在继续，请先核对原工程结果。"}

@@ -16,6 +16,7 @@ document.addEventListener("DOMContentLoaded", () => {
     endFile: null,
     endImagePath: null,
     imageRefFile: null,
+    imageOptions: null,
     currentTaskForQA: null,
     currentTaskForVideo: null,
     currentTaskForLog: null,
@@ -100,6 +101,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // 图像工坊 DOM 映射
     inputImagePrompt: document.getElementById("input-image-prompt"),
     selectImageModel: document.getElementById("select-image-model"),
+    selectImageEngine: document.getElementById("select-image-engine"),
     selectImageAspect: document.getElementById("select-image-aspect"),
     selectImageProfile: document.getElementById("select-image-profile"),
     dropImageRef: document.getElementById("drop-image-ref"),
@@ -225,6 +227,19 @@ document.addEventListener("DOMContentLoaded", () => {
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;")
       .replace(/'/g, "&#039;");
+  }
+
+  function getImageTaskLabel(task) {
+    const engine = task.engine || "flow";
+    const model = task.model || "";
+    const labels = {
+      "nano-pro": "Nano Banana Pro", "nano2-lite": "Nano Banana 2 Lite", "nano2.1": "Nano Banana 2.1",
+      "nano2": "Nano Banana 2（历史任务）", "imagen4": "Imagen（历史任务）",
+      "gemini-flash": "3.8 Flash", "gemini-flash-lite": "3.5 Flash-Lite", "gemini-pro": "3.1 Pro", "gemini-thinking": "扩展思考"
+    };
+    const configured = state.imageOptions?.models?.[engine]?.find(entry => entry.id === model)?.label;
+    const platform = engine === "gemini" ? "Gemini 网页" : (engine === "flow" ? "Google Flow" : engine);
+    return platform + " · " + (configured || labels[model] || model || "未记录型号");
   }
 
   // 统一刷新按钮动效与防抖辅助函数
@@ -1011,10 +1026,11 @@ document.addEventListener("DOMContentLoaded", () => {
         const snapshot = JSON.stringify(tasks);
         if (force || snapshot !== lastTasksSnapshot) {
           state.tasks = tasks;
-          lastTasksSnapshot = snapshot;
           updateTaskFilterCounts();
           if (document.getElementById("view-tasks")?.classList.contains("active")) renderTasks();
           if (document.getElementById("view-images")?.classList.contains("active")) renderImageGallery();
+          // Commit only after rendering succeeds, so failed updates retry unchanged data.
+          lastTasksSnapshot = snapshot;
         }
         if (requestedPage === 0) window.VideoWorkbench?.update(tasks);
         document.querySelectorAll(".task-page-info").forEach(e => {
@@ -1032,8 +1048,12 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   document.querySelectorAll(".btn-task-prev, .btn-task-next").forEach(btn => {
     btn.addEventListener("click", async () => {
-      if (tasksRequest) return;
-      taskPage += btn.classList.contains("btn-task-next") ? 1 : -1;
+      // Queue navigation behind polling instead of silently discarding the click.
+      if (tasksRequest) await tasksRequest;
+      const maxPage = Math.max(0, Math.ceil(taskTotal / taskPageSize) - 1);
+      const nextPage = Math.max(0, Math.min(maxPage, taskPage + (btn.classList.contains("btn-task-next") ? 1 : -1)));
+      if (nextPage === taskPage) return;
+      taskPage = nextPage;
       state.selectedTaskIds.clear();
       updateBatchActionBar();
       await fetchTasks(true);
@@ -1066,7 +1086,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function renderTasks() {
     const container = el.tasksContainer;
-    container.innerHTML = "";
 
     let filtered = state.tasks;
     if (state.currentFilter === "video") {
@@ -1090,6 +1109,8 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
+    // Build off-DOM; keep the previous interactive list if any card fails.
+    const fragment = document.createDocumentFragment();
     filtered.forEach(t => {
       const isSelected = state.selectedTaskIds.has(t.id);
       const card = document.createElement("div");
@@ -1109,7 +1130,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const vLabel = vName.includes("Xiaoxiao") ? "晓晓 (温柔女声)" : (vName.includes("Yunjian") ? "云健 (影视男声)" : (vName.includes("Yunyang") ? "云扬 (播音男声)" : (vName.includes("Xiaoyi") ? "晓伊 (生动女声)" : (vName.includes("gemini") ? "Gemini 网页原生" : "云希 (阳光男声)"))));
         engineBadge = `<span class="badge-engine-gemini" style="background:rgba(217,70,239,0.2); color:#f0abfc; border:1px solid rgba(217,70,239,0.4); margin-right:6px;">🎙️ 配音 · ${escapeHtml(vLabel)}</span>`;
       } else if (isImageTask) {
-        const mLabel = t.model === "nano-pro" ? "Nano Banana Pro" : (t.model === "nano2" ? "Nano Banana 2" : (t.model === "imagen4" ? "Imagen（imagen4 路由）" : (t.model || "Nano Pro")));
+        const mLabel = getImageTaskLabel(t);
         engineBadge = `<span class="badge-task-image" style="margin-right:6px;">🖼️ ${escapeHtml(mLabel)}</span>`;
       } else if (t.engine === "gemini") {
         const mLabel = t.model && t.model !== "auto" ? ` · ${t.model}` : "";
@@ -1226,7 +1247,11 @@ document.addEventListener("DOMContentLoaded", () => {
         }
       }
 
-      if (["WIRE_FORMAT_MISMATCH", "UNSUPPORTED_FEATURE"].includes(t.error_code)) {
+      if (t.error_code === "FLOW_RESPONSE_UNREADABLE") {
+        errorNoticeHtml = `<div class="audit-task-warning">${escapeHtml(t.error_message || "Flow 返回记录无法解析；可能已生成并扣额度。请先核对原 Flow 项目，不要重复提交。")}</div>`;
+      } else if (t.error_code === "WIRE_FORMAT_MISMATCH") {
+        errorNoticeHtml = `<div class="audit-task-warning">请求或响应格式校验失败：已停止重试。请先核对原 Flow 项目与日志，不能仅凭此错误判定模型或首尾帧不兼容。</div>`;
+      } else if (t.error_code === "UNSUPPORTED_FEATURE") {
         errorNoticeHtml = `<div class="audit-task-warning">模型 / 参数不兼容：请修正后创建新任务，换号或重复提交无法解决。</div>`;
       }
       if (t.status === "completed" && !t.has_video && !t.has_audio && !(t.image_urls || []).length) {
@@ -1328,7 +1353,7 @@ document.addEventListener("DOMContentLoaded", () => {
           ` : ""}
 
           ${!isImageTask && !isAudioTask && t.has_video && t.output_video_path ? `
-            <div style="font-size: 11px; color: var(--text-muted); font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 4px; padding: 2px 6px; background: rgba(0,0,0,0.25); border-radius: 4px;" title="${escapeAttr(t.output_video_path)}">
+            <div style="font-size: 11px; color: var(--text-muted); font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 4px; padding: 2px 6px; background: rgba(0,0,0,0.25); border-radius: 4px;" title="${escapeHtml(t.output_video_path)}">
               📁 本地路径: ${escapeHtml(t.output_video_path)}
             </div>
           ` : ""}
@@ -1338,13 +1363,13 @@ document.addEventListener("DOMContentLoaded", () => {
           <div class="task-btn-group">
             ${isImageTask && t.status === "completed" && t.image_urls && t.image_urls.length > 0 ? `<button class="btn btn-primary btn-sm" onclick="openImageViewer('${escapeJs(t.image_paths[0] || "")}', '${escapeJs(t.image_urls[0])}', '${escapeJs(t.prompt)}')">👁️ 查看大图</button>` : ""}
             ${!isImageTask && !isAudioTask && t.has_video ? `<button class="btn btn-primary btn-sm btn-play-video" data-id="${t.id}" data-url="${t.video_url}">🎥 播放</button>` : ""}
-            ${!isImageTask && !isAudioTask && t.has_video ? `<button class="btn btn-secondary btn-sm btn-copy-video-path" data-id="${t.id}" data-path="${escapeAttr(t.output_video_path || '')}" title="复制本地绝对路径，可直接在 Google Vids 导入窗口粘贴使用">📋 复制路径</button>` : ""}
+            ${!isImageTask && !isAudioTask && t.has_video ? `<button class="btn btn-secondary btn-sm btn-copy-video-path" data-id="${t.id}" data-path="${escapeHtml(t.output_video_path || '')}" title="复制本地绝对路径，可直接在 Google Vids 导入窗口粘贴使用">📋 复制路径</button>` : ""}
             ${(t.has_video || t.has_audio || (isImageTask && t.status === "completed" && t.image_urls && t.image_urls.length > 0)) ? `<a href="/api/tasks/${t.id}/download" download class="btn btn-secondary btn-sm" title="保存下载该成品文件">📥 下载</a>` : ""}
-            ${["running", "dispatching", "verifying"].includes(t.status) ? `<button class="btn btn-danger btn-sm btn-cancel-task" data-id="${t.id}" style="background:#dc2626;border-color:#b91c1c;font-weight:700;" title="强行中止当前正在运行的任务并释放资源与槽位">⏹ 强制停止</button>` : ""}
+            ${["running", "dispatching", "verifying"].includes(t.status) ? `<button class="btn btn-danger btn-sm btn-cancel-task" data-id="${t.id}" style="background:#dc2626;border-color:#b91c1c;font-weight:700;" title="请求停止当前任务；后台退出后才会释放资源">⏹ 停止任务</button>` : ""}
             ${["queued", "retry_wait"].includes(t.status) ? `<button class="btn btn-danger btn-sm btn-cancel-task" data-id="${t.id}" title="取消排队中的任务">⏹ 取消</button>` : ""}
             ${!isImageTask && !isAudioTask && t.status === "completed" && t.engine !== "gemini" ? `<button class="btn btn-secondary btn-sm btn-view-qa" data-id="${t.id}">🔍 质检对比</button>` : ""}
             <button class="btn btn-secondary btn-sm btn-view-log" data-id="${t.id}">📋 日志</button>
-            ${(t.status === "failed" || t.status === "retry_wait" || t.status === "cancelled") && !["WIRE_FORMAT_MISMATCH", "UNSUPPORTED_FEATURE"].includes(t.error_code) ? `<button class="btn btn-warning btn-sm btn-retry-task" data-id="${t.id}" title="重新排队；保留原账号绑定，等待调度">🔄 重新排队</button>` : ""}
+            ${(t.status === "failed" || t.status === "retry_wait" || t.status === "cancelled") && !["WIRE_FORMAT_MISMATCH", "UNSUPPORTED_FEATURE", "FLOW_RESPONSE_UNREADABLE"].includes(t.error_code) ? `<button class="btn btn-warning btn-sm btn-retry-task" data-id="${t.id}" title="重新排队；保留原账号绑定，等待调度">🔄 重新排队</button>` : ""}
           </div>
           <div style="display:flex; gap:6px;">
             <button class="btn btn-secondary btn-sm btn-open-folder" data-id="${t.id}" title="在资源管理器中打开">📂</button>
@@ -1353,8 +1378,10 @@ document.addEventListener("DOMContentLoaded", () => {
         </div>
       `;
 
-      container.appendChild(card);
+      fragment.appendChild(card);
     });
+
+    container.replaceChildren(fragment);
 
     // 绑定卡片动作事件
     container.querySelectorAll(".btn-play-video, .btn-play-video-box").forEach(b => {
@@ -1537,33 +1564,6 @@ document.addEventListener("DOMContentLoaded", () => {
       el.btnBatchCancel.innerHTML = `⏹ 批量停止/取消 (${totalSelected})`;
     }
 
-    if (el.btnBatchCancel) {
-    el.btnBatchCancel.addEventListener("click", async () => {
-      const ids = Array.from(state.selectedTaskIds);
-      if (ids.length === 0) return;
-      if (!confirm(`确定要强行停止/取消选中的 ${ids.length} 个任务吗？\n如果任务正在运行，将立即终止底层执行进程并释放账号与调度槽位。`)) {
-        return;
-      }
-      try {
-        const resp = await fetch("/api/tasks/batch/cancel", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ task_ids: ids })
-        });
-        const res = await resp.json().catch(() => ({}));
-        if (resp.ok) {
-          showToast(`已成功停止/取消 ${res.cancelled_count ?? ids.length} 个任务并释放槽位`, "info");
-          fetchTasks(true);
-          fetchOverview();
-        } else {
-          showToast("批量停止失败: " + (res.detail || resp.statusText), "error");
-        }
-      } catch (e) {
-        showToast("网络请求失败: " + e.message, "error");
-      }
-    });
-  }
-
   if (el.btnBatchDelete) {
       el.btnBatchDelete.disabled = (totalSelected === 0);
       el.btnBatchDelete.innerHTML = `🗑️ 批量删除选中 (${totalSelected})`;
@@ -1667,7 +1667,7 @@ document.addEventListener("DOMContentLoaded", () => {
     el.btnBatchCancel.addEventListener("click", async () => {
       const ids = Array.from(state.selectedTaskIds);
       if (ids.length === 0) return;
-      if (!confirm(`确定要强行停止/取消选中的 ${ids.length} 个任务吗？\n如果任务正在运行，将立即终止底层执行进程并释放账号与调度槽位。`)) {
+      if (!confirm(`确定停止/取消选中的 ${ids.length} 个任务吗？\n排队任务立即取消；运行任务请求停止，后台退出后才释放账号。已提交的平台生成可能继续。`)) {
         return;
       }
       try {
@@ -1678,7 +1678,10 @@ document.addEventListener("DOMContentLoaded", () => {
         });
         const res = await resp.json().catch(() => ({}));
         if (resp.ok) {
-          showToast(`已成功停止/取消 ${res.cancelled_count ?? ids.length} 个任务并释放槽位`, "info");
+          const errors = res.errors || [];
+          for (const id of [...(res.cancelled_ids || []), ...(res.stopping_ids || [])]) state.selectedTaskIds.delete(id);
+          showToast(`已取消 ${res.cancelled_count || 0} 个，正在停止 ${res.stopping_count || 0} 个，未处理 ${errors.length} 个${errors.length ? "：" + errors.map(e => e.task_id + " " + e.message).join("；") : "；后台退出前仍占用账号"}`, errors.length ? "warning" : "info");
+          updateBatchActionBar();
           fetchTasks(true);
           fetchOverview();
         } else {
@@ -1739,6 +1742,13 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     });
 
+    el.dropImageRef.addEventListener("keydown", (e) => {
+      if (e.target === el.dropImageRef && (e.key === "Enter" || e.key === " ")) {
+        e.preventDefault();
+        el.fileInputImageRef.click();
+      }
+    });
+
     el.dropImageRef.addEventListener("dragover", (e) => {
       e.preventDefault();
       el.dropImageRef.classList.add("drag-over");
@@ -1761,64 +1771,153 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  let imageRefPreviewUrl = null;
+  function clearImageReference() {
+    state.imageRefFile = null;
+    if (imageRefPreviewUrl) URL.revokeObjectURL(imageRefPreviewUrl);
+    imageRefPreviewUrl = null;
+    el.imgPreviewRef.removeAttribute("src");
+    el.imgPreviewRef.style.display = "none";
+    el.placeholderImageRef.style.display = "block";
+    if (el.btnClearImageRef) el.btnClearImageRef.style.display = "none";
+    if (el.fileInputImageRef) el.fileInputImageRef.value = "";
+  }
+
   function handleImageRefSelect(file) {
-    if (!file.type.startsWith("image/")) {
+    if (!file || !/^image\/(png|jpeg|webp)$/i.test(file.type)) {
       showToast("请上传有效图片文件 (PNG / JPG / WebP)", "warn");
       return;
     }
+    if (!file.size || file.size > 32 * 1024 * 1024) {
+      showToast("参考图片不能为空，且不得超过 32 MB", "warn");
+      return;
+    }
+    const nextUrl = URL.createObjectURL(file);
+    if (imageRefPreviewUrl) URL.revokeObjectURL(imageRefPreviewUrl);
+    imageRefPreviewUrl = nextUrl;
     state.imageRefFile = file;
-    const r = new FileReader();
-    r.onload = ev => {
-      el.imgPreviewRef.src = ev.target.result;
-      el.imgPreviewRef.style.display = "block";
-      el.placeholderImageRef.style.display = "none";
-      if (el.btnClearImageRef) el.btnClearImageRef.style.display = "inline-block";
-    };
-    r.readAsDataURL(file);
+    el.imgPreviewRef.src = nextUrl;
+    el.imgPreviewRef.style.display = "block";
+    el.placeholderImageRef.style.display = "none";
+    if (el.btnClearImageRef) el.btnClearImageRef.style.display = "inline-block";
   }
 
   if (el.btnClearImageRef) {
     el.btnClearImageRef.addEventListener("click", (e) => {
       e.stopPropagation();
-      state.imageRefFile = null;
-      el.imgPreviewRef.src = "";
-      el.imgPreviewRef.style.display = "none";
-      el.placeholderImageRef.style.display = "block";
-      el.btnClearImageRef.style.display = "none";
-      if (el.fileInputImageRef) el.fileInputImageRef.value = "";
+      clearImageReference();
     });
   }
 
+  let imageOptions = null;
+  let imageSubmitting = false;
+  function validImageOptions(options) {
+    if (!options || !Array.isArray(options.engines) || !options.models || !options.default_models
+        || !Array.isArray(options.aspect_ratios) || typeof options.availability_note !== "string") return false;
+    const ids = options.engines.map(engine => engine?.id);
+    if (ids.length !== 2 || new Set(ids).size !== 2 || !ids.includes("flow") || !ids.includes("gemini")) return false;
+    if (!options.aspect_ratios.length || options.aspect_ratios.some(ratio => !["1:1", "9:16", "3:4", "4:3", "16:9"].includes(ratio))) return false;
+    return options.engines.every(engine => {
+      const models = options.models[engine.id];
+      return typeof engine.label === "string" && typeof engine.model_label === "string"
+        && Array.isArray(models) && models.length > 0
+        && models.every(model => typeof model?.id === "string" && model.id.length > 0 && typeof model.label === "string" && model.label.length > 0)
+        && new Set(models.map(model => model.id)).size === models.length
+        && models.some(model => model.id === options.default_models[engine.id]);
+    });
+  }
+  function imageSelectionValid() {
+    const engine = el.selectImageEngine?.value;
+    return !!(imageOptions && imageOptions.engines.some(entry => entry.id === engine)
+      && imageOptions.models[engine]?.some(model => model.id === el.selectImageModel?.value)
+      && imageOptions.aspect_ratios.includes(el.selectImageAspect?.value));
+  }
+  function syncImageSubmitState() {
+    if (el.btnSubmitImageTask) {
+      el.btnSubmitImageTask.disabled = imageSubmitting || !imageSelectionValid();
+      el.btnSubmitImageTask.textContent = imageSubmitting ? "正在提交生图任务…" : "创建图像任务";
+    }
+    for (const control of [el.selectImageEngine, el.selectImageModel, el.selectImageAspect, el.selectImageProfile]) {
+      if (control) control.disabled = imageSubmitting || !imageOptions;
+    }
+  }
+  function updateImageModels() {
+    if (!imageOptions || !el.selectImageModel || !el.selectImageEngine) {
+      syncImageSubmitState();
+      return;
+    }
+    const engine = el.selectImageEngine.value;
+    const previous = el.selectImageModel.value;
+    const models = imageOptions.models[engine] || [];
+    el.selectImageModel.replaceChildren(...models.map(model => {
+      const option = document.createElement("option");
+      option.value = model.id;
+      option.textContent = model.label;
+      return option;
+    }));
+    el.selectImageModel.value = models.some(model => model.id === previous)
+      ? previous : (imageOptions.default_models[engine] || "");
+    const label = document.getElementById("image-model-label");
+    if (label) label.textContent = imageOptions.engines.find(entry => entry.id === engine)?.model_label || "图像生成模型";
+    const hint = document.getElementById("image-availability-hint");
+    if (hint) hint.textContent = imageOptions.availability_note + (engine === "gemini"
+      ? " Gemini 选项是网页交互模式，不代表底层生图模型；系统不会改走 Flow。" : "");
+    syncImageSubmitState();
+  }
+  async function loadImageOptions() {
+    if (!el.selectImageEngine) return;
+    imageOptions = null;
+    state.imageOptions = null;
+    syncImageSubmitState();
+    try {
+      const resp = await fetch("/api/image/options");
+      if (!resp.ok) throw new Error("图片平台选项加载失败");
+      const options = await resp.json();
+      if (!validImageOptions(options)) throw new Error("图片平台选项格式无效");
+      imageOptions = options;
+      state.imageOptions = options;
+      updateImageModels();
+      renderTasks();
+      renderImageGallery();
+    } catch (err) {
+      imageOptions = null;
+      state.imageOptions = null;
+      syncImageSubmitState();
+      showToast(err.message + "，请刷新页面后重试", "error");
+    }
+  }
+  if (el.selectImageEngine) el.selectImageEngine.addEventListener("change", updateImageModels);
+  if (el.selectImageModel) el.selectImageModel.addEventListener("change", syncImageSubmitState);
+  if (el.selectImageAspect) el.selectImageAspect.addEventListener("change", syncImageSubmitState);
+  loadImageOptions();
+
   if (el.btnSubmitImageTask) {
     el.btnSubmitImageTask.addEventListener("click", async () => {
+      if (imageSubmitting) return;
+      if (!imageSelectionValid()) {
+        syncImageSubmitState();
+        showToast("请等待平台选项加载完成，并选择有效的生图平台、型号和画幅", "warn");
+        return;
+      }
       const prompt = el.inputImagePrompt.value.trim();
       if (!prompt) {
         showToast("请输入图像画面描述提示词", "warn");
         return;
       }
-
-      el.btnSubmitImageTask.disabled = true;
-      el.btnSubmitImageTask.textContent = "⏳ 正在提交生图任务...";
-
-      const formData = new FormData();
-      formData.append("prompt", prompt);
-      formData.append("model", el.selectImageModel ? el.selectImageModel.value : "nano-pro");
-      formData.append("aspect_ratio", el.selectImageAspect ? el.selectImageAspect.value : "9:16");
-      if (state.imageRefFile) {
-        formData.append("ref_image", state.imageRefFile);
-      }
-      if (el.selectImageProfile && el.selectImageProfile.value) {
-        formData.append("assigned_profile_id", el.selectImageProfile.value);
-      }
-
+      imageSubmitting = true;
+      syncImageSubmitState();
       try {
-        const resp = await fetch("/api/tasks/create-image", {
-          method: "POST",
-          body: formData
-        });
+        const formData = new FormData();
+        formData.append("prompt", prompt);
+        formData.append("engine", el.selectImageEngine.value);
+        formData.append("model", el.selectImageModel.value);
+        formData.append("aspect_ratio", el.selectImageAspect.value);
+        if (state.imageRefFile) formData.append("ref_image", state.imageRefFile);
+        if (el.selectImageProfile?.value) formData.append("assigned_profile_id", el.selectImageProfile.value);
+        const resp = await fetch("/api/tasks/create-image", { method: "POST", body: formData });
         const data = await resp.json();
         if (resp.ok) {
-          showToast("🚀 图像生成任务 " + data.id + " 已成功加入队列！", "success");
+          showToast("图像生成任务 " + data.id + " 已成功加入队列！", "success");
           fetchTasks();
         } else {
           showToast("生图提交失败: " + (data.detail || "未知错误"), "error");
@@ -1826,8 +1925,8 @@ document.addEventListener("DOMContentLoaded", () => {
       } catch (err) {
         showToast("网络错误: " + err.message, "error");
       } finally {
-        el.btnSubmitImageTask.disabled = false;
-        el.btnSubmitImageTask.textContent = "🚀 立即生成图片";
+        imageSubmitting = false;
+        syncImageSubmitState();
       }
     });
   }
@@ -1915,6 +2014,7 @@ document.addEventListener("DOMContentLoaded", () => {
           const p = (t.image_paths && t.image_paths[idx]) ? t.image_paths[idx] : "";
           imageItems.push({
             taskId: t.id,
+            engine: t.engine || "flow",
             url: url,
             path: p,
             prompt: t.prompt,
@@ -1945,18 +2045,19 @@ document.addEventListener("DOMContentLoaded", () => {
     imageItems.forEach(item => {
       const card = document.createElement("div");
       card.className = "gallery-card";
-      const modelLabel = item.model === "nano-pro" ? "Nano Banana Pro" : (item.model === "nano2" ? "Nano Banana 2" : (item.model === "imagen4" ? "Imagen（imagen4 路由）" : item.model));
+      const modelLabel = getImageTaskLabel(item);
       card.innerHTML = `
         <div class="gallery-img-box" onclick="openImageViewer('${escapeJs(item.path)}', '${escapeJs(item.url)}', '${escapeJs(item.prompt)}')">
-          <img src="${item.url}" alt="${escapeHtml(item.prompt)}" loading="lazy">
+          <img src="${escapeHtml(item.url)}" alt="${escapeHtml(item.prompt)}" loading="lazy">
         </div>
         <div class="gallery-info">
           <div class="gallery-tags">
-            <span class="badge-task-image">${modelLabel}</span>
-            <span class="badge" style="background:rgba(255,255,255,0.06); font-size:10px; padding:2px 5px; border-radius:3px;">${item.aspect}</span>
+            <span class="badge-task-image">${escapeHtml(modelLabel)}</span>
+            <span class="badge" style="background:rgba(255,255,255,0.06); font-size:10px; padding:2px 5px; border-radius:3px;">${escapeHtml(item.aspect)}</span>
           </div>
           <div class="gallery-prompt" title="${escapeHtml(item.prompt)}">${escapeHtml(item.prompt)}</div>
-          <div class="gallery-actions">
+          <div class="gallery-actions" style="flex-wrap:wrap">
+            <a class="gallery-btn-action" href="${escapeHtml(item.url)}" download>下载原图</a>
             <button class="gallery-btn-action" onclick="setAsStartFrame('${escapeJs(item.path)}', '${escapeJs(item.url)}')">📌 设为首帧</button>
             <button class="gallery-btn-action" onclick="setAsEndFrame('${escapeJs(item.path)}', '${escapeJs(item.url)}')">📌 设为尾帧</button>
           </div>
@@ -2931,6 +3032,66 @@ document.addEventListener("DOMContentLoaded", () => {
 
 // Gemini Hub Part 1
 
+// The browser request is not execution ownership. Reconcile with the server even
+// after a refresh, timeout, disconnect, or stop; never release slots in the UI.
+function createGeminiSessionControls({btnSend, chatInput, btnClearChat, btnStop, chatStatus}) {
+  let localSending = false, known = false, active = false, stopping = false;
+  let refreshing = null, stopPending = false;
+  function isBusy() { return localSending || active || !known; }
+  function render() {
+    const busy = isBusy();
+    if (btnSend) { btnSend.disabled = busy; btnSend.innerHTML = busy ? '等待后台状态 ⏳' : '<span>发送</span> 🚀'; }
+    if (chatInput) chatInput.disabled = busy;
+    if (btnClearChat) btnClearChat.disabled = busy;
+    if (btnStop) { btnStop.style.display = active || localSending ? '' : 'none'; btnStop.disabled = !active || stopping || stopPending; }
+    if (chatStatus) chatStatus.textContent = !known ? '后台状态未知，正在恢复连接' : stopping ? '正在停止，等待后台退出' : active || localSending ? '正在处理，可请求停止' : '就绪';
+  }
+  async function refresh() {
+    if (refreshing) return refreshing;
+    const abort = new AbortController();
+    const timer = setTimeout(() => abort.abort(), 8000);
+    refreshing = (async () => {
+      try {
+        const resp = await fetch('/api/gemini/sessions/default/status', {signal: abort.signal});
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        const data = await resp.json();
+        if (typeof data.active !== 'boolean') throw new Error('无效后台状态');
+        active = data.active; stopping = active && data.state === 'stopping'; known = true;
+      } catch (_) { known = false; }
+      finally { clearTimeout(timer); render(); }
+    })();
+    try { await refreshing; } finally { refreshing = null; }
+  }
+  function beginSend() {
+    if (isBusy()) { showToast('后台仍在执行、停止中或状态尚未确认，请稍候', 'warning'); return false; }
+    localSending = true; render(); return true;
+  }
+  async function finishSend() { localSending = false; await refresh(); }
+  async function stop() {
+    if (!active || stopping || stopPending) return;
+    stopPending = true; render();
+    try {
+      const resp = await fetch('/api/gemini/sessions/default/stop', {method: 'POST'});
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.detail || 'HTTP ' + resp.status);
+      active = data.active; stopping = active; known = true;
+      showToast('已请求停止；后台退出前仍占用账号。已提交的平台生成可能继续。', 'info');
+    } catch (e) { showToast('停止请求失败：' + e.message + '；不会强行释放账号，请重试停止或查看后台状态。', 'error'); }
+    finally { stopPending = false; await refresh(); }
+  }
+  async function clear() {
+    if (isBusy()) { showToast('后台任务退出后才能清空会话', 'warning'); return false; }
+    if (!confirm('确定清空当前 Gemini 多模态会话历史吗？')) return false;
+    try {
+      const resp = await fetch('/api/gemini/messages?session_id=default', {method: 'DELETE'});
+      if (!resp.ok) { const data = await resp.json().catch(() => ({})); throw new Error(data.detail || 'HTTP ' + resp.status); }
+      showToast('会话已清空', 'info'); return true;
+    } catch (e) { showToast('清空失败：' + e.message, 'error'); await refresh(); return false; }
+  }
+  render();
+  return {refresh, beginSend, finishSend, stop, clear, isBusy};
+}
+
 function initGeminiHub() {
   let currentMode = "chat";
   let attachedVideoFile = null;
@@ -2949,6 +3110,9 @@ function initGeminiHub() {
   const feed = document.getElementById("gemini-messages-feed");
   const chatInput = document.getElementById("gemini-chat-input");
   const btnSend = document.getElementById("btn-gemini-chat-send");
+  const btnStopChat = document.getElementById("btn-gemini-chat-stop");
+  const chatControls = createGeminiSessionControls({btnSend, chatInput, btnClearChat, btnStop: btnStopChat, chatStatus});
+  if (btnStopChat) btnStopChat.addEventListener("click", () => chatControls.stop());
 
   const modeBtns = document.querySelectorAll(".gemini-mode-btn");
   const voiceGroup = document.getElementById("gemini-voice-control-group");
@@ -3527,24 +3691,14 @@ function initGeminiHub() {
 
   if (btnClearChat) {
     btnClearChat.addEventListener("click", async () => {
-      if (!confirm("确定清空当前 Gemini 多模态会话历史吗？")) return;
-      try {
-        await fetch("/api/gemini/messages?session_id=default", { method: "DELETE" });
-        if (feed) {
-          const welcome = feed.querySelector(".gemini-welcome-card");
-          feed.innerHTML = "";
-          if (welcome) feed.appendChild(welcome);
-        }
-        showToast("会话已清空", "info");
-      } catch (e) {
-        showToast("清空失败: " + e.message, "error");
-      }
+      if (!await chatControls.clear()) return;
+      lastRenderedGeminiMsgCount = 0;
+      await fetchGeminiMessages(true);
     });
   }
 
-  let isGeminiSending = false;
   async function sendMessage() {
-    if (isGeminiSending) {
+    if (chatControls.isBusy()) {
       showToast("正在处理上一条消息，请稍候...", "warn");
       return;
     }
@@ -3555,7 +3709,7 @@ function initGeminiHub() {
       return;
     }
 
-    isGeminiSending = true;
+    if (!chatControls.beginSend()) return;
     if (btnSend) {
       btnSend.disabled = true;
       btnSend.innerHTML = `<span>生成中...</span> ⏳`;
@@ -3620,6 +3774,7 @@ function initGeminiHub() {
         body: formData
       });
       const data = await resp.json();
+      if (!resp.ok) throw new Error(data.detail || "HTTP " + resp.status);
       loadingBubble.remove();
 
       if (data.assistant_message) {
@@ -3641,22 +3796,13 @@ function initGeminiHub() {
       showToast("网络请求异常: " + err.message, "error");
       renderMessageBubble({
         role: "assistant",
-        content: "❌ 请求处理失败: " + err.message + "。如果正在使用外部 Chrome，请关闭 Chrome 或点击上方【⏹ 释放占用】后再试。",
+        content: "❌ 请求处理失败: " + err.message + "。网络中断不代表后台任务结束；请等待状态恢复，或使用【停止当前任务】，不要重复提交。",
         created_at: new Date().toISOString()
       });
       scrollFeedToBottom();
     } finally {
-      isGeminiSending = false;
-      if (btnSend) {
-        btnSend.disabled = false;
-        btnSend.innerHTML = `<span>发送</span> 🚀`;
-      }
-      if (chatInput) {
-        chatInput.disabled = false;
-        chatInput.placeholder = "像 ChatGPT / Gemini 网页端一样输入对话内容、视频配音诉求或画图提示词... (Enter 发送, Shift+Enter 换行)";
-        chatInput.focus();
-      }
-      if (chatStatus) chatStatus.textContent = "就绪";
+      await chatControls.finishSend();
+      if (chatInput && !chatControls.isBusy()) chatInput.focus();
     }
   }
 
@@ -3668,7 +3814,7 @@ function initGeminiHub() {
     chatInput.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
-        if (!isGeminiSending) {
+        if (!chatControls.isBusy()) {
           sendMessage();
         }
       }
@@ -3676,6 +3822,7 @@ function initGeminiHub() {
   }
 
   window.refreshGeminiHubView = () => {
+    chatControls.refresh();
     updateProfBadge();
     fetchGeminiMessages();
     fetchGeminiImages();
@@ -3683,6 +3830,7 @@ function initGeminiHub() {
     populateCompletedVideos();
   };
 
+  chatControls.refresh();
   updateProfBadge();
   fetchGeminiMessages();
   fetchGeminiImages();

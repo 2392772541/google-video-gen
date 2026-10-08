@@ -88,7 +88,8 @@
             <span id="gemini-chat-status" style="font-size:11px;color:var(--text-muted)">就绪</span>
           </div>
           <div style="display:flex;gap:8px">
-            <button class="btn btn-secondary btn-sm" id="btn-gemini-clear-chat" type="button" style="padding:3px 8px;font-size:11px">
+            <button class="btn btn-danger btn-sm" id="btn-gemini-chat-stop" type="button" style="display:none;padding:3px 8px;font-size:11px">⏹ 停止当前任务</button>
+            <button disabled class="btn btn-secondary btn-sm" id="btn-gemini-clear-chat" type="button" style="padding:3px 8px;font-size:11px">
               🧹 清空会话
             </button>
           </div>
@@ -178,7 +179,7 @@
           <div style="position:relative">
             <textarea id="gemini-chat-input" class="form-control" rows="3" placeholder="像 ChatGPT / Gemini 网页端一样输入对话内容、视频配音诉求或画图提示词... (Enter 发送, Shift+Enter 换行)" style="resize:vertical;line-height:1.6;font-size:13px;padding-right:80px"></textarea>
             <div style="position:absolute;right:8px;bottom:8px">
-              <button id="btn-gemini-chat-send" class="btn btn-primary" type="button" style="padding:6px 14px;font-weight:700;display:flex;align-items:center;gap:4px">
+              <button disabled id="btn-gemini-chat-send" class="btn btn-primary" type="button" style="padding:6px 14px;font-weight:700;display:flex;align-items:center;gap:4px">
                 <span>发送</span> 🚀
               </button>
             </div>
@@ -554,9 +555,9 @@
 <div class="image-config-heading" style="display:flex;justify-content:space-between;align-items:flex-start">
 <div>
 <h3 style="font-weight:600;display:flex;align-items:center;gap:6px">
-<span>🖼️ Google Flow 图像生成工坊</span>
+<span>🖼️ 图像生成工坊</span>
 </h3>
-<p style="margin-top:3px">使用本地配置的图像路由 · 可用模型与生成效果以当前账号和上游结果为准</p>
+<p style="margin-top:3px"><span id="image-availability-hint">使用所选平台原生网页生图；型号以当前账号为准，不自动换平台或模型。</span></p>
 </div>
 <span class="badge" style="padding:4px 8px;border-radius:6px;white-space:nowrap">
               ⚡ 生成后可一键设为首尾帧
@@ -576,11 +577,18 @@
 <!-- 模型与画幅控制 -->
 <div class="image-options-grid">
 <div class="field-group">
-<label for="select-image-model">🎨 图像生成模型</label>
+<label for="select-image-engine">生成平台</label>
+<select class="select-control" id="select-image-engine">
+<option value="flow" selected>Google Flow 网页生图</option>
+<option value="gemini">Gemini 网页生图</option>
+</select>
+</div>
+<div class="field-group">
+<label for="select-image-model" id="image-model-label">🎨 图像生成模型</label>
 <select class="select-control" id="select-image-model">
-<option selected="" value="nano-pro">Nano Banana Pro（nano-pro 本地路由）</option>
-<option value="nano2">Nano Banana 2（nano2 本地路由）</option>
-<option value="imagen4">Imagen · imagen4 本地路由（账号可用性需确认）</option>
+<option selected="" value="nano-pro">Nano Banana Pro</option>
+<option value="nano2-lite">Nano Banana 2 Lite</option>
+<option value="nano2.1">Nano Banana 2.1</option>
 </select>
 </div>
 <div class="field-group">
@@ -597,14 +605,14 @@
 <!-- 垫图上传 (可选图生图) -->
 <div class="field-group">
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-<label>📷 参考垫图 (可选，上传后自动切换为图生图 i2i)</label>
+<label>📷 参考图（可选，确认网页已附加后才会生成）</label>
 <button class="btn btn-secondary btn-sm" id="btn-clear-image-ref" style="display:none;padding:1px 6px">清除垫图</button>
 </div>
 <div aria-label="选择图像参考素材" class="drop-card" id="drop-image-ref" role="button" style="height:85px;margin-top:2px;cursor:pointer;display:flex;align-items:center;justify-content:center;border-radius:8px" tabindex="0">
 <div class="drop-placeholder" id="placeholder-image-ref" style="text-align:center">
 <span class="drop-icon">🖼️</span>
 <span class="drop-text" style="margin-top:2px">点击或拖入参考垫图（可选）</span>
-<span class="drop-subtext">留空则为纯文生图 (t2i)</span>
+<span class="drop-subtext">PNG / JPG / WebP，单张不超过 32 MB；留空为文生图</span>
 </div>
 <img alt="参考图预览" class="preview-img" id="img-preview-ref" style="display:none;max-height:75px;object-fit:contain"/>
 <input accept="image/*" id="file-input-image-ref" style="display:none" type="file"/>
@@ -616,7 +624,7 @@
 <option value="">自动轮询空闲账号</option>
 </select>
 </div>
-<button class="btn btn-primary" id="btn-submit-image-task" style="padding:10px 22px;font-weight:600">创建图像任务</button>
+<button class="btn btn-primary" id="btn-submit-image-task" disabled style="padding:10px 22px;font-weight:600">创建图像任务</button>
 </div>
 </div>
 <!-- 右侧：生成图片画廊与联动操作 -->

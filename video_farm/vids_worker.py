@@ -1,590 +1,574 @@
-# -*- coding: utf-8 -*-
-"""
-Google Vids 原生网页端自动化执行器 (VidsWorker)
-专为 Google Vids (docs.google.com/videos) 定制，实现：
-1. 自动进入或创建 Google Vids 云端工程
-2. 智能消除初始 Modal 引导与协议遮罩
-3. 唤起原生 AI 视频侧边栏 (#content-library-rail-video-generation-element)
-4. 设置原生视频模型 (Omni)、画质 (1080p / 720p)、画幅及镜头时长
-5. 支持首尾帧/图片参考上传 (添加动画 / Animate 模式)
-6. 注入富文本提示词并触发视频渲染
-7. 实时监听生成进度、提取成片 MP4 直链与本地归档
-8. 严格的生命周期管理：任务结束后立即关闭浏览器释放 ~800MB 内存
+"""Google Vids native adapter: explicit capabilities and current-result ownership.
+
+No Flow fallback, automatic agreement acceptance, profile unlock, or speculative
+success based on network traffic / an old Insert button.
 """
 from __future__ import annotations
-
-import os
-import sys
-import time
-import json
-import re
 import base64
-import urllib.request
+import sys
+import uuid
+import json
+import math
+import os
+import re
+import shutil
+import subprocess
 import threading
+import time
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Any, Dict, Optional
+from urllib.parse import parse_qsl, urlencode, urlsplit
 
+from .execution_control import ExecutionControl, ExecutionStopped
 from .models import Task, Profile
+from .owned_process import OwnedProcess
+from .output_publication import publish_video
+from .video_contract import validate_video_request, VideoRequestError
+
+
+class VidsUIError(RuntimeError):
+    def __init__(self, message, code="VIDS_UI_ERROR"):
+        super().__init__(message)
+        self.code = code
+
 
 class VidsWorker:
-    def __init__(
-        self,
-        output_dir: Path = Path("video_farm_data/outputs"),
-        timeout_sec: int = 360,
-        headless: bool = True,
-        mock_sample_video: Optional[str] = None
-    ):
-        self.output_dir = output_dir.resolve()
+    def __init__(self, output_dir=Path("video_farm_data/outputs"), timeout_sec=360,
+                 headless=True, mock_sample_video: Optional[str] = None,
+                 python_bin=None, submission_state_path=None):
+        self.output_dir = Path(output_dir).resolve()
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        self.timeout_sec = timeout_sec
-        self.headless = headless
+        self.timeout_sec, self.headless = timeout_sec, headless
         self.mock_sample_video = mock_sample_video
+        self.python_bin = str(python_bin or sys.executable)
+        self.submission_state_path = Path(submission_state_path) if submission_state_path else None
         self._active_sessions: Dict[str, Dict[str, Any]] = {}
         self._sessions_lock = threading.Lock()
 
-    def cancel_task(self, task_id: str) -> bool:
-        """强行终止指定任务的 Google Vids 会话并清理 Chrome 进程"""
+    def prepare_task(self, task_id, cancel_event):
         with self._sessions_lock:
-            sess = self._active_sessions.get(task_id)
-            if sess:
-                sess["cancelled"] = True
-                browser = sess.get("browser")
-                if browser:
-                    try:
-                        browser.close()
-                    except Exception:
-                        pass
-                p_ctx = sess.get("playwright_ctx")
-                if p_ctx:
-                    try:
-                        p_ctx.stop()
-                    except Exception:
-                        pass
-                profile = sess.get("profile")
-                if profile:
-                    try:
-                        self._close_chrome_for_profile(profile)
-                    except Exception:
-                        pass
-                return True
+            self._active_sessions.setdefault(task_id, {}).update(
+                cancel_event=cancel_event, cancelled=cancel_event.is_set())
+
+    def begin_task(self, task_id):
+        with self._sessions_lock:
+            session = self._active_sessions.setdefault(task_id, {})
+            event = session.setdefault("cancel_event", threading.Event())
+            if session.get("cancelled"):
+                event.set()
+            control = ExecutionControl(event, self.timeout_sec)
+            session["control"] = control
+            return control
+
+    def cancel_task(self, task_id):
+        with self._sessions_lock:
+            session = self._active_sessions.get(task_id)
+            if session is None:
+                return False
+            session["cancelled"] = True
+            session.setdefault("cancel_event", threading.Event()).set()
+            return True
+
+    def _mark_submission(self, task_id):
+        # Durable marker BEFORE the click. A killed/lost click cannot be retried.
+        if self.submission_state_path:
+            temp = self.submission_state_path.with_suffix(".tmp")
+            temp.write_text(json.dumps({"task_id": task_id, "submission_possible": True}), encoding="utf8")
+            temp.replace(self.submission_state_path)
+        with self._sessions_lock:
+            self._active_sessions.get(task_id, {})["submitted"] = True
+
+    def has_live_execution(self, task_id):
+        # Never wait for process cleanup while holding the shared session lock:
+        # another account's cancellation must not queue behind this tree.
+        with self._sessions_lock:
+            session = self._active_sessions.get(task_id)
+            if not session:
+                return False
+            proc = session.get("proc")
+        if proc is None or proc.is_alive():
+            return True
+        if not proc.cleanup():
+            return True
+        with self._sessions_lock:
+            if self._active_sessions.get(task_id) is session:
+                self._active_sessions.pop(task_id, None)
         return False
 
-    def _close_chrome_for_profile(self, profile: Profile):
-        """强制清理指定 Profile 的残留 Chrome 进程与锁文件"""
-        profile_dir = self._resolve_profile_dir(profile)
+    def _publish_output(self, source, task, control):
+        return publish_video(source, self.output_dir, task.id, control)
+
+    provider_label = "Vids"
+    mock_env_var = "VIDS_MOCK_MODE"
+    unconfirmed_code = "VIDS_RESULT_UNCONFIRMED"
+
+    def _validate_request(self, task):
+        validate_video_request(task)
+        if task.engine != "vids":
+            raise VideoRequestError("VidsWorker 只接受显式 Google Vids 请求")
+        if task.project_id and not task.project_id.startswith("https://docs.google.com/videos/"):
+            raise VideoRequestError("Vids 工程必须为 docs.google.com/videos 的 HTTPS 地址")
+
+    def _runner_command(self, request_path):
+        return [self.python_bin, "-m", "video_farm.vids_web_runner", str(request_path)]
+
+    def _launch_runner(self, request_path, log_file):
+        root = Path(__file__).resolve().parents[1]
+        env = os.environ.copy()
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
+        env["PYTHONPATH"] = str(root) + os.pathsep + env.get("PYTHONPATH", "")
+        return OwnedProcess(self._runner_command(request_path), cwd=str(root), env=env,
+                            stdout=log_file, stderr=subprocess.STDOUT)
+
+    def execute_task(self, task: Task, profile: Profile):
+        """Bounded parent supervisor; no synchronous browser code in the server."""
+        control = self.begin_task(task.id)
+        outcome, proc, attempt = {}, None, None
+        result_received = False
+        stopped = None
+        log_file = None
+        output_to_publish = None
+        def failure(code, message):
+            outcome.update(success=False, error_code=code, error_message=message,
+                           output_video_path=None)
+            return outcome
         try:
-            from .gemini_worker import unlock_profile_processes
-            unlock_profile_processes(profile_dir, profile.name)
-        except Exception as e:
-            print(f"[VidsWorker] 清理 Chrome 进程与锁异常: {e}")
-
-    def _resolve_profile_dir(self, profile: Profile) -> Path:
-        if profile.profile_path and Path(profile.profile_path).exists():
-            return Path(profile.profile_path).resolve()
-        appdata = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
-        return Path(appdata) / "ffroliva" / "gflow-cli" / f"profile_{profile.name}"
-
-    def _clean_stale_lock(self, profile_dir: Path, logs: List[str]):
-        """清理历史遗留的崩溃锁文件，避免 SingletonLock / TargetClosedError 阻塞"""
-        lock_file = profile_dir / "lockfile"
-        if lock_file.exists():
-            try:
-                lock_file.unlink()
-                logs.append(f"清理遗留的 Chrome 锁文件: {lock_file}")
-            except Exception as e:
-                logs.append(f"清理锁文件提示: {e}")
-
-    def _dismiss_overlays(self, page, logs: List[str], press_esc: bool = True):
-        """主动关闭 Google Vids 的新手引导浮层、开局欢迎弹窗和遮罩，强力穿透 Material 3 遮罩"""
-        if press_esc:
-            try:
-                page.keyboard.press("Escape")
-                page.wait_for_timeout(300)
-            except Exception:
-                pass
-
-        # 深度穿透消除开局欢迎弹窗 (Blank vid) 以及 Material 3 / Google 遮罩浮层，防止 scrim 拦截 pointer events
-        try:
-            removed = page.evaluate("""() => {
-                let count = 0;
-                // 优先点击关闭、空白工程按钮
-                const btns = Array.from(document.querySelectorAll('button, [role="button"], span, div'));
-                for (const b of btns) {
-                    const txt = (b.innerText || b.getAttribute('aria-label') || '').trim();
-                    if (/^(Blank vid|Close|关闭|跳过|知道了|好|完成|Dismiss|Got it|OK|Done|Skip)$/i.test(txt)) {
-                        try {
-                            b.click();
-                            count++;
-                        } catch(e){}
-                    }
-                }
-                // 强力移除所有拦截 pointer events 的弹窗容器与遮罩
-                const selectors = [
-                    '[role="dialog"]',
-                    '.javascriptMaterialdesignGm3WizDialog-dialog',
-                    '.javascriptMaterialdesignGm3WizDialog-dialog__scrim',
-                    '.goog-modalpopup',
-                    '.goog-modalpopup-bg',
-                    '.modal-backdrop'
-                ];
-                selectors.forEach(sel => {
-                    document.querySelectorAll(sel).forEach(el => {
-                        try {
-                            el.style.display = 'none';
-                            el.remove();
-                            count++;
-                        } catch(e){}
-                    });
-                });
-                return count;
-            }""")
-            if removed > 0:
-                logs.append(f"穿透清理 Google Vids 遮罩浮层 (处理 {removed} 项)")
-        except Exception:
-            pass
-
-    def execute_task(self, task: Task, profile: Profile) -> Dict[str, Any]:
-        worker_name = threading.current_thread().name
-        profile_dir = self._resolve_profile_dir(profile)
-        output_video_path = self.output_dir / f"{task.id}.mp4"
-
-        logs = []
-        logs.append(f"[{worker_name}] 🚀 启动 Google Vids 原生视频生成执行器 (Profile: {profile.name})")
-        logs.append(f"Profile 目录: {profile_dir}")
-        logs.append(f"任务 ID: {task.id}, 目标模型: {task.model}, 提示词: {task.prompt[:60]}...")
-
-        # 0. 如果配置了离线样本且无网络环境，优先快速验证
-        if self.mock_sample_video and Path(self.mock_sample_video).exists() and os.environ.get("VIDS_MOCK_MODE") == "1":
-            logs.append(f"【MOCK模式】使用预设样本成片填充: {self.mock_sample_video}")
-            import shutil
-            shutil.copy(self.mock_sample_video, str(output_video_path))
-            return {
-                "success": True,
-                "pid": os.getpid(),
-                "output_video_path": str(output_video_path),
-                "logs": "\n".join(logs)
-            }
-
-        if not profile_dir.exists():
-            profile_dir.mkdir(parents=True, exist_ok=True)
-
-        self._clean_stale_lock(profile_dir, logs)
-
-        from playwright.sync_api import sync_playwright
-
-        browser = None
-        playwright_ctx = None
-
-        try:
+            control.check()
+            self._validate_request(task)
+            if self.mock_sample_video and os.environ.get(self.mock_env_var) == "1":
+                outcome.update(self._execute_browser_task(task, profile))
+                result_received = True
+                return outcome
+            attempt = self.output_dir / task.id / ("attempt_" + uuid.uuid4().hex)
+            attempt.mkdir(parents=True, exist_ok=False)
+            fields = ("id", "prompt", "engine", "task_type", "model", "project_id",
+                      "start_image_path", "end_image_path", "input_video_path", "aspect_ratio", "duration_sec")
+            spec = {"task": {key: getattr(task, key) for key in fields},
+                    "profile": {"id": profile.id, "name": profile.name, "profile_path": str(self._resolve_profile_dir(profile))},
+                    "output_dir": str(attempt), "timeout_sec": max(0.1, control.remaining - 3),
+                    "headless": self.headless, "submission_state_path": str(attempt / "submission.json")}
+            request_path = attempt / "request.json"
+            request_path.write_text(json.dumps(spec, ensure_ascii=False), encoding="utf8")
+            log_file = (attempt / "runner.log").open("wb")
             with self._sessions_lock:
-                self._active_sessions[task.id] = {
-                    "profile": profile,
-                    "browser": None,
-                    "playwright_ctx": None,
-                    "cancelled": False
-                }
-            playwright_ctx = sync_playwright().start()
-            launch_args = [
-                "--no-sandbox",
-                "--disable-infobars"
-            ]
-
-            logs.append("正在拉起专属 Chrome 自动化会话...")
-            try:
-                browser = playwright_ctx.chromium.launch_persistent_context(
-                    user_data_dir=str(profile_dir.resolve()),
-                    channel="chrome",
-                    headless=self.headless,
-                    args=launch_args
-                )
-                with self._sessions_lock:
-                    if task.id in self._active_sessions:
-                        self._active_sessions[task.id]["browser"] = browser
-                        self._active_sessions[task.id]["playwright_ctx"] = playwright_ctx
-            except Exception as launch_exc:
-                lexc_str = str(launch_exc).lower()
-                logs.append(f"拉起浏览器会话异常: {launch_exc}")
-                if any(k in lexc_str for k in ["singleton", "lock", "in use", "already running"]):
-                    return {
-                        "success": False,
-                        "pid": os.getpid(),
-                        "error_code": "PROFILE_LOCKED",
-                        "error_message": f"Profile [{profile.name}] 正在被运行中的 Chrome 窗口独占占用。",
-                        "output_video_path": None,
-                        "logs": "\n".join(logs)
-                    }
-                raise launch_exc
-
-            page = browser.pages[0] if browser.pages else browser.new_page()
-
-            # 监听网络流以捕获媒体文件 (严格排除 gstatic 等静态样例/宣传视频)
-            captured_media_urls = []
-            def handle_response(response):
+                control.check()
+                proc = self._launch_runner(request_path, log_file)
+                self._active_sessions[task.id]["proc"] = proc
+            while True:
+                control.check()
                 try:
-                    url = response.url
-                    ct = response.headers.get("content-type", "")
-                    # 严禁捕获 Google Vids 官方静态宣传/样例视频
-                    if any(k in url for k in ["gstatic.com", "gettingstarteddialog", "flix_likeness", "avatars_entry_point", "veo_entry_point"]):
-                        return
-                    if ("video" in ct or ".mp4" in url or "google.com/download" in url or "videoplayback" in url) and (
-                        "usercontent.google.com" in url or "bard_storage" in url or "temp_data" in url
-                    ):
-                        if url not in captured_media_urls:
-                            captured_media_urls.append(url)
-                            logs.append(f"[真实成片捕获] 捕获到 Google Vids 真实渲染视频流: {url[:90]}...")
-                except Exception:
-                    pass
-
-            page.on("response", handle_response)
-
-            # 1. 导航进入 Google Vids 工程
-            target_url = getattr(task, "project_id", "") or "https://docs.google.com/videos/create"
-            if not target_url.startswith("http"):
-                target_url = "https://docs.google.com/videos/create"
-
-            logs.append(f"导航至 Google Vids 目标工程: {target_url}")
-            page.goto(target_url, timeout=45000, wait_until="domcontentloaded")
-            page.wait_for_timeout(4000)
-
-            # 检查是否有权限访问该文档，如果 Access Denied / 访问遭拒，则自愈创建新文档
-            page_title = page.title()
-            logs.append(f"Google Vids 页面标题: {page_title}")
-            is_access_denied = any(kw.lower() in page_title.lower() for kw in [
-                "access denied", "无法访问", "权限", "遭拒", "拒绝", "需要访问权限", "请求访问权限", "无权访问", "error", "403"
-            ]) or any(kw in page.url.lower() for kw in ["requestaccess", "servicelogin", "accessdenied"])
-
-            if not is_access_denied:
-                try:
-                    req_btn = page.locator("button:has-text('请求访问权限'), [aria-label*='请求访问权限'], button:has-text('Request access')").first
-                    if req_btn.count() > 0 and req_btn.is_visible():
-                        is_access_denied = True
-                except Exception:
-                    pass
-
-            if is_access_denied:
-                logs.append("⚠️ 当前账号无权访问指定外链工程 (如「访问遭拒」)，自动自愈创建专属 Google Vids 新工程...")
-                page.goto("https://docs.google.com/videos/create", timeout=45000, wait_until="domcontentloaded")
-                page.wait_for_timeout(4000)
-                logs.append(f"自愈新工程就绪，URL: {page.url}")
-
-            # 消除可能出现的初始模态框
-            self._dismiss_overlays(page, logs)
-
-            # 2. 唤起侧边栏中的「AI 视频」核心入口 (强化中英文多选择器与 30s 宽裕容错)
-            ai_selectors = [
-                "#content-library-rail-video-generation-element",
-                "[aria-label*='AI 视频']",
-                "[aria-label*='生成视频']",
-                "[aria-label*='Generate an AI video']",
-                "[data-tooltip*='AI video']"
-            ]
-            ai_entry_btn = page.locator(", ".join(ai_selectors)).first
-            if ai_entry_btn.count() == 0:
-                logs.append("等待 AI 视频入口元素渲染...")
-                try:
-                    ai_entry_btn.wait_for(state="attached", timeout=12000)
-                except Exception:
-                    logs.append("⚠️ 12秒内未检测到 AI 入口，尝试自愈导航至 https://docs.google.com/videos/create ...")
-                    page.goto("https://docs.google.com/videos/create", timeout=45000, wait_until="domcontentloaded")
-                    page.wait_for_timeout(4000)
-                    self._dismiss_overlays(page, logs)
-                    ai_entry_btn = page.locator(", ".join(ai_selectors)).first
-                    ai_entry_btn.wait_for(state="attached", timeout=20000)
-
-            logs.append("点击「AI 视频」工具栏按钮展开面板...")
-            try:
-                ai_entry_btn.click(force=True, timeout=10000)
-            except Exception:
-                ai_entry_btn.evaluate("el => el.click()")
-            page.wait_for_timeout(2000)
-
-            # 3. 模式与素材绑定 (针对 Google Vids Animate / Create 原生工作流)
-            has_reference_image = bool(task.start_image_path and Path(task.start_image_path).exists())
-            has_end_frame = bool(task.end_image_path and Path(task.end_image_path).exists())
-            if has_end_frame:
-                logs.append("⚠️ 注意：Google Vids 原生工作流仅支持首帧微动（Animate），不支持尾帧。当前尾帧素材在 Vids 中无法约束生效。若需首尾双帧关键帧过渡演变，请选用 Google Flow (Veo 3.1) 引擎。")
-            if has_reference_image:
-                logs.append(f"检测到首帧/参考图素材: {task.start_image_path}")
-                anim_tab = page.locator("button:has-text('Animate'), [role='tab']:has-text('Animate'), [aria-label*='Animate']").first
-                if anim_tab.count() > 0 and anim_tab.is_visible():
-                    logs.append("切换至「添加动画 (Animate)」多模态模式...")
-                    try:
-                        anim_tab.click(force=True)
-                    except Exception:
-                        anim_tab.evaluate("el => el.click()")
-                    page.wait_for_timeout(1500)
-
-                # 检查并点击「Add image」按钮
-                add_img_btn = page.get_by_text("Add image").first
-                if add_img_btn.count() > 0 and add_img_btn.is_visible():
-                    try:
-                        add_img_btn.click(force=True)
-                    except Exception:
-                        add_img_btn.evaluate("el => el.click()")
-                    page.wait_for_timeout(1000)
-
-                    # 智能消除图片版权使用协议弹窗 (Create content from images in Workspace)
-                    agree_btn = page.locator("button:has-text('Agree'), button:has-text('同意')").first
-                    if agree_btn.count() > 0 and agree_btn.is_visible():
-                        logs.append("确认图片素材版权与使用协议 (Agree)...")
-                        agree_btn.click(force=True)
-                        page.wait_for_timeout(1500)
-
-                # 寻找并注入文件输入控件
-                file_input = page.locator("input[type='file']").first
-                if file_input.count() > 0:
-                    abs_img_path = str(Path(task.start_image_path).resolve())
-                    logs.append(f"上传首帧/参考图像素材: {abs_img_path}")
-                    file_input.set_input_files(abs_img_path)
-                    page.wait_for_timeout(3500)
-                    logs.append("✅ 首帧素材已成功载入 Google Vids 画布并展示缩略图")
-                else:
-                    logs.append("⚠️ 未找到文件输入控件 input[type='file']")
-            else:
-                create_tab = page.locator("button:has-text('Create'), [role='tab']:has-text('Create'), [aria-label*='Create']").first
-                if create_tab.count() > 0 and create_tab.is_visible():
-                    try:
-                        create_tab.click(force=True)
-                    except Exception:
-                        create_tab.evaluate("el => el.click()")
-                    page.wait_for_timeout(1000)
-
-            # 4. 生成设置：分辨率 (1080p / 720p) 与画幅
-            try:
-                is_1080p = "1080" in (task.model or "").lower() or (getattr(task, "resolution", "") == "1080p")
-                settings_btn = page.locator(".content-library button[aria-label*='Generation settings'], .content-library button:has-text('Omni')").first
-                if settings_btn.count() > 0 and settings_btn.is_visible():
-                    settings_btn.click(force=True, timeout=4000)
-                    page.wait_for_timeout(1000)
-                    target_res_text = "1080p" if is_1080p else "720p"
-                    res_option = page.locator(f"[role='menuitem']:has-text('{target_res_text}'), [role='menuitemradio']:has-text('{target_res_text}'), button:has-text('{target_res_text}')").first
-                    if res_option.count() > 0:
-                        logs.append(f"选择清晰度规格 -> {target_res_text}")
-                        res_option.click(force=True, timeout=3000)
-                        page.wait_for_timeout(500)
-                    page.keyboard.press("Escape")
-                    page.wait_for_timeout(400)
-            except Exception as set_err:
-                logs.append(f"画质配置菜单交互跳过: {set_err}")
-                try:
-                    page.keyboard.press("Escape")
-                except Exception:
-                    pass
-
-            # 5. 填入镜头提示词并执行安全脱敏
-            textbox = page.locator("[role='textbox'], [contenteditable='true']").first
-            if textbox.count() > 0:
-                raw_prompt = task.prompt.strip()
-                # 自动净化易被 Google 内容风控误判的负向医疗/器具敏感词（如“无注射器”、“无受体”等）
-                sanitized_prompt = re.sub(r'无(?:注射器|针筒|针头)[、，,\s]*', '', raw_prompt)
-                sanitized_prompt = re.sub(r'无(?:受体锁孔|受体)[、，,\s]*', '', sanitized_prompt)
-                sanitized_prompt = re.sub(r'[、，,]\s*$', '。', sanitized_prompt).strip()
-                if sanitized_prompt != raw_prompt:
-                    logs.append(f"🛡️ 提示词安全优化：已自动移除易被 Google 医疗风控误判的负向词 (原提示词字数: {len(raw_prompt)} -> 优化后: {len(sanitized_prompt)})")
-                logs.append(f"注入镜头提示词: {sanitized_prompt[:60]}...")
-                textbox.click(force=True)
-                page.wait_for_timeout(400)
-                textbox.fill(sanitized_prompt)
-                page.wait_for_timeout(800)
-
-            # 6. 触发生成 (精准定位专属生成按钮)
-            gen_btn = page.locator(".collapsiblePromptBoxGenerateButton, button[aria-label='Generate']").last
-            if gen_btn.count() == 0 or not gen_btn.is_visible():
-                gen_btn = page.locator(".content-library button:has(svg), .content-library button[aria-label*='Generate']").last
-
-            logs.append("⚡ 触发 Google Vids 视频生成任务 (点击 Generate)...")
-            try:
-                gen_btn.click(force=True, timeout=8000)
-            except Exception:
-                gen_btn.evaluate("el => el.click()")
-            page.wait_for_timeout(4000)
-
-            # 7. 进度监听与视频提取
-            logs.append("进入生成进度监听状态，等待 Google 官方云端渲染...")
-            start_poll = time.time()
-            generation_complete = False
-
-            while time.time() - start_poll < self.timeout_sec:
-                with self._sessions_lock:
-                    if self._active_sessions.get(task.id, {}).get("cancelled"):
-                        logs.append("⏹ 任务在渲染轮询期间被用户手动取消")
-                        return {
-                            "success": False,
-                            "pid": os.getpid(),
-                            "error_code": "USER_CANCELLED",
-                            "error_message": "用户手动强行中止任务",
-                            "output_video_path": None,
-                            "logs": "\n".join(logs)
-                        }
-
-                # 0. 快速检测 Google 服务条款/内容安全风控拦截 (Terms violation / Safety filter)
-                terms_match = False
-                terms_msg = ""
-                try:
-                    terms_el = page.locator("text=/against our terms|Try asking something else|违反服务条款|不符合条款|content policy/i").first
-                    if terms_el.count() > 0 and terms_el.is_visible():
-                        terms_match = True
-                        terms_msg = terms_el.inner_text().strip()
-                    if not terms_match:
-                        try_again_btn = page.locator("button:has-text('Try again'), button:has-text('重试')").first
-                        if try_again_btn.count() > 0 and try_again_btn.is_visible():
-                            terms_match = True
-                            terms_msg = "That request looks like it goes against our terms. Try asking something else."
-                except Exception:
-                    pass
-
-                if terms_match:
-                    logs.append(f"⚠️ 检测到 Google Vids 内容安全风控拦截 (秒级拦截): {terms_msg}")
-                    try:
-                        qa_img = self.output_dir.parent / "qa" / f"{task.id}_safety_blocked.png"
-                        qa_img.parent.mkdir(parents=True, exist_ok=True)
-                        page.screenshot(path=str(qa_img))
-                        logs.append(f"已捕获安全拦截快照: {qa_img}")
-                    except Exception:
-                        pass
-                    return {
-                        "success": False,
-                        "pid": os.getpid(),
-                        "error_code": "SAFETY_FILTER_BLOCKED",
-                        "error_message": f"Google Vids 提示词安全拦截: {terms_msg}",
-                        "output_video_path": None,
-                        "logs": "\n".join(logs)
-                    }
-
-                # 检查页面是否有错误浮层或提示
-                error_toast = page.locator(".docs-toast, [role='alert']").first
-                if error_toast.count() > 0 and error_toast.is_visible():
-                    err_txt = error_toast.inner_text().strip()
-                    if err_txt:
-                        lower_txt = err_txt.lower()
-                        if any(w in lower_txt for w in ["unusual activity", "异常活动"]) or "we noticed some unusual activity" in lower_txt:
-                            logs.append(f"⚠️ Google 检测到异常活动风控: {err_txt}")
-                            return {
-                                "success": False,
-                                "pid": os.getpid(),
-                                "error_code": "UNUSUAL_ACTIVITY",
-                                "error_message": f"Google 检测到异常活动 ({err_txt})，已触发 Profile 冷却避让",
-                                "output_video_path": None,
-                                "logs": "\n".join(logs)
-                            }
-                        if any(k in err_txt for k in ["失败", "未能", "error", "failed"]):
-                            logs.append(f"检测到 Google Vids 提示异常: {err_txt}")
-                            return {
-                                "success": False,
-                                "pid": os.getpid(),
-                                "error_code": "VIDS_UI_ERROR",
-                                "error_message": err_txt,
-                                "output_video_path": None,
-                                "logs": "\n".join(logs)
-                            }
-
-                elapsed = int(time.time() - start_poll)
-                if elapsed % 15 == 0:
-                    logs.append(f"[{elapsed}s] 正在云端渲染中... (已捕获真实流={len(captured_media_urls)})")
-
-                # 检查成片就绪指示 (「Insert」插入按钮出现，或捕获到了真实 usercontent / bard_storage 流)
-                insert_btn = page.locator("button:has-text('Insert'), button:has-text('插入')").first
-                if insert_btn.count() > 0 and insert_btn.is_visible():
-                    logs.append(f"🎉 检测到 Google Vids 成片已渲染完毕并在侧边栏展现 (耗时 {elapsed}s)")
-                    generation_complete = True
+                    exit_code = proc.wait(timeout=min(0.2, control.remaining))
                     break
-
-                if captured_media_urls and elapsed > 15:
-                    logs.append(f"🎉 捕获到 Google Vids 真实输出视频流 (耗时 {elapsed}s)")
-                    generation_complete = True
-                    break
-
-                page.wait_for_timeout(3000)
-
-            # 如果成片已完成，点击 Insert 保存到工程时间轴，并下载视频
-            if generation_complete:
-                try:
-                    insert_btn = page.locator("button:has-text('Insert'), button:has-text('插入')").first
-                    if insert_btn.count() > 0 and insert_btn.is_visible():
-                        insert_btn.click(force=True)
-                        logs.append("已将成片插入 Google Vids 工程时间轴画布")
-                        page.wait_for_timeout(2000)
-                except Exception:
-                    pass
-
-                page.wait_for_timeout(2000)
-                target_media_url = captured_media_urls[-1] if captured_media_urls else None
-                if not target_media_url:
-                    v_tag = page.locator(".content-library video, video").first
-                    if v_tag.count() > 0:
-                        target_media_url = v_tag.get_attribute("src")
-
-                if target_media_url:
-                    logs.append(f"正在从真实流地址下载 MP4: {target_media_url[:80]}...")
-                    try:
-                        if target_media_url.startswith("blob:"):
-                            b64_data = page.evaluate("""async (burl) => {
-                                const res = await fetch(burl);
-                                const blob = await res.blob();
-                                return new Promise((resolve) => {
-                                    const reader = new FileReader();
-                                    reader.onloadend = () => resolve(reader.result);
-                                    reader.readAsDataURL(blob);
-                                });
-                            }""", target_media_url)
-                            if b64_data and "," in b64_data:
-                                v_bytes = base64.b64decode(b64_data.split(",", 1)[1])
-                                if len(v_bytes) > 10240:
-                                    output_video_path.write_bytes(v_bytes)
-                                    logs.append(f"通过 Blob 内存成功导出成片: {output_video_path} (大小: {len(v_bytes)} bytes)")
-                        else:
-                            resp = page.request.get(target_media_url)
-                            if resp.status == 200:
-                                v_bytes = resp.body()
-                                if len(v_bytes) > 10240:
-                                    output_video_path.write_bytes(v_bytes)
-                                    logs.append(f"视频直链下载落盘成功: {output_video_path} (大小: {len(v_bytes)} bytes)")
-                    except Exception as dl_err:
-                        logs.append(f"下载异常: {dl_err}")
-
-            if not output_video_path.exists() or output_video_path.stat().st_size == 0:
-                try:
-                    qa_img = self.output_dir.parent / "qa" / f"{task.id}_timeout.png"
-                    qa_img.parent.mkdir(parents=True, exist_ok=True)
-                    page.screenshot(path=str(qa_img))
-                    logs.append(f"已捕获超时页面快照: {qa_img}")
-                except Exception:
-                    pass
-
-            if output_video_path.exists() and output_video_path.stat().st_size > 0:
-                logs.append("✅ Google Vids 原生视频成片生成成功！")
-                return {
-                    "success": True,
-                    "pid": os.getpid(),
-                    "output_video_path": str(output_video_path),
-                    "logs": "\n".join(logs)
-                }
-            else:
-                logs.append("⚠️ Google Vids 生成超时或未提取到有效成片。")
-                return {
-                    "success": False,
-                    "pid": os.getpid(),
-                    "error_code": "VIDS_TIMEOUT_OR_EMPTY",
-                    "error_message": "Google Vids 页面未在预期时间内完成渲染并返回视频流",
-                    "output_video_path": None,
-                    "logs": "\n".join(logs)
-                }
-
-        except Exception as e:
-            logs.append(f"❌ VidsWorker 执行遇到异常: {e}")
-            return {
-                "success": False,
-                "pid": os.getpid(),
-                "error_code": "VIDS_EXEC_EXCEPTION",
-                "error_message": str(e),
-                "output_video_path": None,
-                "logs": "\n".join(logs)
-            }
+                except subprocess.TimeoutExpired:
+                    continue
+            control.check()
+            if exit_code != 0:
+                return failure(self.unconfirmed_code, f"{self.provider_label} 执行器异常退出（{exit_code}）；不接受成功标志，请核对原项目，系统不会重发。")
+            result_path = attempt / "result.json"
+            if not result_path.is_file() or result_path.stat().st_size > 1024 * 1024:
+                return failure(self.unconfirmed_code, f"{self.provider_label} 执行器未返回可核验结果；请核对原项目，系统不会自动重发。")
+            result = json.loads(result_path.read_text(encoding="utf8"))
+            if not isinstance(result, dict) or not isinstance(result.get("success"), bool):
+                raise ValueError(f"Invalid {self.provider_label} runner response")
+            outcome.update(result)
+            result_received = True
+            if outcome["success"]:
+                expected = (attempt / f"{task.id}.mp4").resolve()
+                if Path(outcome.get("output_video_path") or "").resolve() != expected or not expected.is_file():
+                    return failure("VIDEO_OUTPUT_INVALID", "成片不是本次任务独占目录的结果，未标记成功。")
+                self._validate_output(expected, task, control, [])
+                output_to_publish = expected
+            return outcome
+        except VideoRequestError as exc:
+            return failure("INVALID_VIDEO_REQUEST", str(exc))
+        except ExecutionStopped as exc:
+            stopped = exc
+            code = "USER_CANCELLED" if exc.code == "USER_CANCELLED" else self.unconfirmed_code
+            return failure(code, str(exc) + " 浏览器执行将被定向终止；已提交的云端生成可能继续，请先核对原项目。")
+        except Exception as exc:
+            code = "VIDEO_OUTPUT_INVALID" if result_received and outcome.get("success") else self.unconfirmed_code if proc else "CONFIG_ERROR"
+            message = re.sub(r"https?://\S+", "[URL省略]", str(exc).split("Call log:", 1)[0])
+            return failure(code, message)
         finally:
+            try:
+                cleaned = proc is None or proc.cleanup()
+            except Exception:
+                cleaned = False  # Unknown tree state must keep the owner isolated.
+            outcome["cleanup_confirmed"] = bool(cleaned)
+            outcome["pid"] = proc.pid if proc else None
+            if not result_received:
+                outcome["submission_possible"] = bool(proc)
+            # Check the durable click receipt only AFTER the entire child tree
+            # is reaped. A live child may still publish the receipt during stop.
+            marker_absent = proc is None
+            if attempt:
+                outcome["attempt_dir"] = str(attempt)
+                try:
+                    (attempt / "submission.json").stat()
+                except FileNotFoundError:
+                    marker_absent = True
+                except OSError:
+                    marker_absent = False  # Unreadable is not proof of absence.
+                    outcome["submission_possible"] = True
+                else:
+                    marker_absent = False
+                    outcome["submission_possible"] = True
+            if stopped is not None and cleaned and not result_received and marker_absent:
+                # Only an explicit, fully reaped stop can prove no click. Crash,
+                # nonzero exit and malformed/missing replies still fail closed.
+                outcome["submission_possible"] = False
+                code = "USER_CANCELLED" if stopped.code == "USER_CANCELLED" else "PRE_SUBMIT_TIMEOUT"
+                failure(code, "本地执行已停止；确认未提交云端生成，可修改参数后手动重试。" if code == "USER_CANCELLED"
+                        else "提交前执行超时；确认未提交云端生成，不自动重试，可检查登录和网页后手动重试。")
+            if attempt:
+                if log_file:
+                    try:
+                        log_file.close()
+                    except OSError:
+                        pass
+                try:
+                    with (attempt / "runner.log").open("rb") as f:
+                        f.seek(max(0, f.seek(0, 2) - 12000))
+                        tail = f.read().decode("utf8", "replace")
+                    tail = re.sub(r"https?://\S+", "[URL省略]", tail)
+                    outcome["logs"] = (str(outcome.get("logs") or "") + "\n" + tail)[-24000:]
+                except OSError:
+                    pass
+            if not cleaned:
+                failure("PROCESS_CLEANUP_FAILED", f"{self.provider_label} 执行进程树未确认退出；账号已隔离，其他空闲账号可继续工作。")
+            else:
+                try:
+                    if outcome.get("success") and output_to_publish:
+                        outcome["output_video_path"] = self._publish_output(output_to_publish, task, control)
+                except ExecutionStopped as exc:
+                    code = "USER_CANCELLED" if exc.code == "USER_CANCELLED" else self.unconfirmed_code
+                    failure(code, str(exc) + " 本次成片保留在独占目录，未发布成功；不会自动重发。")
+                except Exception as exc:
+                    failure("VIDEO_OUTPUT_INVALID", "成片发布失败，未标记成功：" + str(exc))
+                finally:
+                    with self._sessions_lock:
+                        self._active_sessions.pop(task.id, None)
+
+    def _resolve_profile_dir(self, profile):
+        if profile.profile_path:
+            return Path(profile.profile_path).resolve()
+        root = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData/Local")
+        return Path(root) / "ffroliva/gflow-cli" / f"profile_{profile.name}"
+
+    @staticmethod
+    def media_identity(url):
+        """Strip expiring credentials, but retain the content identifier."""
+        if not url:
+            return ""
+        if url.startswith("blob:"):
+            return url
+        parts = urlsplit(url)
+        values = dict(parse_qsl(parts.query))
+        if "id" in values:
+            return f"{parts.path}?id={values['id']}"
+        if parts.path == "/download" and "c" in values:
+            return f"{parts.hostname}{parts.path}?c={values['c']}"
+        volatile = {"expire", "expires", "sig", "signature", "token", "authuser", "opi"}
+        query = sorted((k, v) for k, v in parse_qsl(parts.query)
+                       if k.lower() not in volatile and not k.lower().startswith("x-goog-"))
+        return f"{parts.hostname}{parts.path}?{urlencode(query)}"
+
+    @staticmethod
+    def _trusted_media(url):
+        if url.startswith("blob:"):
+            return True
+        parts = urlsplit(url)
+        host = (parts.hostname or "").lower()
+        return parts.scheme == "https" and (
+            host == "drive.google.com" or host.endswith(".drive.google.com") or
+            host.endswith(".usercontent.google.com") or host.endswith(".googleusercontent.com"))
+
+    @classmethod
+    def pick_current_media(cls, rows, baseline, prompt=None):
+        for row in rows:
+            url = row.get("src") or ""
+            if not row.get("sidebar") or not row.get("ready") or not cls._trusted_media(url):
+                continue
+            if cls.media_identity(url) in baseline:
+                continue
+            if prompt and prompt.strip() not in (row.get("label") or ""):
+                continue
+            return url
+        return None
+
+    @staticmethod
+    def _media_rows(page):
+        return page.evaluate("""() => Array.from(document.querySelectorAll('video')).map(v => ({
+            src: v.currentSrc || v.src,
+            sidebar: !!v.closest('[role="complementary"][class*="Videogensidebar"]'),
+            ready: v.readyState >= 2 && v.videoWidth > 0,
+            label: v.getAttribute('aria-label') || '',
+            width: v.videoWidth, height: v.videoHeight, duration: v.duration
+        }))""")
+
+    @staticmethod
+    def _wait(page, control, predicate, message, seconds=12):
+        until = time.monotonic() + seconds
+        while True:
+            control.check()
+            result = predicate()
+            if result:
+                return result
+            if time.monotonic() >= until:
+                raise VidsUIError(message)
+            control.pause(page, 0.2)
+
+    @staticmethod
+    def _visible(locator):
+        return locator.count() > 0 and locator.first.is_visible()
+
+    def _dismiss_overlays(self, page, logs, control):
+        # Only known, non-binding welcome controls. Never remove dialog DOM or
+        # click Agree/Accept/同意 on the user's behalf.
+        for name in (r"^(Blank vid|空白视频)$", r"^(Close|关闭|Skip|跳过|Got it|知道了|Dismiss)$"):
+            button = page.get_by_role("dialog").get_by_role("button", name=re.compile(name, re.I))
+            if self._visible(button):
+                control.check()
+                button.first.click(timeout=control.timeout_ms())
+                logs.append("关闭非协议的新手引导")
+        agreement = page.get_by_role("dialog").get_by_role(
+            "button", name=re.compile(r"^(I agree|Agree|Accept|同意)$", re.I))
+        if self._visible(agreement):
+            raise VidsUIError("Google 要求您在原生网页确认协议；请求尚未提交。", "USER_ACTION_REQUIRED")
+
+    def _configure(self, page, sidebar, task, control, logs):
+        button = sidebar.get_by_role("button", name=re.compile(r"^(生成设置|Generation settings)", re.I))
+        self._wait(page, control, lambda: self._visible(button), "未找到 Vids 原生生成设置")
+        button.first.click(timeout=control.timeout_ms())
+        resolution = "1080p" if "1080" in (task.model or "") else "720p"
+        option = page.get_by_role("menuitemradio", name=resolution, exact=True)
+        if not self._visible(option):
+            dropdown = page.get_by_role("button", name=re.compile(r"^(720p|1080p)$"))
+            self._wait(page, control, lambda: self._visible(dropdown), "画质下拉框不可用")
+            dropdown.first.click(timeout=control.timeout_ms())
+            self._wait(page, control, lambda: self._visible(option), f"原生网页没有 {resolution} 选项")
+        option.first.click(timeout=control.timeout_ms())
+        landscape = task.aspect_ratio == "16:9"
+        radio = page.get_by_role("radio", name=re.compile(r"^(横屏|Landscape)$" if landscape else r"^(竖屏|Portrait)$", re.I))
+        self._wait(page, control, lambda: self._visible(radio), "画幅控件不可用")
+        radio.first.check(timeout=control.timeout_ms())
+        slider = page.get_by_role("slider", name=re.compile(r"视频时长|Video duration", re.I))
+        self._wait(page, control, lambda: self._visible(slider), "时长控件不可用")
+        bounds = slider.first.evaluate("e => ({min:Number(e.min),max:Number(e.max),step:Number(e.step||1)})")
+        if bounds != {"min": 3, "max": 10, "step": 1}:
+            raise VidsUIError("原生时长控件发生变化；未提交生成", "VIDS_SETTINGS_UNCONFIRMED")
+        slider.first.press("Home", timeout=control.timeout_ms())
+        for _ in range(int(task.duration_sec) - 3):
+            control.check()
+            slider.first.press("ArrowRight", timeout=control.timeout_ms())
+        actual = slider.first.input_value(timeout=control.timeout_ms())
+        if actual != str(int(task.duration_sec)):
+            raise VidsUIError("Vids 时长设置未生效", "VIDS_SETTINGS_UNCONFIRMED")
+        page.keyboard.press("Escape")
+        label = button.first.get_attribute("aria-label") or ""
+        aspect_ok = bool(re.search(r"横屏|Landscape", label, re.I)) if landscape else bool(re.search(r"竖屏|Portrait", label, re.I))
+        duration_ok = bool(re.search(rf"\b{int(task.duration_sec)}\s*(秒|seconds?|s)\b", label, re.I))
+        # Chinese does not have an ASCII word boundary after 秒.
+        duration_ok = duration_ok or f"{int(task.duration_sec)} 秒" in label
+        if resolution not in label or not aspect_ok or not duration_ok or "Omni" not in label:
+            raise VidsUIError(f"生成设置无法确认：{label}", "VIDS_SETTINGS_UNCONFIRMED")
+        logs.append(f"原生设置已回读确认：{label}")
+
+    def _upload(self, page, sidebar, path, control, logs):
+        remove = sidebar.get_by_role("button", name=re.compile(r"^(移除图片|Remove image)$", re.I))
+        if self._visible(remove):
+            remove.first.click(timeout=control.timeout_ms())
+        add = sidebar.get_by_role("button", name=re.compile(r"^(添加图片|Add image)$", re.I))
+        self._wait(page, control, lambda: self._visible(add), "未找到添加图片入口")
+        control.check()
+        with page.expect_file_chooser(timeout=control.timeout_ms(7000)) as chooser:
+            add.first.click(timeout=control.timeout_ms())
+        chooser.value.set_files(str(Path(path).resolve()), timeout=control.timeout_ms(10000))
+        image = sidebar.locator('img.inputPreviewItemPreview')
+        self._wait(page, control, lambda: self._visible(image) and image.first.evaluate(
+            "e => e.complete && e.naturalWidth > 0") and self._visible(remove),
+            "图片未完成上传或未绑定到 Vids 添加动画面板；请求未提交", seconds=35)
+        self._dismiss_overlays(page, logs, control)
+        logs.append("首帧/参考图真实上传完成，已确认原生预览与移除图片控件")
+
+    def _validate_output(self, path, task, control, logs):
+        probe = shutil.which("ffprobe")
+        if not probe:
+            raise VidsUIError("缺少 ffprobe，不能验证成片规格", "VIDEO_OUTPUT_INVALID")
+        control.check()
+        result = subprocess.run([probe, "-v", "error", "-select_streams", "v:0",
+            "-show_entries", "stream=width,height,duration:format=duration", "-of", "json", str(path)],
+            capture_output=True, text=True, timeout=min(15, control.remaining))
+        data = json.loads(result.stdout or "{}")
+        stream = (data.get("streams") or [{}])[0]
+        w, h = stream.get("width", 0), stream.get("height", 0)
+        # ffprobe may report stream.duration="N/A" even for a valid MP4.
+        # Prefer a finite, positive stream value; otherwise try the container.
+        duration = 0.0
+        for value in (stream.get("duration"), data.get("format", {}).get("duration")):
+            try:
+                candidate = float(value)
+            except (TypeError, ValueError):
+                continue
+            if math.isfinite(candidate) and candidate > 0:
+                duration = candidate
+                break
+        size = 1080 if "1080" in (task.model or "") else 720
+        expected = (size * 16 // 9, size) if task.aspect_ratio == "16:9" else (size, size * 16 // 9)
+        if result.returncode or not duration or (w, h) != expected or abs(duration - task.duration_sec) > 0.6:
+            raise VidsUIError(f"实际成片 {w}×{h}/{duration:.2f}s 与请求 {expected}/{task.duration_sec}s 不符；未标记成功", "VIDEO_OUTPUT_INVALID")
+        control.check()
+        logs.append(f"真实成片规格通过：{w}×{h} / {duration:.3f}s")
+
+    def run_page(self, page, task, control, logs):
+        """One native submission; separable for live DOM regression tests."""
+        self._dismiss_overlays(page, logs, control)
+        sidebar = page.locator('[role="complementary"][class*="Videogensidebar"]')
+        if not self._visible(sidebar):
+            entry = page.locator('#content-library-rail-video-generation-element')
+            self._wait(page, control, lambda: self._visible(entry), "未找到 Google Vids AI 视频入口", seconds=25)
+            entry.first.click(timeout=control.timeout_ms())
+            self._wait(page, control, lambda: self._visible(sidebar), "AI 视频侧边栏未展开")
+        sidebar = sidebar.first
+        mode = "添加动画|Animate" if task.start_image_path else "创建|Create"
+        tab = sidebar.get_by_role("tab", name=re.compile(rf"^({mode})$", re.I))
+        self._wait(page, control, lambda: self._visible(tab), "未找到所请求的 Vids 原生模式")
+        tab.first.click(timeout=control.timeout_ms())
+        expand = sidebar.get_by_role("button", name=re.compile(r"^(展开|Expand)$", re.I))
+        if self._visible(expand):
+            expand.first.click(timeout=control.timeout_ms())
+        if task.start_image_path:
+            self._upload(page, sidebar, task.start_image_path, control, logs)
+        self._configure(page, sidebar, task, control, logs)
+        prompt = sidebar.get_by_role("tabpanel").get_by_role("textbox")
+        self._wait(page, control, lambda: self._visible(prompt), "未找到当前模式的提示词输入框")
+        prompt.first.fill(task.prompt.strip(), timeout=control.timeout_ms())
+        if prompt.first.inner_text().strip() != task.prompt.strip() and prompt.first.input_value() != task.prompt.strip():
+            raise VidsUIError("提示词写入未生效，未提交生成")
+        baseline = {self.media_identity(r['src']) for r in self._media_rows(page)}
+        generate = sidebar.get_by_role("tabpanel").get_by_role("button", name=re.compile(r"^(生成|Generate)$", re.I))
+        self._wait(page, control, lambda: self._visible(generate) and generate.first.is_enabled(), "生成按钮仍不可用；检查素材/额度")
+        control.check()
+        # Set before click: a lost click response must not cause a second spend.
+        self._mark_submission(task.id)
+        started = time.monotonic()
+        generate.first.click(timeout=control.timeout_ms())
+        logs.append("已在 docs.google.com/videos 提交一次，等待本次侧栏新结果（不会自动再次提交）")
+        reported = -1
+        while True:
+            control.check()
+            rows = self._media_rows(page)
+            media = self.pick_current_media(rows, baseline, task.prompt)
+            if media:
+                logs.append(f"本次侧栏新结果已就绪；云端等待 {time.monotonic()-started:.1f}s")
+                return media
+            text = sidebar.inner_text(timeout=control.timeout_ms())
+            if re.search(r"against our terms|content policy|违反服务条款|不符合.*条款", text, re.I):
+                raise VidsUIError("Google Vids 内容政策拦截；提示词未被擅自改写", "SAFETY_FILTER_BLOCKED")
+            if re.search(r"unusual activity|异常活动", text, re.I):
+                raise VidsUIError("Google 检测到异常活动，请核对原项目", "UNUSUAL_ACTIVITY")
+            if re.search(r"couldn.t generate|generation failed|生成失败|未能生成|无法生成", text, re.I):
+                raise VidsUIError("Vids 页面报告生成失败；请核对原项目后再手动提交", "VIDS_RESULT_UNCONFIRMED")
+            elapsed = int(time.monotonic()-started)
+            if elapsed // 15 != reported:
+                reported = elapsed // 15
+                logs.append(f"云端等待 {elapsed}s；尚无本次新成片")
+            control.pause(page, 1)
+
+    def _execute_browser_task(self, task: Task, profile: Profile):
+        logs, browser, playwright_ctx, page = [], None, None, None
+        control = self.begin_task(task.id)
+        stage = "preflight"
+        output = self.output_dir / f"{task.id}.mp4"
+        part = self.output_dir / f"{task.id}.part.mp4"
+        started = time.monotonic()
+        try:
+            control.check()
+            validate_video_request(task)
+            if task.engine != "vids":
+                raise VideoRequestError("VidsWorker 只接受显式 Google Vids 请求")
+            profile_dir = self._resolve_profile_dir(profile)
+            profile_dir.mkdir(parents=True, exist_ok=True)
+            logs.append(f"Google Vids · {task.id} · {profile.name}；完整超时 {self.timeout_sec}s")
+            if self.mock_sample_video and Path(self.mock_sample_video).is_file() and os.environ.get("VIDS_MOCK_MODE") == "1":
+                shutil.copyfile(self.mock_sample_video, part)
+                self._validate_output(part, task, control, logs)
+                part.replace(output)
+                return {"success": True, "output_video_path": str(output), "logs": "\n".join(logs), "mock": True, "submission_possible": False}
+            from playwright.sync_api import sync_playwright
+            stage = "browser_launch"
+            playwright_ctx = sync_playwright().start()
+            browser = playwright_ctx.chromium.launch_persistent_context(
+                user_data_dir=str(profile_dir), channel="chrome", headless=self.headless,
+                timeout=control.timeout_ms(15000), args=["--disable-infobars"])
             with self._sessions_lock:
-                self._active_sessions.pop(task.id, None)
-            # 8. 必须完全释放浏览器资源与内存，杜绝驻留进程把系统吃死
-            logs.append("🧹 正在关闭 Google Vids 自动化会话并彻底释放系统内存...")
+                self._active_sessions[task.id].update(browser=browser, profile=profile)
+            control.check()
+            page = browser.pages[0] if browser.pages else browser.new_page()
+            page.set_default_timeout(5000)
+            stage = "navigation"
+            target = task.project_id or "https://docs.google.com/videos/create"
+            if not target.startswith("https://docs.google.com/videos/"):
+                raise VideoRequestError("Vids 工程必须为 docs.google.com/videos 的 HTTPS 地址")
+            page.goto(target, timeout=control.timeout_ms(30000), wait_until="domcontentloaded")
+            control.check()
+            if "accounts.google.com" in page.url:
+                raise VidsUIError("Google 登录态失效，请重新登录 Vids", "AUTH_EXPIRED")
+            stage = "native_generation"
+            media = self.run_page(page, task, control, logs)
+            control.check()
+            stage = "download"
+            # Archive while the owned session is alive. URLs are never logged.
+            if media.startswith("blob:"):
+                encoded = page.evaluate("""async url => {
+                    const blob = await (await fetch(url)).blob();
+                    if (blob.size > 64*1024*1024) throw Error('视频超过64MiB归档上限');
+                    return await new Promise((resolve,reject)=>{let r=new FileReader();
+                        r.onload=()=>resolve(r.result);r.onerror=reject;r.readAsDataURL(blob);});
+                }""", media)
+                part.write_bytes(base64.b64decode(encoded.split(",", 1)[1]))
+            else:
+                response = page.request.get(media, timeout=control.timeout_ms(25000))
+                try:
+                    if response.status != 200:
+                        raise VidsUIError(f"Vids 下载返回 HTTP {response.status}", "VIDS_RESULT_UNCONFIRMED")
+                    part.write_bytes(response.body())
+                finally:
+                    response.dispose()
+            control.check()
+            stage = "media_validation"
+            self._validate_output(part, task, control, logs)
+            part.replace(output)
+            logs.append(f"生成与本地归档完成，总耗时 {time.monotonic()-started:.1f}s")
+            return {"success": True, "pid": os.getpid(), "output_video_path": str(output), "logs": "\n".join(logs), "submission_possible": True}
+        except Exception as exc:
+            with self._sessions_lock:
+                submitted = self._active_sessions.get(task.id, {}).get("submitted", False)
+            code = getattr(exc, "code", "VIDS_EXEC_EXCEPTION")
+            if isinstance(exc, VideoRequestError):
+                code = "INVALID_VIDEO_REQUEST"
+            elif code != "USER_CANCELLED" and submitted and code not in ("SAFETY_FILTER_BLOCKED", "VIDEO_OUTPUT_INVALID"):
+                code = "VIDS_RESULT_UNCONFIRMED"
+            elif not submitted and re.search(r"singleton|profile.*in use|already running|processsingleton", str(exc), re.I):
+                code = "PROFILE_LOCKED"
+            message = str(exc).split("Call log:", 1)[0]
+            # Playwright failures may contain a signed URL; do not persist it.
+            message = re.sub(r"https?://\S+", "[URL省略]", message)
+            logs.append(f"阶段 {stage} 失败（{code}），总耗时 {time.monotonic()-started:.1f}s：{message}")
+            if page:
+                try:
+                    qa = self.output_dir.parent / "qa" / f"{task.id}_vids_failure.png"
+                    qa.parent.mkdir(parents=True, exist_ok=True)
+                    page.screenshot(path=str(qa), timeout=3000)
+                    logs.append(f"诊断截图：{qa}")
+                except Exception:
+                    pass
+            return {"success": False, "pid": os.getpid(), "error_code": code,
+                    "error_message": message, "output_video_path": None, "logs": "\n".join(logs),
+                    "submission_possible": bool(submitted)}
+        finally:
+            # Only the owner closes its own context; preserve cancellation until
+            # it exits, so retry/delete cannot race an old worker.
             if browser:
                 try:
                     browser.close()
@@ -595,5 +579,6 @@ class VidsWorker:
                     playwright_ctx.stop()
                 except Exception:
                     pass
-            logs.append("✨ 内存已完全释放，任务执行阶段结束。")
-
+            with self._sessions_lock:
+                self._active_sessions.pop(task.id, None)
+            part.unlink(missing_ok=True)

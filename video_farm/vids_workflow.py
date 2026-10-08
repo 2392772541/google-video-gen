@@ -257,7 +257,7 @@ def _enhance_chinese_to_vids_prompt(cn_text: str, idx: int) -> str:
 
 SAMPLE_BATCH_IMPORT_DATA = {
     'title': '电影级多模态镜头资产包 (1080p)',
-    'doc_url': 'https://docs.google.com/videos/d/1EXFiC89I2CzVObDNGCXejn-FYySYoaKPjRIG8Fa6nS4/edit',
+    'doc_url': '',
     'style_prompt': 'Cinematic 8k, photorealistic lighting, Unreal Engine 5 render, anamorphic lens, highly detailed masterpiece',
     'aspect_ratio': '16:9',
     'resolution': '1080p',
@@ -318,7 +318,7 @@ def normalize_imported_workflow_json(raw_input: Any, default_workflow: Optional[
     base_wf = default_workflow or {}
     
     title = base_wf.get('title') or '批量导入工作流'
-    doc_url = base_wf.get('doc_url') or 'https://docs.google.com/videos/d/1EXFiC89I2CzVObDNGCXejn-FYySYoaKPjRIG8Fa6nS4/edit'
+    doc_url = base_wf.get('doc_url') or ''
     style_prompt = base_wf.get('style_prompt') or ''
     aspect_ratio = base_wf.get('aspect_ratio') or '16:9'
     resolution = base_wf.get('resolution') or '1080p'

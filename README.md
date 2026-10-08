@@ -1,182 +1,110 @@
 # 🎬 谷歌视频生成 (Google Video Gen / Video Farm)
 
-本地视频生成调度平台。专为 **Google Flow (9:16 首尾帧刚性插值生成)** 与 **Gemini 网页版 (对话式/参考图生视频)** 设计，支持多 Google 账号并发轮换、额度熔断自动换号、逐帧刚性视觉质检以及可视化 Web 控制台与 RESTful API。
+本地视频制作工作台，主入口是 **Google Vids**；Google Flow 与 Gemini 是独立可选平台，不是 Vids 的替代实现。支持分镜 JSON、素材预检、账号池调度、任务进度、停止、结果预览与下载。上游模型、登录、额度及生成耗时仍取决于对应平台，不保证每个账号或每次请求成功。
 
-同时已注册为 Codex 本地系统技能 **`google-video-gen`**（中文唤醒名：**谷歌视频生成**），支持跨窗口随时唤起。
+## 快速启动
 
----
+1. Windows 10/11，安装 Python 3.10+、项目依赖与 Google Chrome；媒体检验/合成需要 FFmpeg/ffprobe。
+2. 双击根目录的 **`启动视频工坊.bat`**。首次配置可以使用 **`一键配置环境.bat`**，随后检查依赖安装结果；迁移到新电脑仍需重新登录和真实验收。
+3. **等终端出现 `Uvicorn running` 后，手动打开** [Google Vids 工作台](http://127.0.0.1:8088/vids)。启动器不会自动打开浏览器。
+4. [主控制台](http://127.0.0.1:8088/) 提供账号、全部任务和独立的生图/配音等入口。关闭终端会停止服务；建议在原服务终端按 `Ctrl+C` 优雅退出。
 
-## 唤醒口令与使用方式
+也可以在项目根目录用已安装依赖的 Python 执行：
 
-### 1. Codex 跨窗口召唤 (已注册技能 `google-video-gen`)
-在任意 Codex 新窗口或任务中，直接输入以下内容即可自动唤起本技能：
-- **中文自然语言**：
-  > “帮我调用**谷歌视频生成**”  
-  > “用**谷歌视频生成**做一段 9:16 首尾帧视频”  
-  > “检查**谷歌视频生成**的账号状态与任务列表”
-- **符号精准调用**：
-  > `$google-video-gen 提交视频生成任务`  
-  > `$google-video-gen 查看当前任务列表`
-
-### 2. 本地独立 Web 控制台 (脱离 AI 独立使用)
-- 双击根目录下的 **`启动视频工坊.bat`**
-- 浏览器自动打开：👉 **`http://127.0.0.1:8088/`**
-- 可在网页中直接进行账号登录/续期、拖拽上传图片提交任务、在线播放视频与查看 OpenCV 质检图。
-
----
-
-## 🌟 核心特性
-
-### 1. 双生成引擎架构
-- **Google Flow 引擎 (`flow`)**：
-  - 调用底层 `gflow-cli`（PR #831 增强版），实现真正的 **首帧图片 + 尾帧图片 + 提示词 -> 9:16 竖屏视频** 插值约束生成。
-  - 自动识别并关闭 Google Flow 可见水印（Visible Watermark），保持原始纯净画面。
-- **Gemini 网页版引擎 (`gemini_web`)**：
-  - 基于真实 Chrome 与 Playwright 驱动 `gemini.google.com` 官方网页端。
-  - 模拟真实用户交互，支持输入提示词与单/多参考图生成视频。
-
-### 2. 多账号并发调度与自动容灾换号 (Failover)
-- **账号完全沙箱隔离**：每个 Google 账号分配独立的本地 Chrome Profile 目录，彻底杜绝凭证串扰与封号风险。
-- **零 Cookie 泄露安全原则**：不提取 Cookie、不上传第三方服务器，仅在本机原生 Chrome 中进行安全身份认证。
-- **智能错误捕获与自动熔断**：
-  - 精准识别 `QUOTA_EXHAUSTED`（额度耗尽）、`AUTH_EXPIRED`（Session到期）、`RATE_LIMITED`（频控触发）等异常。
-  - 异常账号自动进入冷却挂起状态，避免频繁请求触发风控。
-- **任务物理级解绑与无损接力**：
-  - 账号额度用尽或异常时，当前任务状态原子化回退为 `queued`，并清空绑定账号（`assigned_profile_id = NULL`）。
-  - 调度器将在下一次调度轮询中自动指派池内空闲的健康账号接续执行，实现无感自动切换。
-
-### 3. OpenCV 自动化视觉刚性质检 (QA)
-- 视频生成后自动下载原片，调用 OpenCV 提取视频物理第一帧与物理最后一帧。
-- 计算首帧/尾帧与原图的 **NCC (归一化互相关系数)** 与 **SSIM (结构相似度)**。
-- 自动生成对比拼接图与量化指标，杜绝“接受了尾帧但未实际约束”的假象。
-
-### 4. 现代化 Web 管理控制台 & RESTful API
-- **可视化控制台**：运行于 `http://127.0.0.1:8088/`，提供直观的账号卡片、一键原生拉起登录/续期、任务排队监控、在线播放与 QA 报告预览。
-- **开放 API**：全功能 RESTful 接口，方便外部 AI Agent、自动化工作流或 Python 脚本随时投递任务与查询进度。
-
----
-
-## 📂 项目结构
-
-```text
-视频制作/
-├── video_farm/                  # 核心系统包
-│   ├── __init__.py
-│   ├── __main__.py              # 模块入口 (python -m video_farm)
-│   ├── db.py                    # SQLite 状态机与任务管理、解绑换号逻辑
-│   ├── models.py                # 强类型数据模型 (Task, Profile, EngineType 等)
-│   ├── scheduler.py             # 核心调度器：并发控制、熔断捕获与自动 Failover
-│   ├── worker.py                # Google Flow 首尾帧生视频驱动
-│   ├── gemini_worker.py         # Gemini 网页版 Playwright 自动化驱动
-│   ├── verify.py                # OpenCV 双帧刚性质检引擎 (NCC/SSIM)
-│   ├── web.py                   # FastAPI 后端服务与路由
-│   └── static/                  # Web 控制台前端静态资源
-│       ├── index.html           # 响应式控制台页面
-│       ├── style.css            # 现代化暗色主题样式
-│       └── app.js               # 前端交互与实时刷新逻辑
-├── skills/                      # Codex 技能配置目录
-│   └── google-video-gen/        # 谷歌视频生成技能定义
-│       └── SKILL.md             # 技能元数据与提示词指南
-├── 启动视频工坊.bat              # Windows 一键启动脚本
-├── verify_frames.py             # 独立抽帧验证与比对工具
-├── example_shots.json           # 示例分镜任务导入文件
-├── start.png                    # 测试首帧图片 (9:16)
-├── end.png                      # 测试尾帧图片 (9:16)
-└── .gitignore                   # 严格的安全过滤规则（防泄露凭据与大文件）
-```
-
----
-
-## 🚀 快速上手
-
-### 1. 环境准备
-- Windows 10/11
-- Python 3.10+
-- Google Chrome 浏览器
-- 核心依赖：`fastapi`, `uvicorn`, `opencv-python`, `numpy`, `playwright` 等（已集成于虚拟环境中）
-
-### 2. 一键启动
-直接双击运行根目录下的：
-```cmd
-启动视频工坊.bat
-```
-终端将自动启动调度后台并拉起默认浏览器访问：
-👉 **http://127.0.0.1:8088**
-
-或使用命令行手动启动：
-```bash
+```powershell
 python -m video_farm.web --port 8088
 ```
 
----
+Python 文件修改后需要退出并重新启动原服务，刷新网页不会重新加载后端。不要重复启动多个 8088 服务，不要为了加载修改强杀浏览器或覆盖任务库。
 
+## 平台和规格边界
 
----
-
-## 💻 新电脑跨机迁移与复用指南 (跨电脑 100% 开箱即用)
-
-如果你需要把本项目复制或克隆到另一台新的 Windows 电脑上使用，只需按照以下步骤操作：
-
-### 步骤 1：复制代码到新电脑
-- 通过 Git 克隆或使用 U 盘/压缩包完整拷贝本工程目录（如放置在 `D:\AI\视频制作` 或任意你喜欢的英文路径）。
-
-### 步骤 2：一键配置运行环境（双击即装）
-- 打开项目根目录，双击运行：
-  ```cmd
-  一键配置环境.bat
-  ```
-  该脚本会自动：
-  1. 检查 Python 3.10+ 环境。
-  2. 自动创建本地隔离的虚拟环境 `.venv`。
-  3. 自动安装 `requirements.txt` 中全部依赖（FastAPI, OpenCV, Playwright, Edge-TTS 等）。
-  4. 自动初始化 Playwright 浏览器内核。
-  5. 自动检查并补齐 `gflow-cli` 首尾帧插值引擎。
-  6. 检查系统 `ffmpeg`（音视频母带合成必需）。
-
-### 步骤 3：注册 Codex 技能（可选）
-- 如果新电脑上也安装了 Codex 并希望支持跨窗口召唤，双击运行：
-  ```cmd
-  注册本地技能.bat
-  ```
-  技能将自动安装到 `%USERPROFILE%\.codex\skills\google-video-gen`，随时输入“谷歌视频生成”即可唤醒。
-
-### 步骤 4：一键启动管理后台
-- 双击运行根目录下的：
-  ```cmd
-  启动视频工坊.bat
-  ```
-- 浏览器将自动打开：👉 **`http://127.0.0.1:8088/`**
-
-### 步骤 5：新电脑添加第一个 Google 账号
-1. 在 Web 控制台左侧点击 **【+ 注册/绑定新 Profile】**（例如起名为 `acc1`）。
-2. 点击卡片上的 **【🚀 弹出 Chrome 登录/续期】** 按钮。
-3. 在弹出的真实 Chrome 窗口中正常登录你的 Google 账号，登录成功后直接关闭该 Chrome 窗口。
-4. 回到网页点击 **【🔍 检查/刷新】**，状态变为 `idle` 绿色就绪即可开始批量生产视频！
-
-## 🔌 API 接口概览
-
-本系统提供标准 RESTful API，便于外部系统与 AI Agent 调用：
-
-| 接口 | 方法 | 说明 |
+| 平台 / 引擎值 | 当前接入方式 | 重要限制 |
 |---|---|---|
-| `/api/status` | GET | 查询调度器运行状态、排队任务数、就绪账号数 |
-| `/api/profiles` | GET / POST | 列出或注册 Chrome 账号 Profile |
-| `/api/profiles/{id}/launch` | POST | 弹出真实 Chrome 窗口供人工登录或免密续期 |
-| `/api/profiles/{id}/status` | POST | 手动切换账号状态（如暂停 `paused` 或就绪 `idle`） |
-| `/api/tasks` | GET / POST | 查询任务列表或创建单个视频任务 |
-| `/api/tasks/batch` | POST | 批量提交多个视频生成任务 |
-| `/api/tasks/{id}/cancel` | POST | 取消等待中的任务 |
-| `/api/tasks/{id}/logs` | GET | 实时读取特定任务的执行日志流 |
+| **Google Vids / `vids`** | `docs.google.com/videos` 的真实编辑器；文生视频、单图动画 | Omni，720p 或 1080p；16:9 或 9:16；3–10 秒。**当前适配器没有尾帧绑定能力** |
+| Google Flow / `flow` | 独立 `gflow-cli` 驱动 | 首尾帧必须成对提供；可用模型/规格以对应平台实际接入结果为准，不保证刚性插值 |
+| Gemini / `gemini` | `gemini.google.com` 官方网页 | 使用独立入口和账号会话；当前适配器不接受尾帧绑定，不保证所有账号都能生视频 |
+
+- Google Vids 请求不会暗中转到 Flow/Gemini，不会把首尾帧请求降成仅首帧。当前无法执行的请求在提交前明确失败。
+- **此处描述的是本项目适配器能力，不是对 Google Vids 平台永久能力的判断。** 若需要 Vids 双帧支持，必须先实现实际绑定并验证，不能只改 `engine` 字符串。
+- 输出完成前检查实际成片尺寸、画幅和时长；不匹配的文件不标记成功。提示词写“1080p”本身不等于选择了 1080p。
+- Google Vids 工程 URL 可留空，执行时创建新工程；只有用户明确提供地址才绑定既有工程，不内置私人文档 URL。
+
+## 分镜与 JSON 批量导入
+
+1. 在 `/vids` 新建或选中工作流，选择平台、模型/画质、画幅和时长。
+2. 上传/选择可解码图片，或在 JSON 中填写真实可读的本地素材路径。跨电脑复制代码不会自动迁移这些素材。
+3. 粘贴 JSON 或选择 JSON 文件，预览镜头、平台及图片。不要仅看到导入成功就认为已生成。
+4. 当前导入 API 的 `auto_start` 缺省为 `true`；**只保存草稿必须显式传 `auto_start: false`**。需要启动时，整批先预检通过才会原子化入队；不会留下半批任务。前端提交值以实际“导入并生成/保存草稿”操作为准。
+5. 不指定账号时每个镜头由健康空闲账号池动态调度；只有明确选择账号才固定绑定。没有可用账号时会等待并显示原因，不代表生成服务已开始。
+6. 真实单图 Vids 样例可从工作台/API 获取；首尾双帧素材应保留，不要删除尾帧来伪装为兼容。只有用户明确选择 Flow，才走 Flow 双帧生成。
+
+常用字段包含 `engine`、`model`、`resolution`、`aspect_ratio`、`doc_url` 和 `shots`；每个镜头可设置 `prompt`、`duration`、`image_url`、`end_image_url`。用 [样例接口](http://127.0.0.1:8088/api/vids/sample_import_json) 或导出 JSON 核对实际格式。导入预检与真实上游生成是两个验收层级。
+
+## 账号、停止与失败恢复
+
+- 每个账号使用独立 Chrome Profile；同一 Profile 同时只允许一个生成/登录操作。独立目录降低串扰风险，**不保证账号不会被上游限制**。
+- 在主控制台注册账号并打开登录窗口，手动完成登录。登录/检查时不抢占正在生成的 Profile，不提取或提交 Cookie。
+- 排队/等待重试的任务使用 **取消**；执行/调度/检验中的任务使用 **停止**。工作流支持停止未完成镜头，停止后需等执行器退出确认并释放账号；清理失败会隔离账号，不直接借给下一个任务。
+- 停止本地执行**不保证云端任务已取消或额度退回**。避免停止后立刻重复提交同一未知请求。
+- 对可确认尚未提交的错误可重试/切换账号；对已提交但结果无法确认的情况保留未知状态和证据，**不自动重发**。应先在原平台核对产物，再决定恢复或重试。
+- 检查任务阶段、最近日志、账号状态和输出证据，区分排队、页面操作、上游生成、下载及验证。上游生成可能持续数分钟，本地排队/超时也会增加总耗时；不作固定时间或提速倍数保证。
+
+## 结果与视觉检验
+
+完成任务可在工作台播放器预览、下载单个视频或工作流 ZIP。只有实际文件存在且规格通过才作为完成依据。Flow 双帧任务可提取首尾帧并计算 NCC/SSIM 对比；这些指标是检查证据，不保证生成画面严格相等。
+
+## 主要 API
+
+以运行服务的 [OpenAPI 文档](http://127.0.0.1:8088/docs) 为准；以下不是全部接口：
+
+| 接口 | 方法 | 用途 |
+|---|---|---|
+| `/api/overview` | GET | 调度/任务/账号概览 |
+| `/api/profiles` | GET | 账号列表 |
+| `/api/profiles/add` | POST | 注册账号 |
+| `/api/profiles/{id}/launch-login` | POST | 打开人工登录窗口 |
+| `/api/tasks` | GET | 分页查询任务 |
+| `/api/tasks/create` | POST | 创建单个任务 |
+| `/api/tasks/batch` | POST | 批量创建视频任务 |
+| `/api/tasks/{id}/cancel` | POST | 取消等待任务 |
+| `/api/tasks/{id}/stop` | POST | 停止执行任务 |
+| `/api/tasks/{id}/retry` | POST | 显式重试允许重试的任务 |
+| `/api/tasks/{id}/download` | GET | 下载任务产物 |
+| `/api/vids/overview` | GET | Vids 工作流概览 |
+| `/api/vids/batch_import` | POST | JSON 预检、草稿保存或批量入队 |
+| `/api/vids/shots/{id}/generate` | POST | 生成单镜头 |
+| `/api/vids/workflows/{id}/generate_all` | POST | 生成工作流待执行镜头 |
+| `/api/vids/workflows/{id}/stop_all` | POST | 停止工作流未完成镜头 |
+| `/api/vids/workflows/{id}/package_zip` | GET | 导出工作流素材包 |
+
+## 项目结构与测试
+
+- `video_farm/web.py`：FastAPI 主服务；`vids_router.py` / `vids_workflow.py`：分镜与导入。
+- `scheduler.py` / `db.py` / `execution_control.py`：调度、原子状态及执行归属。
+- `vids_worker.py` / `worker.py` / `gemini_worker.py`：三个不同平台；`video_contract.py`：视频请求预检。
+- `image_worker.py` / `image_web_runner.py`：独立生图执行；`verify.py`：媒体视觉检验。
+- `video_farm/static/`：实际前端；`video_farm/tests/`：Python 与 Node 回归测试。
+- `video_farm_data/`：本机任务库、Profile 和产物，不纳入 Git。
+
+串行运行隔离测试，避免影响生产队列：
+
+```powershell
+python -m pytest video_farm/tests/ -q
+Get-ChildItem video_farm/tests/*.cjs | ForEach-Object { node --test $_.FullName; if ($LASTEXITCODE) { throw '前端回归失败' } }
+python run_e2e_verification.py
+```
+
+`run_e2e_verification.py` **仅做只读 HTTP smoke**，不创建/停止/生成任务，不等于端到端生成验收。隔离测试默认禁止生产调度器、浏览器、子进程和网络副作用；`VIDEO_FARM_LIVE_E2E=1` 才启用只读现场测试。发布验收还要在重启后的实际应用中验证：入队、调度、指定平台、真实产物规格、播放器、下载和停止/取消；原生 Google 网页成功不能替代本应用完整链路。
+
+## 安全、迁移与备份
+
+- 服务仅供本机使用；Host/同源校验不是用户登录鉴权，不要公开到公网或不可信局域网。
+- Git 备份只提交源码、测试和文档，不提交任务库、Cookie、Profile、媒体或本地验收截图。运行数据如需备份应单独妥善保存，不能用旧库覆盖新任务。
+- 新电脑安装依赖后，重新添加/登录账号并迁移需要的素材；`gflow-cli` 等被忽略的独立子系统需自行配置并验证。
+- 可选运行 `注册本地技能.bat` 安装 `google-video-gen`，技能的旧说明不能覆盖用户实际选择的平台。
 
 ---
-
-## 🛡️ 安全与风控合规守则
-
-1. **独立用户目录**：每个账号拥有完全独立的 Profile 路径，绝对不共用本地缓存，不与用户日常主力 Chrome 冲突。
-2. **物理单并发限制**：同一个 Chrome Profile 同时仅允许执行一个生成任务，避免同一 Profile 的并发操作冲突；不保证账号不会被上游限制。
-3. **不触碰灰色机制**：不做代理池 IP 伪造、不做指纹虚标欺骗，遵循真实浏览器正常交互逻辑。
-4. **Git 敏感资产保护**：`.gitignore` 默认已排除全部运行时数据目录 `video_farm_data/`、数据库 `*.db`、生成视频 `*.mp4` 以及任何可能包含 Session 的 `*profile*` 目录。
-
 
 ## 2026-10-02 本地维护与验收补充
 

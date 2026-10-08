@@ -9,11 +9,27 @@ from pathlib import Path
 from typing import Optional, Dict, Any, List
 
 from .models import Task, Profile
+from .flow_errors import (
+    FLOW_RESPONSE_UNREADABLE,
+    FLOW_RESPONSE_UNREADABLE_MESSAGE,
+    is_flow_response_unreadable,
+)
 from . import db
 from .worker import VideoWorker
 from .gemini_worker import GeminiWebWorker
 from .vids_worker import VidsWorker
 from .verify import verify_task_video
+from .image_modes import validate_image_result
+
+# Explicit preflight and post-submit outcomes take precedence over log heuristics.
+TERMINAL_FAILURES = {
+    "FLOW_RESULT_UNCONFIRMED", "VIDS_RESULT_UNCONFIRMED", "GEMINI_RESULT_UNCONFIRMED", "IMAGE_RESULT_UNCONFIRMED",
+    "INVALID_VIDEO_REQUEST", "VIDS_SETTINGS_UNCONFIRMED", "USER_ACTION_REQUIRED",
+    "PROJECT_INIT_REQUIRED", "UNSUPPORTED_FEATURE", "WIRE_FORMAT_MISMATCH", "CONFIG_ERROR", "AGENTIC_UI_BLOCKED",
+    FLOW_RESPONSE_UNREADABLE, "SAFETY_FILTER_BLOCKED", "VIDEO_ASPECT_MISMATCH", "VIDEO_DURATION_MISMATCH",
+    "VIDEO_OUTPUT_INVALID", "AUDIO_DISABLED", "INVALID_IMAGE_REQUEST", "IMAGE_OUTPUT_INVALID",
+    "PROCESS_CLEANUP_FAILED", "STOP_RESULT_UNCONFIRMED", "PRE_SUBMIT_TIMEOUT",
+}
 
 def classify_failure(err_code: str, err_msg: str, logs: str) -> tuple[str, str, int, bool]:
     """
@@ -28,14 +44,42 @@ def classify_failure(err_code: str, err_msg: str, logs: str) -> tuple[str, str, 
     code_up = (err_code or "").upper()
     content = f"{err_code} {err_msg} {logs}".lower()
 
-    # Flow already received a submit of the wrong shape. Do not retry on this or
-    # another account: the first attempt may have spent credits without a usable MP4.
+    if code_up == "PRE_SUBMIT_TIMEOUT":
+        return (code_up, (err_msg or "提交前执行超时，确认未提交云端请求") +
+                " 请检查登录和网页后手动重试；不自动重发。", 0, False)
+    if code_up == "LOCAL_IMAGE_BUSY":
+        return ("LOCAL_IMAGE_BUSY", err_msg or "本机生图通道繁忙，未提交网页请求", 15, False)
+    if code_up in ("FLOW_RESULT_UNCONFIRMED", "VIDS_RESULT_UNCONFIRMED", "GEMINI_RESULT_UNCONFIRMED", "IMAGE_RESULT_UNCONFIRMED"):
+        return (code_up, (err_msg or "Google 已收到生成请求，但本地尚未确认结果") +
+                " 已停止自动重试，请先检查原工程/网页结果，勿直接重新生成以免重复消耗额度。", 0, False)
+    if code_up in ("INVALID_VIDEO_REQUEST", "INVALID_IMAGE_REQUEST", "VIDS_SETTINGS_UNCONFIRMED",
+                   "USER_ACTION_REQUIRED", "PROJECT_INIT_REQUIRED", "AUDIO_DISABLED", "CONFIG_ERROR", "AGENTIC_UI_BLOCKED"):
+        return (code_up, (err_msg or "请核对输入、网页设置、登录或工程") +
+                " 请手动处理后再重试；系统不会自动同意协议或切换平台。", 0, False)
+
+    # Gemini has already generated a result. Validation failures must not spend
+    # credits again or turn into account failover because logs mention quota.
+    if code_up in ("VIDEO_ASPECT_MISMATCH", "VIDEO_DURATION_MISMATCH", "VIDEO_OUTPUT_INVALID", "IMAGE_OUTPUT_INVALID"):
+        return (
+            code_up,
+            (err_msg or "生成产物核验未通过") + " 已停止自动重试，请检查成片后手动处理。",
+            0,
+            False,
+        )
+
+    # A reply-format drift is not evidence of missing frame constraints. This
+    # check must precede quota/WAF text heuristics, including for older task logs.
+    if is_flow_response_unreadable(err_code, err_msg, logs):
+        return FLOW_RESPONSE_UNREADABLE, FLOW_RESPONSE_UNREADABLE_MESSAGE, 0, False
+
+    # Other wire errors may protect outgoing constraints or follow a submit.
+    # Keep them terminal, without falsely diagnosing absent frames.
     if code_up == "WIRE_FORMAT_MISMATCH" or (
         code_up == "EXIT_7" and ("wireformaterror" in content or "wire-format" in content)
     ):
         return (
             "WIRE_FORMAT_MISMATCH",
-            "Flow 实际提交未满足首尾帧约束；已停止重试，请人工核对模型和帧绑定。",
+            "Flow 请求或响应格式校验失败；已停止重试，请先核对原项目和任务日志。",
             0,
             False,
         )
@@ -60,9 +104,9 @@ def classify_failure(err_code: str, err_msg: str, logs: str) -> tuple[str, str, 
     ]):
         return (
             "PROFILE_LOCKED",
-            "Chrome Profile 正在被外部浏览器窗口独占占用，请关闭桌面 Chrome 窗口后系统将自动继续执行",
-            10,
-            False
+            "Chrome Profile 正在被其他窗口占用；不会强杀浏览器，将冷却并有限重试/调度其他可用账号",
+            60,
+            True
         )
 
     # 0.3 浏览器会话或进程意外中断 (EXIT_15 / BrowserSessionClosedError)
@@ -108,7 +152,7 @@ def classify_failure(err_code: str, err_msg: str, logs: str) -> tuple[str, str, 
     ]):
         return (
             "PROJECT_INIT_REQUIRED",
-            "账号尚未初始化专属 Flow 工程或协议未同意，已触发自愈就绪",
+            "账号缺少可用工程；请手动选择工程或处理协议，系统不会自动同意协议",
             10,
             False
         )
@@ -290,7 +334,7 @@ class VideoScheduler:
             with conn:
                 conn.execute("""
                 UPDATE tasks
-                SET status = 'queued', error_code = 'RECOVERED_ON_RESTART', error_message = '系统启动自动恢复中断任务'
+                SET status = 'failed', error_code = 'RESULT_UNCONFIRMED', error_message = '服务中断，无法确认是否已提交；请核对原工程结果，不会自动重发扣费'
                 WHERE status IN ('running', 'dispatching', 'verifying')
                 """)
                 conn.execute("""
@@ -322,8 +366,19 @@ class VideoScheduler:
         profile_id = profile.id
         thread_name = threading.current_thread().name
         engine_name = getattr(task, "engine", "flow")
+        cleanup_failed = False
         
         try:
+            with self.lock:
+                active = self.active_tasks.get(task_id) or {}
+                cancel_event = active.get("event", threading.Event())
+                if task_id in self.cancelled_task_ids or cancel_event.is_set():
+                    return
+            worker = self.vids_worker if engine_name == "vids" else self.gemini_worker if engine_name == "gemini" else self.flow_worker
+            task_type = getattr(task, "task_type", "video") or "video"
+            prepare = getattr(worker, "prepare_image_task" if task_type == "image" else "prepare_task", None)
+            if prepare:
+                prepare(task_id, cancel_event)
             if engine_name == "vids":
                 engine_label = "Google Vids (官方多模态原生工作流)"
             elif engine_name == "flow":
@@ -339,28 +394,32 @@ class VideoScheduler:
             # 根据任务类型与业务形态派发到对应的 Worker
             task_type = getattr(task, "task_type", "video") or "video"
             if task_type == "image":
-                exec_res = self.flow_worker.execute_image_task(task, profile)
+                if engine_name not in ("flow", "gemini"):
+                    exec_res = {"success": False, "error_code": "INVALID_IMAGE_REQUEST", "error_message": "生图只支持 Flow 或 Gemini 网页通道"}
+                else:
+                    exec_res = worker.execute_image_task(task, profile)
             elif task_type == "audio":
                 exec_res = {"success": False, "error_code": "AUDIO_DISABLED", "error_message": "本地配音功能已下线", "pid": None}
             elif engine_name == "gemini":
                 exec_res = self.gemini_worker.execute_task(task, profile)
             elif engine_name == "vids":
-                try:
-                    import importlib
-                    from . import vids_worker as vids_mod
-                    importlib.reload(vids_mod)
-                    worker = vids_mod.VidsWorker(
-                        output_dir=self.output_dir,
-                        timeout_sec=self.vids_worker.timeout_sec,
-                        headless=self.vids_worker.headless,
-                        mock_sample_video=self.vids_worker.mock_sample_video
-                    )
-                    self.vids_worker = worker
-                    exec_res = worker.execute_task(task, profile)
-                except Exception:
-                    exec_res = self.vids_worker.execute_task(task, profile)
+                exec_res = self.vids_worker.execute_task(task, profile)
             else:
                 exec_res = self.flow_worker.execute_task(task, profile)
+
+            cleanup_failed = exec_res.get("cleanup_confirmed") is False
+            if cleanup_failed:
+                with self.lock:
+                    self.active_tasks.setdefault(task_id, {
+                        "event": cancel_event, "task": task, "profile": profile})["cleanup_failed"] = True
+                db.update_profile_status(profile_id, "busy", db_path=self.db_path)
+                current = db.get_task(task_id, self.db_path)
+                if current and current.status != "cancelled":
+                    db.update_task_status(task_id, "failed", error_code="PROCESS_CLEANUP_FAILED",
+                        error_message="执行进程未确认退出；账号已隔离，请核对原工程，不重复提交。", db_path=self.db_path)
+                db.log_task_event(task_id, "PROCESS_CLEANUP_FAILED",
+                    "保留该账号的执行归属；其他空闲账号可继续派发", db_path=self.db_path)
+                return
 
             pid = exec_res.get("pid")
             pid_str = f" (PID={pid})" if pid else ""
@@ -374,10 +433,28 @@ class VideoScheduler:
                 with conn:
                     r_check = conn.execute("SELECT status FROM tasks WHERE id = ?", (task_id,)).fetchone()
                     if was_cancelled or (r_check and r_check["status"] == "cancelled"):
+                        # The API stops immediately and conservatively locks retry.
+                        # Only the execution owner, after confirmed tree cleanup
+                        # and explicit no-submit evidence, may lift that lock.
+                        if (task_type == "video" and engine_name in ("vids", "gemini")
+                                and exec_res.get("cleanup_confirmed") is True
+                                and exec_res.get("submission_possible") is False):
+                            conn.execute("""UPDATE tasks SET error_code='USER_CANCELLED',
+                                error_message=?, updated_at=? WHERE id=? AND status='cancelled'
+                                AND error_code='STOP_RESULT_UNCONFIRMED'""",
+                                ("本地执行已停止，确认未提交云端生成；可手动重试。",
+                                 datetime.now().astimezone().isoformat(), task_id))
                         print(f"[{thread_name}] 任务 [{task_id}] 已在外部被用户手动中止，跳过后置处理。")
                         return
             finally:
                 conn.close()
+
+            # Verify task-owned images before success or any retry/failover decision.
+            if task_type == "image" and exec_res.get("success"):
+                try:
+                    validate_image_result(exec_res, task, self.output_dir)
+                except (ValueError, OSError, TypeError) as exc:
+                    exec_res.update(success=False, error_code="IMAGE_OUTPUT_INVALID", error_message=str(exc))
 
             # ---------------- 失败处理与智能熔断切换 (Failover) ----------------
             if not exec_res["success"]:
@@ -389,7 +466,7 @@ class VideoScheduler:
                 now_dt = datetime.now().astimezone()
                 cooldown_until = (now_dt + timedelta(seconds=cooldown_sec)).isoformat()
 
-                if category in ("UNSUPPORTED_FEATURE", "WIRE_FORMAT_MISMATCH", "SAFETY_FILTER_BLOCKED"):
+                if category in TERMINAL_FAILURES:
                     db.update_profile_status(
                         profile_id=profile_id,
                         status="idle",
@@ -409,59 +486,19 @@ class VideoScheduler:
                     print(f"[{thread_name}] ❌ 任务 [{task_id}] 不可自动重试: {friendly_msg}")
                     return
 
-                if category == "PROJECT_INIT_REQUIRED":
-                    # 工程未初始化或新条款阻断：触发自愈，锁定当前账号，任务等待自愈完成
-                    db.update_profile_status(
-                        profile_id=profile_id,
-                        status="idle",
-                        cooldown_until=None,
-                        success=False,
-                        db_path=self.db_path
-                    )
-                    db.update_task_status(
-                        task_id=task_id,
-                        status="queued",
-                        clear_assigned_profile=False,
-                        error_code=category,
-                        error_message=friendly_msg,
-                        logs=logs,
-                        db_path=self.db_path
-                    )
-                    heal_msg = f"🔄 账号 [{profile.name}] 未绑定工程，已自动触发无头自愈初始化，任务已重新放回排队。"
-                    db.log_task_event(task_id, "AUTO_ONBOARD", heal_msg, db_path=self.db_path)
-                    print(f"[{thread_name}] {heal_msg}")
-                    try:
-                        from .onboard import auto_onboard_profile
-                        threading.Thread(
-                            target=lambda: auto_onboard_profile(profile.name, create_default_project=True),
-                            daemon=True,
-                            name=f"AsyncOnboard-{profile.name}"
-                        ).start()
-                    except Exception:
-                        pass
-                    return
-
                 if category == "PROFILE_LOCKED":
-                    # 浏览器窗口独占占用：账号维持 idle，任务安全保留在排队中，不扣重试次数
-                    db.update_profile_status(
-                        profile_id=profile_id,
-                        status="idle",
-                        cooldown_until=None,
-                        success=False,
-                        db_path=self.db_path
-                    )
-                    failover_msg = f"⏳ 账号 [{profile.name}] {friendly_msg}。任务已安全放回队列，等待 Chrome 窗口关闭后自动运行..."
-                    db.update_task_status(
-                        task_id=task_id,
-                        status="queued",
-                        clear_assigned_profile=False,
-                        error_code=category,
-                        error_message=friendly_msg,
-                        logs=logs,
-                        db_path=self.db_path
-                    )
+                    # Never destroy a user's Chrome or create an unbounded hot loop.
+                    db.update_profile_status(profile_id, "cooldown", cooldown_until=cooldown_until,
+                                             success=False, db_path=self.db_path)
+                    retries = task.retry_count + 1
+                    with db.get_db_connection(self.db_path) as conn:
+                        conn.execute("UPDATE tasks SET retry_count = ? WHERE id = ?", (retries, task_id))
+                    status = "retry_wait" if retries < task.max_retries else "failed"
+                    failover_msg = f"{friendly_msg}（{retries}/{task.max_retries}）；可停止任务或关闭占用窗口后手动重试。"
+                    db.update_task_status(task_id, status, clear_assigned_profile=True,
+                                          error_code=category, error_message=failover_msg, logs=logs,
+                                          db_path=self.db_path)
                     db.log_task_event(task_id, "PROFILE_LOCKED", failover_msg, db_path=self.db_path)
-                    print(f"[{thread_name}] {failover_msg}")
                     return
 
                 if category == "UNUSUAL_ACTIVITY":
@@ -715,6 +752,10 @@ class VideoScheduler:
                 db.log_task_event(task_id, "TASK_VERIFY_FAILED", fail_reason, db_path=self.db_path)
 
         except Exception as exc:
+            current = db.get_task(task_id, self.db_path)
+            if current and current.status == "cancelled":
+                db.log_task_event(task_id, "STOP_CLEANUP", "执行线程已退出并释放资源", db_path=self.db_path)
+                return
             db.update_task_status(
                 task_id=task_id,
                 status="failed",
@@ -725,58 +766,58 @@ class VideoScheduler:
             db.update_profile_status(profile_id=profile_id, status="idle", success=False, db_path=self.db_path)
             db.log_task_event(task_id, "TASK_EXCEPTION", str(exc), db_path=self.db_path)
         finally:
-            with self.lock:
-                self.cancelled_task_ids.discard(task_id)
-                self.active_tasks.pop(task_id, None)
+            if not cleanup_failed:
+                current = db.get_task(task_id, self.db_path)
+                if current and current.status == "cancelled":
+                    db.update_profile_status(profile_id, "idle", cooldown_until=None, db_path=self.db_path)
+                with self.lock:
+                    self.cancelled_task_ids.discard(task_id)
+                    self.active_tasks.pop(task_id, None)
 
     def cancel_task(self, task_id: str) -> bool:
-        """强行中止指定任务的执行并释放占用资源与调度槽位"""
+        """Signal the owning worker; release its slot/profile only after it exits."""
         with self.lock:
+            active = self.active_tasks.get(task_id)
+            if not active:
+                return False
             self.cancelled_task_ids.add(task_id)
-            self.active_tasks.pop(task_id, None)
-
-        print(f"[VideoScheduler] ⏹ 正在执行任务 [{task_id}] 强行中止操作...")
-
-        # 1. 尝试通知所有 Worker 终止执行与杀掉进程
+            active["event"].set()
+            engine = active["task"].engine
+            task_type = active["task"].task_type
+        worker = (self.flow_worker if engine == "flow" else
+                  self.vids_worker if engine == "vids" else self.gemini_worker)
         try:
-            self.flow_worker.cancel_task(task_id)
-        except Exception as e:
-            print(f"[VideoScheduler] flow_worker.cancel_task 异常: {e}")
-
-        try:
-            self.vids_worker.cancel_task(task_id)
-        except Exception as e:
-            print(f"[VideoScheduler] vids_worker.cancel_task 异常: {e}")
-
-        try:
-            if hasattr(self, "gemini_worker") and hasattr(self.gemini_worker, "cancel_task"):
-                self.gemini_worker.cancel_task(task_id)
-        except Exception as e:
-            print(f"[VideoScheduler] gemini_worker.cancel_task 异常: {e}")
-
-        # 2. 释放可能被锁定的 Profile 与残留 Chrome 进程
-        try:
-            conn = db.get_db_connection(self.db_path)
-            with conn:
-                r = conn.execute("SELECT assigned_profile_id FROM tasks WHERE id = ?", (task_id,)).fetchone()
-                assigned_pid = r["assigned_profile_id"] if r else None
-            conn.close()
-
-            if assigned_pid:
-                db.update_profile_status(assigned_pid, "idle", cooldown_until=None, db_path=self.db_path)
-                p_obj = db.get_profile(assigned_pid, self.db_path)
-                if p_obj:
-                    p_dir = Path(p_obj.profile_path) if p_obj.profile_path else None
-                    if p_dir and p_dir.exists():
-                        from .gemini_worker import unlock_profile_processes
-                        unlock_profile_processes(p_dir, p_obj.name)
-        except Exception as e:
-            print(f"[VideoScheduler] 释放 Profile 异常: {e}")
-
+            worker.cancel_task(task_id)
+        except Exception as exc:
+            db.log_task_event(task_id, "STOP_SIGNAL_ERROR", str(exc), db_path=self.db_path)
         return True
+
+    def _reap_cleanup_owners(self) -> None:
+        """Poll only quarantined children; never restart or resubmit their work."""
+        with self.lock:
+            owners = [(key, value) for key, value in self.active_tasks.items()
+                      if value.get("cleanup_failed")]
+        for task_id, active in owners:
+            task = active["task"]
+            worker = (self.flow_worker if task.engine == "flow" else
+                      self.vids_worker if task.engine == "vids" else self.gemini_worker)
+            poll = getattr(worker, "has_live_execution", None)
+            try:
+                if poll is None or poll(task_id):
+                    continue
+            except Exception:
+                continue  # An unavailable process status is not proof of exit.
+            with self.lock:
+                if self.active_tasks.get(task_id) is not active:
+                    continue
+                db.update_profile_status(active["profile"].id, "idle", db_path=self.db_path)
+                self.active_tasks.pop(task_id, None)
+                self.cancelled_task_ids.discard(task_id)
+            db.log_task_event(task_id, "STOP_CLEANUP", "残留进程已确认退出，解除账号隔离", db_path=self.db_path)
 
     def dispatch_cycle(self) -> int:
         """检查等待排队任务并派发到空闲可用 Profile"""
+        self._reap_cleanup_owners()
         now_dt = datetime.now().astimezone()
         if self.fleet_cooldown_until and now_dt < self.fleet_cooldown_until:
             # 账号池处于削峰熔断保护期，暂停派发新任务
@@ -811,7 +852,7 @@ class VideoScheduler:
 
         # 计算当前可用槽位
         with self.lock:
-            active_count = len(self.active_tasks)
+            active_count = sum(not owner.get("cleanup_failed") for owner in self.active_tasks.values())
         available_slots = max(0, self.max_workers - active_count)
         if available_slots <= 0:
             return 0
@@ -837,46 +878,42 @@ class VideoScheduler:
         for task in queued_tasks:
             if dispatched >= available_slots:
                 break
-
-            profile = db.acquire_idle_profile(
-                require_clean=task.require_clean_watermark,
-                profile_id=task.assigned_profile_id,
-                db_path=self.db_path
-            )
-            if not profile and task.assigned_profile_id:
-                # 容灾自动接力：若原绑定账号正忙或处于冷却，且账号池中有其他就绪的空闲账号，自动由空闲账号接力执行，防止队头阻塞死锁
-                fallback_profile = db.acquire_idle_profile(
-                    require_clean=task.require_clean_watermark,
-                    profile_id=None,
-                    db_path=self.db_path
-                )
-                if fallback_profile:
-                    db.log_task_event(
-                        task.id,
-                        "FAILOVER_PROFILE",
-                        f"原绑定账号 [{task.assigned_profile_id}] 暂不可用（忙碌或冷却中），由空闲账号 [{fallback_profile.name}] 接力调度执行",
-                        db_path=self.db_path
-                    )
-                    profile = fallback_profile
-
-            if not profile:
-                continue
-
-            # 标记任务进入 running 状态
-            if not db.claim_task(task.id, profile.id, self.db_path):
-                db.update_profile_status(profile.id, "idle", db_path=self.db_path)
-                continue
-
+            # One ownership boundary, shared with profile reset/close and chat.
             with self.lock:
-                evt = threading.Event()
+                if task.id in self.active_tasks or sum(not owner.get("cleanup_failed") for owner in self.active_tasks.values()) >= self.max_workers:
+                    continue
+                profile = db.acquire_idle_profile(
+                    require_clean=task.require_clean_watermark,
+                    profile_id=task.assigned_profile_id, db_path=self.db_path)
+                if not profile and task.assigned_profile_id:
+                    profile = db.acquire_idle_profile(
+                        require_clean=task.require_clean_watermark,
+                        profile_id=None, db_path=self.db_path)
+                    if profile:
+                        db.log_task_event(task.id, "FAILOVER_PROFILE",
+                            f"原绑定账号 [{task.assigned_profile_id}] 暂不可用，由空闲账号 [{profile.name}] 接力",
+                            db_path=self.db_path)
+                if not profile:
+                    continue
+                if not db.claim_task(task.id, profile.id, self.db_path):
+                    db.update_profile_status(profile.id, "idle", db_path=self.db_path)
+                    continue
                 self.active_tasks[task.id] = {
-                    "event": evt,
-                    "task": task,
-                    "profile": profile,
-                    "start_time": time.time()
-                }
-
-            self.executor.submit(self.process_task_execution, task, profile)
+                    "event": threading.Event(), "task": task, "profile": profile,
+                    "start_time": time.time()}
+            try:
+                self.executor.submit(self.process_task_execution, task, profile)
+            except Exception as exc:
+                # No worker was started; unlike a stopped running task it is safe
+                # to release this reservation immediately.
+                with self.lock:
+                    self.active_tasks.pop(task.id, None)
+                    self.cancelled_task_ids.discard(task.id)
+                    db.update_task_status(task.id, "failed", error_code="EXECUTOR_UNAVAILABLE",
+                        error_message=f"执行器未启动任务: {exc}", db_path=self.db_path)
+                    db.update_profile_status(profile.id, "idle", db_path=self.db_path)
+                db.log_task_event(task.id, "EXECUTOR_UNAVAILABLE", str(exc), db_path=self.db_path)
+                continue
             dispatched += 1
 
         return dispatched

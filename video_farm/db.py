@@ -6,6 +6,7 @@ from datetime import datetime
 import json
 import uuid
 from .models import Task, Profile
+from .flow_errors import FLOW_RESPONSE_UNREADABLE_MESSAGE, is_flow_response_unreadable
 
 DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent / "video_farm_data/tasks.db"
 
@@ -445,33 +446,170 @@ def pick_best_profile(
 
 # --- Task operations ---
 
-def add_task(task: Task, db_path: Path = DEFAULT_DB_PATH) -> None:
-    conn = get_db_connection(db_path)
-    now = datetime.now().astimezone().isoformat()
+def _insert_task(conn: sqlite3.Connection, task: Task) -> None:
     engine = getattr(task, "engine", "flow") or "flow"
     task_type = getattr(task, "task_type", "video") or "video"
     model = getattr(task, "model", "") or ""
     input_video_path = getattr(task, "input_video_path", "") or ""
     output_image_paths = getattr(task, "output_image_paths", None)
     output_audio_path = getattr(task, "output_audio_path", None)
+    conn.execute("""
+    INSERT INTO tasks (
+        id, project_id, prompt, start_image_path, end_image_path, aspect_ratio,
+        duration_sec, status, assigned_profile_id, priority, retry_count,
+        max_retries, require_clean_watermark, submit_time, created_at, updated_at, engine,
+        task_type, model, input_video_path, output_image_paths, output_audio_path
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        task.id, task.project_id, task.prompt, task.start_image_path, task.end_image_path,
+        task.aspect_ratio, task.duration_sec, task.status, task.assigned_profile_id,
+        task.priority, task.retry_count, task.max_retries, 1 if task.require_clean_watermark else 0,
+        task.submit_time, task.created_at, task.updated_at, engine,
+        task_type, model, input_video_path, output_image_paths, output_audio_path
+    ))
+
+
+def add_task(task: Task, db_path: Path = DEFAULT_DB_PATH) -> None:
+    conn = get_db_connection(db_path)
     try:
         with conn:
-            conn.execute("""
-            INSERT INTO tasks (
-                id, project_id, prompt, start_image_path, end_image_path, aspect_ratio,
-                duration_sec, status, assigned_profile_id, priority, retry_count,
-                max_retries, require_clean_watermark, submit_time, created_at, updated_at, engine,
-                task_type, model, input_video_path, output_image_paths, output_audio_path
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                task.id, task.project_id, task.prompt, task.start_image_path, task.end_image_path,
-                task.aspect_ratio, task.duration_sec, task.status, task.assigned_profile_id,
-                task.priority, task.retry_count, task.max_retries, 1 if task.require_clean_watermark else 0,
-                task.submit_time, task.created_at, task.updated_at, engine,
-                task_type, model, input_video_path, output_image_paths, output_audio_path
-            ))
+            _insert_task(conn, task)
     finally:
         conn.close()
+
+
+def add_tasks(tasks: List[Task], db_path: Path = DEFAULT_DB_PATH, *, events=()) -> None:
+    conn = get_db_connection(db_path)
+    try:
+        with conn:
+            for task in tasks:
+                _insert_task(conn, task)
+            for task_id, event_type, detail in events:
+                _insert_task_event(conn, task_id, event_type, detail)
+    finally:
+        conn.close()
+
+
+def _require_requeue_safe(row) -> None:
+    if is_flow_response_unreadable(row["error_code"], row["error_message"], row["logs"]):
+        raise TaskOperationConflict(FLOW_RESPONSE_UNREADABLE_MESSAGE)
+    if row["error_code"] in ("RESULT_UNCONFIRMED", "FLOW_RESULT_UNCONFIRMED", "VIDS_RESULT_UNCONFIRMED",
+                             "GEMINI_RESULT_UNCONFIRMED", "IMAGE_RESULT_UNCONFIRMED", "STOP_RESULT_UNCONFIRMED", "PROCESS_CLEANUP_FAILED"):
+        raise TaskOperationConflict("请求可能已提交，请先在原工程核对生成结果；不重复提交扣费")
+
+
+def _check_vids_binding(conn, shot_id: str, expected_task_id: str, workflow_id=None):
+    shot = conn.execute("SELECT * FROM vids_shots WHERE id=?", (shot_id,)).fetchone()
+    if (not shot or (shot["task_id"] or "") != expected_task_id
+            or (workflow_id and shot["workflow_id"] != workflow_id)):
+        raise TaskOperationConflict("镜头状态已变化，请刷新；未重复创建任务")
+    if shot["task_id"]:
+        old = conn.execute("SELECT * FROM tasks WHERE id=?", (shot["task_id"],)).fetchone()
+        if old:
+            if old["status"] in ("queued", "retry_wait", "dispatching", "running", "verifying"):
+                raise TaskOperationConflict("镜头任务仍在执行，请先停止")
+            _require_requeue_safe(old)
+    return shot
+
+
+def _enqueue_vids_shot_tasks(conn, workflow_id: str, entries: list[tuple[str, Task, str]], now: str) -> None:
+    if not conn.execute("SELECT id FROM vids_workflows WHERE id=?", (workflow_id,)).fetchone():
+        raise TaskOperationConflict("工作流已删除，请刷新")
+    if len({item[0] for item in entries}) != len(entries):
+        raise TaskOperationConflict("批次包含重复镜头；未创建任务")
+    shots = [_check_vids_binding(conn, shot_id, expected, workflow_id) for shot_id, _, expected in entries]
+    for shot, (shot_id, task, _) in zip(shots, entries):
+        _insert_task(conn, task)
+        conn.execute("""UPDATE vids_shots SET task_id=?, status='queued', progress=0,
+            video_url='', local_video_path='', error_message='', updated_at=? WHERE id=?""", (task.id, now, shot_id))
+        _insert_task_event(conn, task.id, "TASK_CREATED_VIDS",
+            f"分镜 [{shot['name']}] 已排队；平台={task.engine}, 模型={task.model}, 时长={task.duration_sec}s")
+    if entries:
+        conn.execute("UPDATE vids_workflows SET status='generating', updated_at=? WHERE id=?", (now, workflow_id))
+
+
+def enqueue_vids_shot_tasks(workflow_id: str, entries: list[tuple[str, Task, str]],
+                            db_path: Path = DEFAULT_DB_PATH) -> None:
+    """Claim tasks, shot bindings and events together, or enqueue nothing."""
+    conn = get_db_connection(db_path)
+    try:
+        with conn:
+            conn.execute("BEGIN IMMEDIATE")
+            _enqueue_vids_shot_tasks(conn, workflow_id, entries, datetime.now().astimezone().isoformat())
+    finally:
+        conn.close()
+
+
+def import_vids_batch(workflow: dict, shots: list[dict], entries: list[tuple[str, Task, str]],
+                      import_mode: str, expected_bindings: dict[str, str], db_path: Path = DEFAULT_DB_PATH) -> None:
+    """Atomic JSON import: metadata, replacement, new shots, queue and events."""
+    conn = get_db_connection(db_path)
+    now = datetime.now().astimezone().isoformat()
+    workflow_id = workflow["id"]
+    try:
+        with conn:
+            conn.execute("BEGIN IMMEDIATE")
+            if import_mode == "new":
+                conn.execute("""INSERT INTO vids_workflows
+                    (id,title,doc_url,style_prompt,aspect_ratio,duration_per_shot,resolution,model_name,engine,status,created_at,updated_at)
+                    VALUES (?,?,?,?,?,?,?,?,?,'draft',?,?)""", tuple(workflow[k] for k in
+                    ("id", "title", "doc_url", "style_prompt", "aspect_ratio", "duration_per_shot", "resolution", "model_name", "engine")) + (now, now))
+            else:
+                if not conn.execute("SELECT id FROM vids_workflows WHERE id=?", (workflow_id,)).fetchone():
+                    raise TaskOperationConflict("工作流已删除，请刷新；整批未导入")
+                if import_mode == "replace":
+                    current = {r['id']: r['task_id'] or '' for r in conn.execute(
+                        "SELECT id,task_id FROM vids_shots WHERE workflow_id=?", (workflow_id,))}
+                    if current != expected_bindings:
+                        raise TaskOperationConflict("原镜头已变化，请刷新；整批未导入")
+                    for shot_id, expected in expected_bindings.items():
+                        _check_vids_binding(conn, shot_id, expected, workflow_id)
+                    conn.execute("DELETE FROM vids_shots WHERE workflow_id=?", (workflow_id,))
+                fields = ("style_prompt", "aspect_ratio", "resolution", "model_name", "engine")
+                conn.execute("UPDATE vids_workflows SET " + ', '.join(k + '=?' for k in fields) +
+                    ", updated_at=? WHERE id=?", tuple(workflow[k] for k in fields) + (now, workflow_id))
+            sequence = conn.execute("SELECT COALESCE(MAX(sequence),0)+1 FROM vids_shots WHERE workflow_id=?", (workflow_id,)).fetchone()[0]
+            for index, shot in enumerate(shots, start=sequence):
+                conn.execute("""INSERT INTO vids_shots
+                    (id,workflow_id,sequence,name,prompt,narration,duration,scene_index,mode,image_url,end_image_url,resolution,model_name,engine,status,progress,task_id,created_at,updated_at)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,'pending',0,'',?,?)""",
+                    (shot['id'], workflow_id, index, shot['name'], shot['prompt'], shot['narration'], shot['duration'], index,
+                     shot['mode'], shot['image_url'], shot['end_image_url'], shot['resolution'], shot['model_name'], shot['engine'], now, now))
+            _enqueue_vids_shot_tasks(conn, workflow_id, entries, now)
+    finally:
+        conn.close()
+
+
+def enqueue_vids_shot_task(shot_id: str, task: Task, expected_task_id: str = "",
+                           db_path: Path = DEFAULT_DB_PATH) -> None:
+    shot = get_vids_shot(shot_id, db_path=db_path)
+    if not shot:
+        raise TaskOperationConflict("镜头已删除，请刷新")
+    enqueue_vids_shot_tasks(shot["workflow_id"], [(shot_id, task, expected_task_id)], db_path=db_path)
+
+
+def reset_vids_workflow_shots(workflow_id: str, expected_bindings: dict[str, str],
+                              db_path: Path = DEFAULT_DB_PATH) -> None:
+    """Reset only the exact idle snapshot; preserve all existing media."""
+    conn = get_db_connection(db_path)
+    now = datetime.now().astimezone().isoformat()
+    try:
+        with conn:
+            conn.execute("BEGIN IMMEDIATE")
+            rows = conn.execute("SELECT id, task_id FROM vids_shots WHERE workflow_id=?",
+                                (workflow_id,)).fetchall()
+            actual = {r["id"]: r["task_id"] or "" for r in rows}
+            if actual != expected_bindings:
+                raise TaskOperationConflict("镜头绑定已变化，请刷新；未重置任何镜头")
+            for shot_id, expected in expected_bindings.items():
+                _check_vids_binding(conn, shot_id, expected, workflow_id)
+            conn.execute("""UPDATE vids_shots SET status='pending', progress=0,
+                error_message='', task_id='', updated_at=? WHERE workflow_id=?""", (now, workflow_id))
+            conn.execute("UPDATE vids_workflows SET status='draft', updated_at=? WHERE id=?",
+                         (now, workflow_id))
+    finally:
+        conn.close()
+
 
 def get_task_by_id(task_id: str, db_path: Path = DEFAULT_DB_PATH) -> Optional[Task]:
     conn = get_db_connection(db_path)
@@ -562,7 +700,7 @@ def update_task_status(
                 params.append(logs)
 
             params.append(task_id)
-            conn.execute(f"UPDATE tasks SET {', '.join(updates)} WHERE id = ?", params)
+            conn.execute(f"UPDATE tasks SET {', '.join(updates)} WHERE id = ? AND (status != 'cancelled' OR ? = 'cancelled')", params + [status])
     finally:
         conn.close()
 
@@ -603,28 +741,28 @@ def record_task_verification(
     finally:
         conn.close()
 
+def _insert_task_event(conn: sqlite3.Connection, task_id: str, event_type: str, detail: str = "") -> None:
+    now = datetime.now().astimezone().isoformat()
+    cols = [r["name"] for r in conn.execute("PRAGMA table_info(task_events)").fetchall()]
+    data = {"task_id": task_id, "event_type": event_type}
+    for key in ("detail", "message"):
+        if key in cols:
+            data[key] = detail
+    for key in ("created_at", "timestamp"):
+        if key in cols:
+            data[key] = now
+    keys = list(data)
+    conn.execute(f"INSERT INTO task_events ({', '.join(keys)}) VALUES ({', '.join('?' for _ in keys)})", list(data.values()))
+
+
 def log_task_event(task_id: str, event_type: str, detail: str = "", db_path: Path = DEFAULT_DB_PATH) -> None:
     conn = get_db_connection(db_path)
-    now = datetime.now().astimezone().isoformat()
     try:
         with conn:
-            cols = [r["name"] for r in conn.execute("PRAGMA table_info(task_events)").fetchall()]
-            data = {"task_id": task_id, "event_type": event_type}
-            if "detail" in cols:
-                data["detail"] = detail
-            if "message" in cols:
-                data["message"] = detail
-            if "created_at" in cols:
-                data["created_at"] = now
-            if "timestamp" in cols:
-                data["timestamp"] = now
-            
-            keys = list(data.keys())
-            placeholders = ", ".join(["?"] * len(keys))
-            col_names = ", ".join(keys)
-            conn.execute(f"INSERT INTO task_events ({col_names}) VALUES ({placeholders})", [data[k] for k in keys])
+            _insert_task_event(conn, task_id, event_type, detail)
     finally:
         conn.close()
+
 
 def list_task_events(task_id: str, db_path: Path = DEFAULT_DB_PATH) -> List[Dict[str, Any]]:
     conn = get_db_connection(db_path)
@@ -747,9 +885,9 @@ def sync_shot_with_task(shot_dict: Dict[str, Any], conn: sqlite3.Connection) -> 
         if (shot_dict.get("progress") or 0) < prog:
             updates["progress"] = prog
     elif t_status == "queued":
-        if shot_dict.get("status") != "running":
-            updates["status"] = "running"
-            updates["progress"] = 5
+        updates["status"] = "queued"
+        updates["progress"] = 0
+        updates["error_message"] = ""
     elif t_status == "failed":
         if shot_dict.get("status") == "pending":
             updates["task_id"] = ""
@@ -758,16 +896,16 @@ def sync_shot_with_task(shot_dict: Dict[str, Any], conn: sqlite3.Connection) -> 
             updates["status"] = "failed"
             updates["error_message"] = t_err or "视频生成失败"
     elif t_status == "retry_wait":
-        if shot_dict.get("status") != "running":
-            updates["status"] = "running"
+        updates["status"] = "retry_wait"
+        updates["progress"] = 0
         updates["error_message"] = t_err or "调度避让重试中..."
     elif t_status == "cancelled":
-        if shot_dict.get("status") != "pending":
-            updates["status"] = "pending"
-            updates["progress"] = 0
-            updates["error_message"] = t_err or "任务已中断，点击即可重新生成"
-            updates["task_id"] = ""
-        
+        updates["status"] = "cancelled"
+        updates["progress"] = 0
+        updates["error_message"] = t_err or "已取消；后台退出后可重新生成"
+        # Keep the link: DB cancellation is not proof that the execution owner exited.
+    updates = {key: value for key, value in updates.items() if shot_dict.get(key) != value}
+
     if updates:
         now = datetime.now().astimezone().isoformat()
         updates["updated_at"] = now
@@ -1031,6 +1169,10 @@ def transition_task(task_id: str, action: str, db_path: Path = DEFAULT_DB_PATH):
             if action == 'retry':
                 if row['status'] not in ('failed','cancelled','retry_wait'):
                     raise TaskOperationConflict('仅失败、已取消或等待重试的任务可重新排队；运行中任务不能重置')
+                if is_flow_response_unreadable(row['error_code'], row['error_message'], row['logs']):
+                    raise TaskOperationConflict(FLOW_RESPONSE_UNREADABLE_MESSAGE)
+                if row['error_code'] in ('RESULT_UNCONFIRMED','FLOW_RESULT_UNCONFIRMED','VIDS_RESULT_UNCONFIRMED','GEMINI_RESULT_UNCONFIRMED','IMAGE_RESULT_UNCONFIRMED','STOP_RESULT_UNCONFIRMED','PROCESS_CLEANUP_FAILED'):
+                    raise TaskOperationConflict('请求可能已提交，请先在原工程核对生成结果；不重复提交扣费')
                 if row['error_code'] in ('WIRE_FORMAT_MISMATCH','UNSUPPORTED_FEATURE'):
                     raise TaskOperationConflict('模型或请求参数不兼容，请修正参数后创建新任务；换号不能解决此问题')
                 # Preserve explicit profile binding; never silently switch a pinned account.
@@ -1041,11 +1183,14 @@ def transition_task(task_id: str, action: str, db_path: Path = DEFAULT_DB_PATH):
                     return {'id':task_id,'status':'cancelled'}
                 if action == 'cancel' and row['status'] not in ('queued','retry_wait'):
                     raise TaskOperationConflict('只能取消尚未执行的任务；运行中任务请使用 stop 强制中止')
-                if action == 'stop' and row['status'] not in ('queued','retry_wait','running'):
+                if action == 'stop' and row['status'] not in ('queued','retry_wait','dispatching','running','verifying'):
                     raise TaskOperationConflict('只能中止未完成的任务')
-                conn.execute("UPDATE tasks SET status='cancelled', error_code='USER_CANCELLED', error_message='用户手动强行中止任务', finish_time=?, updated_at=? WHERE id=?",(now,now,task_id))
-                if row['assigned_profile_id']:
-                    conn.execute("UPDATE profiles SET status='idle', updated_at=? WHERE id=? AND status='busy'", (now, row['assigned_profile_id']))
+                may_be_submitted = row['status'] in ('dispatching', 'running', 'verifying')
+                code = 'STOP_RESULT_UNCONFIRMED' if may_be_submitted else 'USER_CANCELLED'
+                message = ('本地执行已停止；云端请求可能继续，请先核对原工程结果，避免重复扣费'
+                           if may_be_submitted else '尚未执行的任务已取消')
+                conn.execute("UPDATE tasks SET status='cancelled', error_code=?, error_message=?, finish_time=?, updated_at=? WHERE id=?",(code,message,now,now,task_id))
+                # The execution owner releases the account after browser/process cleanup.
                 status='cancelled'
             else:
                 raise ValueError('Unknown task action')

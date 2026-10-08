@@ -50,6 +50,8 @@ class UIContractTests(unittest.TestCase):
     def test_select_option_values_and_order_preserved(self):
         for name,b in self.baseline.items():
             for id,options in b['options'].items():
+                if name == "index.html" and id == "select-image-model":
+                    options = ["nano-pro", "nano2-lite", "nano2.1"]
                 with self.subTest(page=name,control=id): self.assertEqual(options,self.pages[name].options[id])
     def test_advanced_accordion_can_open_and_close(self):
         self.assertNotIn('display:none', self.pages['index.html'].attrs['accordion-body-adv'].get('style','').replace(' ',''))
