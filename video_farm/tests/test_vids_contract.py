@@ -115,3 +115,17 @@ def test_flow_duration_contract_enforced():
                      model="omni-flash", duration_sec=12, aspect_ratio="16:9")
     with pytest.raises(VideoRequestError, match="仅支持 4、6、8、10 秒"):
         validate_video_request(t_bad_dur)
+
+
+def test_delete_task_resets_shot_to_pending(shot_factory):
+    make, _ = shot_factory
+    shot, wf = make(mode="text2video", engine="vids")
+    t = Task(id="task_delete_reset", prompt="test", engine="vids", status="failed")
+    db.add_task(t)
+    db.update_vids_shot(shot["id"], {"task_id": t.id, "status": "failed", "error_message": "some error"})
+    
+    db.delete_task(t.id)
+    refreshed = db.get_vids_shot(shot["id"])
+    assert refreshed["task_id"] is None
+    assert refreshed["status"] == "pending"
+    assert refreshed["error_message"] == ""

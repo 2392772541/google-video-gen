@@ -435,7 +435,10 @@ def normalize_imported_workflow_json(raw_input: Any, default_workflow: Optional[
             if cand_s_eng in ('vids', 'flow', 'gemini'):
                 shot_engine = cand_s_eng
         if not shot_engine:
-            shot_engine = engine
+            if (end_img_url and img_url) or mode == 'first_last_frame':
+                shot_engine = 'flow'
+            else:
+                shot_engine = engine
 
         normalized_shots.append({
             'name': name,

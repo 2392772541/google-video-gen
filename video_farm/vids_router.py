@@ -644,24 +644,34 @@ def _prepare_shot_task(shot: Dict[str, Any], wf: Dict[str, Any]) -> Task:
     end = _resolve_local_image_path(shot.get("end_image_url") or "")
     if mode in ("image2video", "first_last_frame") and not start:
         raise HTTPException(422, "图片生成模式必须提供首帧/参考图片")
+    engine = (shot.get("engine") or wf.get("engine") or "vids").strip().lower()
+
     resolution = (shot.get("resolution") or wf.get("resolution") or "1080p").strip()
     model = (shot.get("model_name") or wf.get("model_name") or "Omni").strip()
+    duration = int(shot.get("duration") or wf.get("duration_per_shot") or 10)
     if engine == "vids":
         if resolution not in ("720p", "1080p"):
             raise HTTPException(422, "Google Vids 画质仅支持 720p 或 1080p")
         model = f"Omni ({resolution})"
     elif engine == "flow":
-        dur = shot.get("duration") or wf.get("duration_per_shot") or 8
-        if int(dur) == 10:
+        if duration == 10:
             model = "omni-flash"
-        elif model == "Omni":
+        elif not model or "omni" in model.lower():
+            model = "omni-flash" if duration == 10 else "veo-lite"
+        elif "quality" in model.lower():
+            model = "veo-quality"
+        elif "fast" in model.lower():
+            model = "veo-fast"
+        elif "lp" in model.lower():
+            model = "veo-lite-lp"
+        else:
             model = "veo-lite"
     task = Task(
         id=f"task_{uuid.uuid4().hex[:10]}", prompt=shot.get("prompt", "").strip(),
         start_image_path=start, end_image_path=end, engine=engine, task_type="video",
         model=model, project_id=(wf.get("doc_url") or "") if engine == "vids" else "",
         aspect_ratio=wf.get("aspect_ratio") or "16:9",
-        duration_sec=shot.get("duration") or wf.get("duration_per_shot") or 10,
+        duration_sec=duration,
         status="queued", priority=10, assigned_profile_id=None,
     )
     try:
@@ -721,7 +731,7 @@ def generate_all_shots(workflow_id: str):
         if not wf:
             raise HTTPException(404, "工作流不存在")
         shots = wf.get("shots", [])
-        target_shots = [s for s in shots if s.get("status") in ("pending", "failed")]
+        target_shots = [s for s in shots if s.get("status") in ("pending", "failed", "planned")]
         if not target_shots:
             target_shots = [s for s in shots if s.get("status") != "completed"]
         if not target_shots:

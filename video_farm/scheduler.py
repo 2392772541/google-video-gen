@@ -436,9 +436,8 @@ class VideoScheduler:
                         # The API stops immediately and conservatively locks retry.
                         # Only the execution owner, after confirmed tree cleanup
                         # and explicit no-submit evidence, may lift that lock.
-                        if (task_type == "video" and engine_name in ("vids", "gemini")
-                                and exec_res.get("cleanup_confirmed") is True
-                                and exec_res.get("submission_possible") is False):
+                        if (exec_res.get("submission_possible") is False
+                                and (exec_res.get("cleanup_confirmed") is True or engine_name == "flow" or task_type == "image")):
                             conn.execute("""UPDATE tasks SET error_code='USER_CANCELLED',
                                 error_message=?, updated_at=? WHERE id=? AND status='cancelled'
                                 AND error_code='STOP_RESULT_UNCONFIRMED'""",

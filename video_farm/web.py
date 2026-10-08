@@ -1166,17 +1166,32 @@ async def create_batch_tasks(request: Request):
         if not isinstance(item, dict):
             raise HTTPException(422, f"第{index}项必须是镜头对象；整批未提交")
         try:
+            s_img = _asset_path(item.get("start_image_path") or item.get("start_image") or item.get("initial_frame") or item.get("start_frame") or item.get("first_frame") or item.get("first_image"))
+            e_img = _asset_path(item.get("end_image_path") or item.get("end_image") or item.get("end_frame") or item.get("last_frame") or item.get("final_frame") or item.get("last_image"))
+            eng = str(item.get("engine") or "").strip().lower()
+            if not eng:
+                if e_img and s_img:
+                    eng = "flow"
+                elif top_engine:
+                    eng = str(top_engine).strip().lower()
+                else:
+                    eng = "vids"
+            m = str(item.get("model") or "").strip()
+            d = int(item.get("duration_sec", item.get("duration", item.get("seconds", 8))))
+            if eng == "flow" and d == 10:
+                if not m or "omni" in m.lower():
+                    m = "omni-flash"
             task = Task(
                 id=f"task_{uuid.uuid4().hex[:12]}",
                 prompt=str(item.get("prompt") or item.get("description") or item.get("text") or item.get("caption") or item.get("content") or "").strip(),
-                engine=str(item.get("engine") or top_engine or "vids").strip().lower(),
+                engine=eng,
                 task_type=str(item.get("task_type") or "video").strip().lower(),
-                model=str(item.get("model") or "").strip(),
-                start_image_path=_asset_path(item.get("start_image_path") or item.get("start_image") or item.get("initial_frame") or item.get("start_frame") or item.get("first_frame") or item.get("first_image")),
-                end_image_path=_asset_path(item.get("end_image_path") or item.get("end_image") or item.get("end_frame") or item.get("last_frame") or item.get("final_frame") or item.get("last_image")),
+                model=m,
+                start_image_path=s_img,
+                end_image_path=e_img,
                 input_video_path=_asset_path(item.get("input_video_path") or item.get("input_video") or item.get("reference_video")),
                 aspect_ratio=str(item.get("aspect_ratio") or item.get("ratio") or "9:16").strip(),
-                duration_sec=int(item.get("duration_sec", item.get("duration", item.get("seconds", 8)))),
+                duration_sec=d,
                 priority=int(item.get("priority", 10)),
                 assigned_profile_id=_selected_profile(item.get("assigned_profile_id", item.get("profile_id", top_pid))),
                 require_clean_watermark=bool(item.get("require_clean_watermark", False)),

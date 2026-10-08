@@ -208,10 +208,25 @@ class VideoWorker:
                 cmd.extend(["--end-frame", str(end_img)])
             cmd.extend(["--aspect", task.aspect_ratio or "16:9", "--profile", profile.name,
                         "--out-dir", str(directory), "--json", "--project", str(project_id)])
-            if task.model:
-                cmd.extend(["--model", task.model])
-            elif int(task.duration_sec) == 10:
-                cmd.extend(["--model", "omni-flash"])
+            flow_model = None
+            if int(task.duration_sec) == 10:
+                flow_model = "omni-flash"
+            elif task.model:
+                raw_m = str(task.model).strip().lower()
+                if "omni" in raw_m:
+                    flow_model = "omni-flash"
+                elif "quality" in raw_m:
+                    flow_model = "veo-quality"
+                elif "fast" in raw_m:
+                    flow_model = "veo-fast"
+                elif "lp" in raw_m:
+                    flow_model = "veo-lite-lp"
+                elif "lite" in raw_m:
+                    flow_model = "veo-lite"
+                elif raw_m in ("omni-flash", "veo-lite", "veo-fast", "veo-quality", "veo-lite-lp"):
+                    flow_model = raw_m
+            if flow_model:
+                cmd.extend(["--model", flow_model])
             cmd.extend(["--duration", str(task.duration_sec)])
             cmd.append(task.prompt)
             control.check()

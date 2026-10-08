@@ -58,5 +58,5 @@ def validate_video_request(task: Task, *, require_pair: bool = False) -> None:
     elif task.engine == "flow":
         if int(task.duration_sec) not in (4, 6, 8, 10):
             raise VideoRequestError(f"Flow 视频时长仅支持 4、6、8、10 秒，当前为 {task.duration_sec} 秒")
-        if int(task.duration_sec) == 10 and task.model and task.model.lower() not in ("omni-flash", "omni_flash", "omni"):
+        if int(task.duration_sec) == 10 and task.model and not any(k in task.model.lower() for k in ("omni-flash", "omni_flash", "omni")):
             raise VideoRequestError(f"Flow 10秒时长仅支持 Omni (omni-flash) 模型，当前模型 '{task.model}' 上限为 8 秒")

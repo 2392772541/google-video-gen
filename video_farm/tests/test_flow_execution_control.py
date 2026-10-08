@@ -193,3 +193,24 @@ def test_cli_config_error_not_treated_as_unconfirmed_result(tmp_path):
     assert result["error_code"] == "CONFIG_ERROR"
     assert "caps at 8s" in result["error_message"]
     assert result["submission_possible"] is False
+
+
+def test_10_second_flow_task_forces_omni_flash(tmp_path):
+    w = worker(tmp_path)
+    captured = []
+    def launch(command, **kwargs):
+        captured.extend(command)
+        out = Path(command[command.index("--out-dir") + 1]) / "result.mp4"
+        out.write_bytes(b"x" * 60000)
+        return Process(success_record(out)).emit(kwargs)
+
+    t = Task(id="flow-10s", prompt="sunset", duration_sec=10, model="veo-lite", project_id="proj_1", aspect_ratio="16:9")
+    probe = Mock(returncode=0, stdout=json.dumps({
+        "streams": [{"width": 1920, "height": 1080, "duration": "10.0"}],
+        "format": {"duration": "10.0"}}))
+    with patch("video_farm.worker.VideoWorker._launch_cli", side_effect=launch),          patch("video_farm.worker.shutil.which", return_value="ffprobe"),          patch("video_farm.worker.subprocess.run", return_value=probe):
+        res = w.execute_task(t, Profile(id="p", name="p"))
+    assert res["success"] is True
+    assert "--model" in captured
+    assert captured[captured.index("--model") + 1] == "omni-flash"
+    assert captured[captured.index("--duration") + 1] == "10"

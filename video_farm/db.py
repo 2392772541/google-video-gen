@@ -1099,7 +1099,7 @@ def delete_task(task_id: str, delete_files: bool = True, db_path: Path = DEFAULT
             manifest = {"task":record,"events":events,"linked_shots":[r for r in shots if r.get("task_id")==task_id], "moved_files":moved,"skipped_files":skipped,"original_uploads_retained":True}
             (trash / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
             conn.execute("DELETE FROM task_events WHERE task_id=?", (task_id,))
-            conn.execute("UPDATE vids_shots SET task_id=NULL, status='planned' WHERE task_id=?", (task_id,))
+            conn.execute("UPDATE vids_shots SET task_id=NULL, status='pending', error_message='' WHERE task_id=?", (task_id,))
             conn.execute("DELETE FROM tasks WHERE id=?", (task_id,))
         committed = True
         return {"id":task_id,"deleted":True,"removed_files":[m["source"] for m in moved],"skipped_files":skipped,"trash_path":str(trash),"recoverable":True}

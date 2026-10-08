@@ -943,7 +943,7 @@ async function startContinuousGeneration() {
     alert('请先选择工作流！');
     return;
   }
-  const pendingShots = (state.workflow?.shots || []).filter(s => s.status === 'pending' || s.status === 'failed');
+  const pendingShots = (state.workflow?.shots || []).filter(s => s.status === 'pending' || s.status === 'failed' || s.status === 'planned');
   if (pendingShots.length === 0) {
     const nonDone = (state.workflow?.shots || []).filter(s => s.status !== 'completed');
     if (nonDone.length === 0) {
@@ -1661,14 +1661,22 @@ async function updateShotField(shotId, field, value) {
       const s = state.workflow.shots.find(x => x.id === shotId);
       if (s) {
         s[field] = value;
-        if (field === 'engine' || field === 'image_url' || field === 'end_image_url') {
-          const card = document.getElementById(`shot-card-${shotId}`);
-          if (card) {
-            const warnBox = card.querySelector('.vids-engine-warn-pill');
-            const curEng = s.engine || state.workflow?.engine || 'vids';
-            const shouldWarn = (s.mode === 'first_last_frame' || Boolean(s.end_image_url)) && curEng === 'vids';
-            if (warnBox) {
-              warnBox.style.display = shouldWarn ? 'flex' : 'none';
+        const card = document.getElementById(`shot-card-${shotId}`);
+        if (card) {
+          if (field === 'engine') {
+            const engSel = card.querySelector(`select[onchange*="'engine'"]`);
+            if (engSel) engSel.value = value;
+          }
+          const warnBox = card.querySelector('.vids-engine-warn-pill');
+          const curEng = s.engine || state.workflow?.engine || 'vids';
+          const shouldWarn = (s.mode === 'first_last_frame' || Boolean(s.end_image_url)) && curEng === 'vids';
+          if (warnBox) {
+            warnBox.style.display = shouldWarn ? 'flex' : 'none';
+          }
+          if (curEng === 'flow') {
+            const errBox = card.querySelector('.shot-error-box');
+            if (errBox && (errBox.textContent.includes('首尾帧') || errBox.textContent.includes('Google Vids 仅支持首帧微动'))) {
+              errBox.style.display = 'none';
             }
           }
         }
@@ -1685,7 +1693,8 @@ async function updateShotMode(shotId, mode) {
     if (mode === 'first_last_frame') {
       const s = state.workflow?.shots?.find(x => x.id === shotId);
       if (s && (!s.engine || s.engine === 'vids')) {
-        appendLog(`[分镜 #${s.sequence || ''}] 切换为首尾帧过渡模式。提示：Google Vids 原生仅支持首帧微动，建议将途径切换为 ⚡ Flow (Veo 3.1) 实现两端关键帧插值`, 'info');
+        payload.engine = 'flow';
+        appendLog(`[分镜 #${s.sequence || ''}] 切换为首尾帧过渡模式，自动将途径切换为 ⚡ Flow (支持首尾关键帧插值)`, 'info');
       }
     }
     await api(`/shots/${shotId}`, {

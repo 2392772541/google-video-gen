@@ -402,7 +402,10 @@ document.addEventListener("DOMContentLoaded", () => {
     state.currentDuration = sec;
     if (el.selectDuration) el.selectDuration.value = String(sec);
     if (el.badgeDurationInfo) {
-      el.badgeDurationInfo.textContent = sec === 8 ? "8 秒 (推荐)" : `${sec} 秒`;
+      el.badgeDurationInfo.textContent = sec === 8 ? "8 秒 (推荐)" : (sec === 10 ? "10 秒 (Omni Flash)" : `${sec} 秒`);
+    }
+    if (sec === 10 && state.currentEngine === "flow") {
+      updateModelOptions("flow", "omni-flash");
     }
     document.querySelectorAll(".duration-pill-btn").forEach(btn => {
       btn.setAttribute("aria-pressed", String(parseInt(btn.getAttribute("data-sec")) === sec));
@@ -923,10 +926,16 @@ document.addEventListener("DOMContentLoaded", () => {
       startImage = startImage.replace(/\\+/g, "/");
       endImage = endImage.replace(/\\+/g, "/");
 
-      const engine = (item.engine || "").toLowerCase();
-      const model = (item.model || "").trim();
-      const aspectRatio = (item.aspect_ratio || item.ratio || "9:16").trim();
       const duration = parseInt(item.duration_sec || item.duration || item.seconds || item.length || 8, 10) || 8;
+      let engine = (item.engine || "").toLowerCase();
+      let model = (item.model || "").trim();
+      if (!engine && startImage && endImage) {
+        engine = "flow";
+      }
+      if (engine === "flow" && duration === 10 && (!model || model.toLowerCase().includes("omni"))) {
+        model = "omni-flash";
+      }
+      const aspectRatio = (item.aspect_ratio || item.ratio || "9:16").trim();
       const priority = parseInt(item.priority || 10, 10) || 10;
 
       normalizedShots.push({
@@ -1416,7 +1425,7 @@ document.addEventListener("DOMContentLoaded", () => {
             ${["queued", "retry_wait"].includes(t.status) ? `<button class="btn btn-danger btn-sm btn-cancel-task" data-id="${t.id}" title="取消排队中的任务">⏹ 取消</button>` : ""}
             ${!isImageTask && !isAudioTask && t.status === "completed" && t.engine !== "gemini" ? `<button class="btn btn-secondary btn-sm btn-view-qa" data-id="${t.id}">🔍 质检对比</button>` : ""}
             <button class="btn btn-secondary btn-sm btn-view-log" data-id="${t.id}">📋 日志</button>
-            ${(t.status === "failed" || t.status === "retry_wait" || t.status === "cancelled") && !["WIRE_FORMAT_MISMATCH", "UNSUPPORTED_FEATURE", "FLOW_RESPONSE_UNREADABLE"].includes(t.error_code) ? `<button class="btn btn-warning btn-sm btn-retry-task" data-id="${t.id}" title="重新排队；保留原账号绑定，等待调度">🔄 重新排队</button>` : ""}
+            ${(t.status === "failed" || t.status === "retry_wait" || t.status === "cancelled") && !["WIRE_FORMAT_MISMATCH", "UNSUPPORTED_FEATURE", "FLOW_RESPONSE_UNREADABLE", "FLOW_RESULT_UNCONFIRMED", "VIDS_RESULT_UNCONFIRMED", "GEMINI_RESULT_UNCONFIRMED", "IMAGE_RESULT_UNCONFIRMED", "RESULT_UNCONFIRMED"].includes(t.error_code) ? `<button class="btn btn-warning btn-sm btn-retry-task" data-id="${t.id}" title="重新排队；保留原账号绑定，等待调度">🔄 重新排队</button>` : ""}
           </div>
           <div style="display:flex; gap:6px;">
             <button class="btn btn-secondary btn-sm btn-open-folder" data-id="${t.id}" title="在资源管理器中打开">📂</button>
