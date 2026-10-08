@@ -210,3 +210,17 @@ def test_flow_selected_model_with_arrow_drop_down_confirmed(tmp_path):
     assert run.choose_flow() is editor
     editor.fill.assert_called_once()
     assert not run.submitted
+
+
+def test_flow_model_already_selected_with_multiple_buttons(tmp_path):
+    run, editor = flow_settings_run(tmp_path, initial='🍌 Nano Banana Pro arrow_drop_down')
+    prev_effect = run.page.get_by_role.side_effect
+    def by_role_multi(role, name=None, **kwargs):
+        loc = prev_effect(role, name=name, **kwargs)
+        if role == 'button' and hasattr(loc, 'inner_text') and 'Nano Banana Pro' in str(loc.inner_text.return_value):
+            loc.count.return_value = 2
+        return loc
+    run.page.get_by_role.side_effect = by_role_multi
+    assert run.choose_flow() is editor
+    editor.fill.assert_called_once()
+    assert not run.submitted

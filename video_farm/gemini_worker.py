@@ -241,9 +241,11 @@ class GeminiWebWorker(VidsWorker):
 
     _ASPECT_BUTTON_SELECTOR = (
         'button[aria-label*="16:9"], button[aria-label*="9:16"], '
+        'button[aria-label*="Aspect ratio"], button[aria-label*="宽高比"], '
         'button:has-text("Landscape"), button:has-text("Portrait"), '
         'button:has-text("横向"), button:has-text("纵向"), '
-        'button:has-text("16:9"), button:has-text("9:16")'
+        'button:has-text("16:9"), button:has-text("9:16"), '
+        'button:has-text("Aspect ratio"), button:has-text("宽高比")'
     )
     _ASPECT_OPTION_SELECTOR = (
         '[role="menuitemradio"], [role="menuitem"], [role="option"], mat-option'
@@ -419,7 +421,8 @@ class GeminiWebWorker(VidsWorker):
                     logs.append(f"页面加载完成: Title='{page_title}', URL='{cur_url}'")
 
                     # 若被重定向到 /app，主动点击左侧导航栏的 Videos 进入视频模式
-                    if "/videos" not in cur_url:
+                    in_video_workspace = "/videos" in cur_url
+                    if not in_video_workspace:
                         logs.append("当前未在 /videos 路径，正在尝试切换至左侧【Videos】专属工作区...")
                         video_nav_selectors = [
                             'a[href="/videos"]',
@@ -440,11 +443,25 @@ class GeminiWebWorker(VidsWorker):
                                     self._pause(page, 2)
                                     self._dismiss_overlays(page, logs)
                                     logs.append(f"成功切换至视频工作区: URL='{page.url}'")
+                                    if "/videos" in page.url:
+                                        in_video_workspace = True
                                     break
                             except ExecutionStopped:
                                 raise
                             except Exception:
                                 pass
+
+                    if not in_video_workspace and "/videos" not in page.url:
+                        # 检查当前页面是否具备任何视频模式或画幅控件
+                        has_video_feature = any(
+                            bool(page.query_selector(sel))
+                            for sel in [self._ASPECT_BUTTON_SELECTOR, 'button:has-text("Videos")', 'button:has-text("视频")']
+                        )
+                        if not has_video_feature:
+                            raise GeminiVideoSettingsError(
+                                f"当前 Google 账号 ({profile.name}) 未开通 Gemini 原生视频生成 (Videos) 内测权限，页面未提供视频工作区或画幅控件；未提交请求，未扣除额度。请使用具备权限的账号或选用 Google Flow / Vids 引擎。",
+                                "ACCOUNT_VIDEO_UNAUTHORIZED"
+                            )
 
                     # 2. 登录状态核验：优先寻找输入框
                     input_selector = 'rich-textarea div[contenteditable="true"], div.ql-editor[contenteditable="true"], [contenteditable="true"], textarea'

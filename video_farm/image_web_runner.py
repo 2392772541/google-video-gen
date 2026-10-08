@@ -167,22 +167,43 @@ class NativeImageRun:
         model_labels = "|".join(re.escape(value) for value in IMAGE_MODELS["flow"].values())
         trigger_names = re.compile(r"^(选择模型系列|Select model family|(?:🍌\s*)?(?:" + model_labels + r"))(?:\s*arrow_drop_down)?$", re.I)
         trigger = page.get_by_role("button", name=trigger_names)
-        self.wait(lambda: trigger.count() == 1 and trigger.is_visible(), "Flow 模型选择入口未就绪", 10)
-        self.click(trigger)
+        self.wait(lambda: trigger.count() >= 1 and trigger.first.is_visible(), "Flow 模型选择入口未就绪", 10)
         label = IMAGE_MODELS["flow"][self.model]
-        item = page.get_by_role("menuitem", name=re.compile(r"^(?:🍌\s*)?" + re.escape(label) + r"$"))
-        if item.count() != 1 or not item.is_enabled():
-            raise ImageWebError(f"当前 Flow 账号不提供 {label}，不会替换成其他型号。")
-        self.click(item)
-        selected = page.get_by_role("button", name=trigger_names)
         chosen = re.compile(r"^(?:🍌\s*)?" + re.escape(label) + r"(?:\s*arrow_drop_down)?$", re.I)
-        def model_confirmed():
-            if selected.count() != 1 or not selected.is_visible():
-                return False
-            raw_txt = selected.inner_text().strip()
-            clean_txt = re.sub(r"(?:\s*arrow_drop_down)+$", "", raw_txt, flags=re.I).strip()
-            return bool(chosen.fullmatch(clean_txt) or chosen.fullmatch(raw_txt))
-        self.wait(model_confirmed, "Flow 模型选择未确认", 10)
+
+        def _read_btn_text(btn, parent_fallback=None):
+            if hasattr(btn, "inner_text") and callable(btn.inner_text):
+                val = btn.inner_text()
+                if isinstance(val, str):
+                    return val.strip()
+            if parent_fallback and hasattr(parent_fallback, "inner_text") and callable(parent_fallback.inner_text):
+                val = parent_fallback.inner_text()
+                if isinstance(val, str):
+                    return val.strip()
+            return ""
+
+        target_btn = trigger.first if trigger.count() > 1 else trigger
+        raw_txt = _read_btn_text(target_btn, trigger)
+        clean_txt = re.sub(r"(?:\s*arrow_drop_down)+$", "", raw_txt, flags=re.I).strip()
+        already_selected = bool(chosen.fullmatch(clean_txt) or chosen.fullmatch(raw_txt))
+
+        if not already_selected:
+            self.click(target_btn)
+            item = page.get_by_role("menuitem", name=re.compile(r"^(?:🍌\s*)?" + re.escape(label) + r"$"))
+            if item.count() != 1 or not item.is_enabled():
+                raise ImageWebError(f"当前 Flow 账号不提供 {label}，不会替换成其他型号。")
+            self.click(item)
+            selected = page.get_by_role("button", name=trigger_names)
+            def model_confirmed():
+                if selected.count() < 1:
+                    return False
+                sel_btn = selected.first if selected.count() > 1 else selected
+                if not sel_btn.is_visible():
+                    return False
+                r_txt = _read_btn_text(sel_btn, selected)
+                c_txt = re.sub(r"(?:\s*arrow_drop_down)+$", "", r_txt, flags=re.I).strip()
+                return bool(chosen.fullmatch(c_txt) or chosen.fullmatch(r_txt))
+            self.wait(model_confirmed, "Flow 模型选择未确认", 10)
         count = page.get_by_role("radio", name="x1", exact=True)
         self.click(count)
         self.wait(lambda: count.get_attribute("aria-checked") == "true", "Flow 图片数量未确认", 10)

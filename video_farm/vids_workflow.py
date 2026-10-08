@@ -460,8 +460,7 @@ def normalize_imported_workflow_json(raw_input: Any, default_workflow: Optional[
         elif (end_img_url and img_url) or mode == 'first_last_frame':
             shot_engine = 'flow'
         else:
-            shot_engine = engine or 'vids'
-
+            shot_engine = engine or 'vids' 
         shot_priority = s.get('priority') or 10
         try:
             shot_priority = int(shot_priority)

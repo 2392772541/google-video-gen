@@ -291,8 +291,13 @@ class VidsWorker:
                 continue
             if cls.media_identity(url) in baseline:
                 continue
-            if prompt and prompt.strip() not in (row.get("label") or ""):
-                continue
+            if prompt and (row.get("label") or "").strip():
+                p_clean = prompt.strip()
+                label = (row.get("label") or "").strip()
+                # 兼容 Google Vids aria-label 对超长提示词的前缀截断与省略号
+                prefix = p_clean[:25].strip()
+                if p_clean not in label and prefix not in label and label not in p_clean:
+                    continue
             return url
         return None
 
