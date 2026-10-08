@@ -274,7 +274,7 @@ class VideoWorker:
             if error_class == "ProfileLockedError" or any(k in content for k in ("profilelocked", "already in use", "singletonlock", "is locked")):
                 return failure("PROFILE_LOCKED", "Flow 账号目录已被其他窗口占用；未获得浏览器执行权")
             if proc.returncode == 11:
-                return failure("CONFIG_ERROR", "Flow 页面不支持请求时长/模型；未更改参数，请核对可用选项后手动处理")
+                return failure("CONFIG_ERROR", "Flow 页面不支持请求时长/模型；未更改参数，请核对可用选项后手动处理", submission_possible=False)
             if proc.returncode == 25:
                 return failure("AGENTIC_UI_BLOCKED", "Flow 被协议或界面遮挡；系统未同意协议、未再次提交")
             if proc.returncode == 7 and ("wireformaterror" in content or "wire-format" in content):

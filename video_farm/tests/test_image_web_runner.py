@@ -203,3 +203,10 @@ def test_flow_selected_model_mismatch_cannot_send(tmp_path):
         run.choose_flow()
     editor.fill.assert_not_called()
     assert not run.submitted
+
+
+def test_flow_selected_model_with_arrow_drop_down_confirmed(tmp_path):
+    run,editor=flow_settings_run(tmp_path,actual='🍌 Nano Banana Pro arrow_drop_down')
+    assert run.choose_flow() is editor
+    editor.fill.assert_called_once()
+    assert not run.submitted

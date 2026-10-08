@@ -165,7 +165,7 @@ class NativeImageRun:
         self.wait(lambda: aspect.get_attribute("aria-checked") == "true", "Flow 画幅未确认", 10)
         # The same menu trigger is renamed to the chosen model on some cohorts.
         model_labels = "|".join(re.escape(value) for value in IMAGE_MODELS["flow"].values())
-        trigger_names = re.compile(r"^(选择模型系列|Select model family|(?:🍌\s*)?(?:" + model_labels + r"))$", re.I)
+        trigger_names = re.compile(r"^(选择模型系列|Select model family|(?:🍌\s*)?(?:" + model_labels + r"))(?:\s*arrow_drop_down)?$", re.I)
         trigger = page.get_by_role("button", name=trigger_names)
         self.wait(lambda: trigger.count() == 1 and trigger.is_visible(), "Flow 模型选择入口未就绪", 10)
         self.click(trigger)
@@ -175,9 +175,14 @@ class NativeImageRun:
             raise ImageWebError(f"当前 Flow 账号不提供 {label}，不会替换成其他型号。")
         self.click(item)
         selected = page.get_by_role("button", name=trigger_names)
-        chosen = re.compile(r"^(?:🍌\s*)?" + re.escape(label) + r"$", re.I)
-        self.wait(lambda: selected.count() == 1 and selected.is_visible()
-                  and chosen.fullmatch(selected.inner_text().strip()), "Flow 模型选择未确认", 10)
+        chosen = re.compile(r"^(?:🍌\s*)?" + re.escape(label) + r"(?:\s*arrow_drop_down)?$", re.I)
+        def model_confirmed():
+            if selected.count() != 1 or not selected.is_visible():
+                return False
+            raw_txt = selected.inner_text().strip()
+            clean_txt = re.sub(r"(?:\s*arrow_drop_down)+$", "", raw_txt, flags=re.I).strip()
+            return bool(chosen.fullmatch(clean_txt) or chosen.fullmatch(raw_txt))
+        self.wait(model_confirmed, "Flow 模型选择未确认", 10)
         count = page.get_by_role("radio", name="x1", exact=True)
         self.click(count)
         self.wait(lambda: count.get_attribute("aria-checked") == "true", "Flow 图片数量未确认", 10)

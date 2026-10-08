@@ -256,10 +256,10 @@ class GeminiWebWorker(VidsWorker):
             match = re.search(r"(?<!\d)(16\s*:\s*9|9\s*:\s*16)(?!\d)", label)
             if match:
                 return re.sub(r"\s+", "", match.group(1))
-            # Retain support for the previous English-only button labels.
-            if label.strip().lower() in ("landscape", "横向", "横屏"):
+            clean_label = re.sub(r"\s+", "", label).lower()
+            if any(k in clean_label for k in ("landscape", "横向", "横屏")):
                 return "16:9"
-            if label.strip().lower() in ("portrait", "纵向", "竖屏"):
+            if any(k in clean_label for k in ("portrait", "纵向", "竖屏")):
                 return "9:16"
         return None
 
@@ -275,7 +275,7 @@ class GeminiWebWorker(VidsWorker):
                 f"Gemini 网页视频当前仅支持 16:9 / 9:16，不能提交 {aspect}；请更改比例。"
             )
         try:
-            page.wait_for_selector(self._ASPECT_BUTTON_SELECTOR, state="visible", timeout=5000)
+            page.wait_for_selector(self._ASPECT_BUTTON_SELECTOR, state="visible", timeout=self._timeout(10000))
             button = self._aspect_button(page)
             if not button or not button.is_enabled():
                 raise GeminiVideoSettingsError("未找到可用的 Gemini 原生比例控件，已停止提交，避免生成错误画幅。")
@@ -404,12 +404,12 @@ class GeminiWebWorker(VidsWorker):
                     # 1. 优先直达原生视频生成工作台
                     logs.append("正在打开 Gemini 视频工作区 https://gemini.google.com/videos ...")
                     try:
-                        page.goto("https://gemini.google.com/videos", timeout=self._timeout(15000))
+                        page.goto("https://gemini.google.com/videos", wait_until="domcontentloaded", timeout=self._timeout(25000))
                     except ExecutionStopped:
                         raise
                     except Exception as ge:
                         logs.append(f"直接打开 /videos 超时或异常，尝试主入口 /app ... ({ge})")
-                        page.goto("https://gemini.google.com/app", timeout=self._timeout(15000))
+                        page.goto("https://gemini.google.com/app", wait_until="domcontentloaded", timeout=self._timeout(20000))
 
                     self._pause(page, 3)
                     self._dismiss_overlays(page, logs)
@@ -423,9 +423,13 @@ class GeminiWebWorker(VidsWorker):
                         logs.append("当前未在 /videos 路径，正在尝试切换至左侧【Videos】专属工作区...")
                         video_nav_selectors = [
                             'a[href="/videos"]',
+                            'a[href*="/videos"]',
                             'a[href*="videos"]',
                             'gem-nav-list-item:has-text("Videos")',
+                            'gem-nav-list-item:has-text("视频")',
                             'button:has-text("Videos")',
+                            'button:has-text("视频")',
+                            'a:has-text("视频")',
                             '[data-test-id*="video"]'
                         ]
                         for nav_sel in video_nav_selectors:
