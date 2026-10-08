@@ -1325,10 +1325,10 @@ async function executeBatchImport() {
   const radio = document.querySelector('input[name="import-mode-radio"]:checked');
   const importMode = radio ? radio.value : 'new';
 
-  // 获取生成引擎途径 (vids, flow) - 解耦设计
+  // 获取生成引擎途径 (auto, vids, flow) - 解耦设计
   const engineRadio = document.querySelector('input[name="import-engine-radio"]:checked');
-  let selectedEngine = 'vids';
-  if (engineRadio && ['vids', 'flow', 'gemini'].includes(engineRadio.value)) {
+  let selectedEngine = 'auto';
+  if (engineRadio && ['auto', 'vids', 'flow', 'gemini'].includes(engineRadio.value)) {
     selectedEngine = engineRadio.value;
   }
 
@@ -1378,7 +1378,7 @@ async function executeBatchImport() {
     if (res.success) {
       const importedCount = res.imported_count || 0;
       const wf = res.workflow;
-      const engineLabel = selectedEngine === 'flow' ? '⚡ Google Flow 首尾帧模式' : '🎬 Google Vids 原生工作流';
+      const engineLabel = selectedEngine === 'flow' ? '⚡ Google Flow 首尾帧模式' : (selectedEngine === 'vids' ? '🎬 Google Vids 原生工作流' : '🔄 智能适配模式');
       if (msgBox) {
         msgBox.style.display = 'block';
         msgBox.style.background = 'rgba(16, 185, 129, 0.15)';

@@ -325,15 +325,31 @@ def normalize_imported_workflow_json(raw_input: Any, default_workflow: Optional[
     model_name = base_wf.get('model_name') or 'Omni'
     duration_per_shot = base_wf.get('duration_per_shot') or 10
 
-    # 引擎途径判定：优先使用前端UI传入的 default_engine；否则优先读base_wf，再次默认'vids'
-    engine = (default_engine or base_wf.get('engine') or 'vids').strip().lower()
-    if engine not in ('vids', 'flow', 'gemini'):
-        engine = 'vids'
+    # 引擎途径判定：若 default_engine 有效且非 auto 则优先采纳；否则优先读 base_wf，再次由分镜特征推导或默认 'vids'
+    engine = None
+    if default_engine and str(default_engine).strip().lower() in ('vids', 'flow', 'gemini'):
+        engine = str(default_engine).strip().lower()
+    elif base_wf.get('engine') in ('vids', 'flow', 'gemini'):
+        engine = base_wf['engine']
 
     raw_shots: List[Dict[str, Any]] = []
 
     if isinstance(parsed, list):
         raw_shots = parsed
+        if not engine:
+            engines = [str(s.get('engine')).strip().lower() for s in raw_shots if isinstance(s, dict) and s.get('engine')]
+            has_paired = any(
+                isinstance(s, dict) and (
+                    (s.get('end_image_path') or s.get('end_image_url') or s.get('end_image') or s.get('last_image_path')) and
+                    (s.get('start_image_path') or s.get('image_url') or s.get('start_image') or s.get('first_image_path'))
+                ) for s in raw_shots
+            )
+            if any(e == 'flow' for e in engines) or has_paired:
+                engine = 'flow'
+            elif any(e == 'gemini' for e in engines):
+                engine = 'gemini'
+        if raw_shots and isinstance(raw_shots[0], dict) and raw_shots[0].get('aspect_ratio'):
+            aspect_ratio = str(raw_shots[0]['aspect_ratio']).strip()
     elif isinstance(parsed, dict):
         if 'title' in parsed and parsed['title']:
             title = str(parsed['title']).strip()
@@ -351,7 +367,7 @@ def normalize_imported_workflow_json(raw_input: Any, default_workflow: Optional[
             model_name = str(parsed['model_name']).strip()
         elif 'model' in parsed and parsed['model']:
             model_name = str(parsed['model']).strip()
-        if not default_engine and 'engine' in parsed and parsed['engine']:
+        if not engine and 'engine' in parsed and parsed['engine']:
             cand_eng = str(parsed['engine']).strip().lower()
             if cand_eng in ('vids', 'flow', 'gemini'):
                 engine = cand_eng
@@ -368,6 +384,9 @@ def normalize_imported_workflow_json(raw_input: Any, default_workflow: Optional[
         elif 'scenes' in parsed and isinstance(parsed['scenes'], list):
             raw_shots = parsed['scenes']
 
+    if not engine:
+        engine = 'vids'
+
     normalized_shots: List[Dict[str, Any]] = []
     for idx, s in enumerate(raw_shots, start=1):
         if not isinstance(s, dict):
@@ -380,7 +399,7 @@ def normalize_imported_workflow_json(raw_input: Any, default_workflow: Optional[
 
         name = s.get('name') or s.get('title') or s.get('shot_name') or f'镜头 {idx}'
 
-        duration = s.get('duration') or duration_per_shot
+        duration = s.get('duration') or s.get('duration_sec') or s.get('duration_s') or s.get('duration_seconds') or duration_per_shot
         try:
             duration = int(duration)
         except Exception:
@@ -428,17 +447,28 @@ def normalize_imported_workflow_json(raw_input: Any, default_workflow: Optional[
         seq = s.get('sequence') or idx
         scene_idx = s.get('scene_index') or idx
 
-        # 分镜级引擎：优先 default_engine；若无，且未在UI显式锁定时允许单项engine覆盖；最后回退至全局engine
-        shot_engine = default_engine
-        if not shot_engine and s.get('engine'):
-            cand_s_eng = str(s.get('engine')).strip().lower()
-            if cand_s_eng in ('vids', 'flow', 'gemini'):
-                shot_engine = cand_s_eng
-        if not shot_engine:
-            if (end_img_url and img_url) or mode == 'first_last_frame':
-                shot_engine = 'flow'
-            else:
-                shot_engine = engine
+        # 分镜级引擎判定：
+        # 1. 若分镜内显式声明合法 engine，严格采纳单镜声明
+        # 2. 若请求显式锁定 engine（非 auto），遵循显式选择
+        # 3. 若存在首尾双帧约束且未指定 engine，Google Vids 原生无尾帧能力，自动走 flow
+        # 4. 回退至工作流级 engine 或默认 vids
+        cand_s_eng = str(s.get('engine') or '').strip().lower()
+        if cand_s_eng in ('vids', 'flow', 'gemini'):
+            shot_engine = cand_s_eng
+        elif default_engine and str(default_engine).strip().lower() in ('vids', 'flow', 'gemini'):
+            shot_engine = str(default_engine).strip().lower()
+        elif (end_img_url and img_url) or mode == 'first_last_frame':
+            shot_engine = 'flow'
+        else:
+            shot_engine = engine or 'vids'
+
+        shot_priority = s.get('priority') or 10
+        try:
+            shot_priority = int(shot_priority)
+        except Exception:
+            shot_priority = 10
+
+        shot_aspect_ratio = str(s.get('aspect_ratio') or aspect_ratio or '16:9').strip()
 
         normalized_shots.append({
             'name': name,
@@ -452,7 +482,9 @@ def normalize_imported_workflow_json(raw_input: Any, default_workflow: Optional[
             'end_image_url': str(end_img_url).strip(),
             'resolution': shot_res,
             'model_name': shot_model,
-            'engine': shot_engine
+            'engine': shot_engine,
+            'priority': shot_priority,
+            'aspect_ratio': shot_aspect_ratio,
         })
 
     return {

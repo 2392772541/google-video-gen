@@ -227,13 +227,13 @@ def get_sample_import_json():
 
 
 @router.post("/batch_import")
-def batch_import_json(payload: Dict[str, Any] = Body(...)):
+def batch_import_json(payload: Any = Body(...)):
     from . import web
     with web._scheduler_guard():
         return _batch_import_json_locked(payload)
 
 
-def _batch_import_json_locked(payload: Dict[str, Any]):
+def _batch_import_json_locked(payload: Any):
     """
     批量导入 JSON 分镜资产：
     支持各种格式：
@@ -242,13 +242,18 @@ def _batch_import_json_locked(payload: Dict[str, Any]):
     3. 直接传入 shots 列表 [ { ... }, { ... } ]
     4. 带有 Markdown 代码块包裹的 JSON 字符串
     """
+    if isinstance(payload, (list, str)):
+        payload = {"data": payload}
+    elif not isinstance(payload, dict):
+        raise HTTPException(422, "请求体必须为 JSON 列表或包含 data 的字典")
+
     target_wf_id = payload.get("workflow_id")
     import_mode = payload.get("import_mode") or ("new" if not target_wf_id else "append")
     ui_engine = payload.get("engine")
     if ui_engine:
         ui_engine = str(ui_engine).strip().lower()
         if ui_engine not in ("vids", "flow", "gemini"):
-            ui_engine = "vids"
+            ui_engine = None
 
     raw_data = payload.get("data") if "data" in payload else payload
 
@@ -309,6 +314,8 @@ def _batch_import_json_locked(payload: Dict[str, Any]):
             "mode": shot.get("mode", "text2video"), "image_url": shot.get("image_url", ""),
             "end_image_url": shot.get("end_image_url", ""), "resolution": shot.get("resolution") or wf["resolution"],
             "model_name": shot.get("model_name") or wf["model_name"], "engine": shot.get("engine") or chosen_engine,
+            "priority": shot.get("priority", 10),
+            "aspect_ratio": shot.get("aspect_ratio") or wf.get("aspect_ratio") or "16:9",
         })
     entries = [(s['id'], _prepare_shot_task(s, wf), '') for s in created_shots] if auto_start else []
     try:
@@ -670,9 +677,9 @@ def _prepare_shot_task(shot: Dict[str, Any], wf: Dict[str, Any]) -> Task:
         id=f"task_{uuid.uuid4().hex[:10]}", prompt=shot.get("prompt", "").strip(),
         start_image_path=start, end_image_path=end, engine=engine, task_type="video",
         model=model, project_id=(wf.get("doc_url") or "") if engine == "vids" else "",
-        aspect_ratio=wf.get("aspect_ratio") or "16:9",
+        aspect_ratio=str(shot.get("aspect_ratio") or wf.get("aspect_ratio") or "16:9").strip(),
         duration_sec=duration,
-        status="queued", priority=10, assigned_profile_id=None,
+        status="queued", priority=int(shot.get("priority") or wf.get("priority") or 10), assigned_profile_id=None,
     )
     try:
         validate_video_request(task, require_pair=mode == "first_last_frame")
