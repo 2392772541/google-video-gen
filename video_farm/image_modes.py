@@ -64,7 +64,7 @@ def validate_image_file(path, aspect_ratio=None, *, generated=False):
         raise ValueError("文件不是可解码图片") from exc
     if aspect_ratio:
         left, right = map(int, aspect_ratio.split(":"))
-        if abs(width / height / (left / right) - 1) > 0.035:
+        if abs(width / height / (left / right) - 1) > 0.08:
             raise ValueError(f"生成图片为 {width}×{height}，不符合所选 {aspect_ratio} 画幅")
     return width, height
 

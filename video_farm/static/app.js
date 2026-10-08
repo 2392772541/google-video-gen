@@ -51,6 +51,7 @@ document.addEventListener("DOMContentLoaded", () => {
     panes: document.querySelectorAll(".view-pane"),
 
     // 双生成引擎切换
+    btnEngineVids: document.getElementById("btn-engine-vids"),
     btnEngineFlow: document.getElementById("btn-engine-flow"),
     btnEngineGemini: document.getElementById("btn-engine-gemini"),
 
@@ -291,6 +292,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // ==================== 模型数据字典与动态联动 ====================
   const VIDEO_ENGINE_MODELS = {
+    vids: [
+      { value: "Omni (1080p)", label: "Omni 1080p · Google Vids 超清", desc: "Google Vids 官方全高清模型，画质 1080p，生成稳定。" },
+      { value: "Omni (720p)", label: "Omni 720p · Google Vids 标清", desc: "Google Vids 720p 高清生成，速度更快。" }
+    ],
     flow: [
       { value: "veo-lite", label: "Veo 3.1 Lite · 默认配置", desc: "本地路由配置名称；实际模型可用性、额度与成片规格以上游账号及实际文件为准。" },
       { value: "veo-quality", label: "Veo 3.1 Quality · 质量请求", desc: "本地路由配置名称；实际模型可用性、额度与成片规格以上游账号及实际文件为准。" },
@@ -437,7 +442,41 @@ document.addEventListener("DOMContentLoaded", () => {
   // ==================== 双生成引擎切换 ====================
   function applyEngineMode(engine) {
     state.currentEngine = engine;
-    if (engine === "gemini") {
+    if (engine === "vids") {
+      if (el.btnEngineVids) el.btnEngineVids.classList.add("active");
+      if (el.btnEngineFlow) el.btnEngineFlow.classList.remove("active");
+      if (el.btnEngineGemini) el.btnEngineGemini.classList.remove("active", "gemini-active");
+
+      updateModelOptions("vids", "Omni (1080p)");
+      if (el.labelModelTitle) el.labelModelTitle.innerHTML = `Google Vids 视频模型`;
+      if (el.badgeModelTag) {
+        el.badgeModelTag.textContent = "Google Vids";
+        el.badgeModelTag.style.background = "rgba(168,85,247,0.15)";
+        el.badgeModelTag.style.color = "#c084fc";
+      }
+
+      if (el.inputCustomModel) {
+        el.inputCustomModel.value = "";
+        el.inputCustomModel.style.display = "none";
+      }
+      if (el.dropEnd) el.dropEnd.style.display = "none";
+      if (el.btnSwapFrames) el.btnSwapFrames.style.display = "none";
+      if (el.dropStart) {
+        el.dropStart.classList.add("gemini-single-card");
+        const roleTag = el.dropStart.querySelector(".frame-role-tag");
+        if (roleTag) roleTag.textContent = "首帧/参考图 · 可选";
+        const dropTxt = el.placeholderStart.querySelector(".drop-text");
+        if (dropTxt) dropTxt.textContent = "上传首帧图片 (可选)";
+        const dropSub = el.placeholderStart.querySelector(".drop-subtext");
+        if (dropSub) dropSub.textContent = "留空则执行纯文本生视频";
+      }
+      if (el.stageHintText) {
+        el.stageHintText.textContent = "Google Vids 原生工作流：Omni 1080p 超清分镜生成。";
+      }
+      el.btnSubmitTask.textContent = "创建 Vids 任务";
+      el.inputPrompt.placeholder = "输入视频描述提示词（例如：现代化农业种植大棚航拍，阳光透射绿叶生机盎然，16:9横屏，镜头平滑推进，4K质感）...";
+    } else if (engine === "gemini") {
+      if (el.btnEngineVids) el.btnEngineVids.classList.remove("active");
       if (el.btnEngineGemini) el.btnEngineGemini.classList.add("active", "gemini-active");
       if (el.btnEngineFlow) el.btnEngineFlow.classList.remove("active");
 
@@ -472,6 +511,7 @@ document.addEventListener("DOMContentLoaded", () => {
       el.btnSubmitTask.textContent = "创建视频任务";
       el.inputPrompt.placeholder = "输入视频描述提示词（例如：现代化农业种植大棚航拍，阳光透射绿叶生机盎然，16:9横屏，镜头平滑推进，4K质感）...";
     } else {
+      if (el.btnEngineVids) el.btnEngineVids.classList.remove("active");
       if (el.btnEngineFlow) el.btnEngineFlow.classList.add("active");
       if (el.btnEngineGemini) el.btnEngineGemini.classList.remove("active", "gemini-active");
 
@@ -506,6 +546,9 @@ document.addEventListener("DOMContentLoaded", () => {
     updateStageTitle();
   }
 
+  if (el.btnEngineVids) {
+    el.btnEngineVids.addEventListener("click", () => applyEngineMode("vids"));
+  }
   if (el.btnEngineFlow) {
     el.btnEngineFlow.addEventListener("click", () => applyEngineMode("flow"));
   }
@@ -771,7 +814,7 @@ document.addEventListener("DOMContentLoaded", () => {
       });
       const data = await resp.json();
       if (resp.ok) {
-        const engineTag = state.currentEngine === "gemini" ? "Gemini 网页版" : "Flow 首尾帧";
+        const engineTag = state.currentEngine === "vids" ? "Google Vids" : (state.currentEngine === "gemini" ? "Gemini 网页版" : "Flow 首尾帧");
         showToast("🚀 [" + engineTag + "] 任务 " + data.id + " 已进入生成队列！", "success");
         // 自动跳转到任务列表
         document.querySelector(".tab-button[data-target=\"view-tasks\"]").click();
@@ -880,7 +923,7 @@ document.addEventListener("DOMContentLoaded", () => {
       startImage = startImage.replace(/\\+/g, "/");
       endImage = endImage.replace(/\\+/g, "/");
 
-      const engine = (item.engine || "flow").toLowerCase();
+      const engine = (item.engine || "").toLowerCase();
       const model = (item.model || "").trim();
       const aspectRatio = (item.aspect_ratio || item.ratio || "9:16").trim();
       const duration = parseInt(item.duration_sec || item.duration || item.seconds || item.length || 8, 10) || 8;
@@ -1251,8 +1294,12 @@ document.addEventListener("DOMContentLoaded", () => {
         errorNoticeHtml = `<div class="audit-task-warning">${escapeHtml(t.error_message || "Flow 返回记录无法解析；可能已生成并扣额度。请先核对原 Flow 项目，不要重复提交。")}</div>`;
       } else if (t.error_code === "WIRE_FORMAT_MISMATCH") {
         errorNoticeHtml = `<div class="audit-task-warning">请求或响应格式校验失败：已停止重试。请先核对原 Flow 项目与日志，不能仅凭此错误判定模型或首尾帧不兼容。</div>`;
+      } else if (t.error_code === "CONFIG_ERROR") {
+        errorNoticeHtml = `<div class="audit-task-warning">${escapeHtml(t.error_message || "参数配置错误：未提交请求，未扣除额度。")}</div>`;
+      } else if (t.error_code === "BROWSER_TIMEOUT") {
+        errorNoticeHtml = `<div class="audit-task-warning">${escapeHtml(t.error_message || "网页操作超时，请检查网络或网页状态。")}</div>`;
       } else if (t.error_code === "UNSUPPORTED_FEATURE") {
-        errorNoticeHtml = `<div class="audit-task-warning">模型 / 参数不兼容：请修正后创建新任务，换号或重复提交无法解决。</div>`;
+        errorNoticeHtml = `<div class="audit-task-warning">${escapeHtml(t.error_message || "模型 / 参数不兼容：请修正后创建新任务，换号或重复提交无法解决。")}</div>`;
       }
       if (t.status === "completed" && !t.has_video && !t.has_audio && !(t.image_urls || []).length) {
         errorNoticeHtml += `<div class="audit-task-warning">任务已完成，但产物文件缺失；请检查输出目录或日志。</div>`;

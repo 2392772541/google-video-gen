@@ -85,3 +85,30 @@ def test_image_cancel_only_signals_owner(tmp_path, monkeypatch):
     monkeypatch.setattr(worker, "_terminate", lambda *a: pytest.fail("cross-thread termination"))
     assert worker.cancel_task("job")
     assert event.is_set()
+
+
+def test_image_web_runner_timeout_reports_browser_timeout(tmp_path, monkeypatch):
+    import json
+    import io
+    from contextlib import redirect_stdout
+    from video_farm import image_web_runner
+    from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+
+    spec = {"engine": "flow", "model": "nano-pro", "aspect_ratio": "9:16", "prompt": "test",
+            "profile_dir": str(tmp_path), "project_id": "p", "profile_name": "prof",
+            "output_dir": str(tmp_path), "timeout_sec": 10, "headless": True}
+    spec_file = tmp_path / "spec.json"
+    spec_file.write_text(json.dumps(spec))
+
+    monkeypatch.setattr("sys.argv", ["image_web_runner.py", str(spec_file)])
+    monkeypatch.setattr(image_web_runner.NativeImageRun, "run",
+                        lambda self: (_ for _ in ()).throw(PlaywrightTimeoutError("waiting for editor")))
+
+    f = io.StringIO()
+    with redirect_stdout(f):
+        image_web_runner.main()
+    output = f.getvalue()
+    data = json.loads(output.split("IMAGE_RESULT=")[1])
+    assert data["error_code"] == "BROWSER_TIMEOUT"
+    assert "网页操作超时" in data["error_message"]
+    assert data["submitted"] is False

@@ -55,3 +55,8 @@ def validate_video_request(task: Task, *, require_pair: bool = False) -> None:
             raise VideoRequestError("Google Vids 时长必须为 3 到 10 秒")
         if task.model and not re.fullmatch(r"Omni(?: \((?:720p|1080p)\))?", task.model, re.I):
             raise VideoRequestError("Google Vids 当前使用 Omni 模型，画质请选择 720p 或 1080p")
+    elif task.engine == "flow":
+        if int(task.duration_sec) not in (4, 6, 8, 10):
+            raise VideoRequestError(f"Flow 视频时长仅支持 4、6、8、10 秒，当前为 {task.duration_sec} 秒")
+        if int(task.duration_sec) == 10 and task.model and task.model.lower() not in ("omni-flash", "omni_flash", "omni"):
+            raise VideoRequestError(f"Flow 10秒时长仅支持 Omni (omni-flash) 模型，当前模型 '{task.model}' 上限为 8 秒")

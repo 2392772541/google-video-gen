@@ -1169,7 +1169,7 @@ async def create_batch_tasks(request: Request):
             task = Task(
                 id=f"task_{uuid.uuid4().hex[:12]}",
                 prompt=str(item.get("prompt") or item.get("description") or item.get("text") or item.get("caption") or item.get("content") or "").strip(),
-                engine=str(item.get("engine") or top_engine or "flow").strip().lower(),
+                engine=str(item.get("engine") or top_engine or "vids").strip().lower(),
                 task_type=str(item.get("task_type") or "video").strip().lower(),
                 model=str(item.get("model") or "").strip(),
                 start_image_path=_asset_path(item.get("start_image_path") or item.get("start_image") or item.get("initial_frame") or item.get("start_frame") or item.get("first_frame") or item.get("first_image")),

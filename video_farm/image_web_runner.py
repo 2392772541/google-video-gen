@@ -106,12 +106,42 @@ class NativeImageRun:
             except Exception:
                 pass
 
+    def _dismiss_modals(self):
+        page = self.page
+        if not page:
+            return
+        try:
+            dismiss_buttons = page.get_by_role(
+                "button",
+                name=re.compile(r"^(开始使用|Get started|Got it|我知道了|关闭|Close|Dismiss|Continue|继续)$", re.I)
+            )
+            for btn in dismiss_buttons.all():
+                if btn.is_visible():
+                    btn.click(timeout=1500)
+                    self.log("已自动关闭 Flow 引导弹窗")
+                    self.control.pause(page, 0.5)
+                    break
+        except Exception:
+            pass
+        try:
+            dialogs = page.locator('div[role="dialog"], mat-dialog-container, [aria-modal="true"]')
+            if dialogs.count() and dialogs.first.is_visible():
+                page.keyboard.press("Escape")
+                self.log("已发送 Escape 关闭弹窗")
+        except Exception:
+            pass
+
     def choose_flow(self):
         page = self.page
         page.goto("https://flow.google.com/project/" + flow_project(self.spec),
                   wait_until="domcontentloaded", timeout=self.control.timeout_ms(45000))
+        self._dismiss_modals()
         editor = page.locator('div.ProseMirror[contenteditable="true"]')
-        self.wait(lambda: editor.count() == 1 and editor.is_visible(), "Flow 提示框未就绪", 45)
+        def editor_ready():
+            self._dismiss_modals()
+            return editor.count() == 1 and editor.is_visible()
+        self.wait(editor_ready, "Flow 提示框未就绪", 45)
+        self._dismiss_modals()
         agent = page.get_by_role("button", name=re.compile(r"^(智能体|Agent)$", re.I))
         if agent.count() and agent.get_attribute("aria-pressed") == "true":
             self.click(agent)
@@ -366,11 +396,24 @@ def main():
     except Exception as exc:
         # Do not print Playwright call logs containing signed URLs or account data.
         code = getattr(exc, "code", None)
+        exc_type = type(exc).__name__
         if run and run.submitted and code not in ("USER_ACTION_REQUIRED", "IMAGE_OUTPUT_INVALID"):
             code = "IMAGE_RESULT_UNCONFIRMED"
         elif not code:
-            code = "PROFILE_LOCKED" if type(exc).__name__ == "ProfileLockedError" else "INVALID_IMAGE_REQUEST" if isinstance(exc, ValueError) else "UNSUPPORTED_FEATURE"
-        message = str(exc).split("Call log:")[0].split("\n")[0][:400] if isinstance(exc, (ImageWebError, ExecutionStopped, ValueError)) else f"原生网页执行未完成：{type(exc).__name__}。请查看本次 failure.png；不会自动重复生成。"
+            if exc_type == "ProfileLockedError":
+                code = "PROFILE_LOCKED"
+            elif isinstance(exc, ValueError):
+                code = "INVALID_IMAGE_REQUEST"
+            elif exc_type in ("TimeoutError", "PlaywrightTimeoutError"):
+                code = "BROWSER_TIMEOUT"
+            else:
+                code = "UNSUPPORTED_FEATURE"
+        if isinstance(exc, (ImageWebError, ExecutionStopped, ValueError)):
+            message = str(exc).split("Call log:")[0].split("\n")[0][:400]
+        elif exc_type in ("TimeoutError", "PlaywrightTimeoutError"):
+            message = f"网页操作超时（{exc_type}）：{str(exc).split('Call log:')[0].split(chr(10))[0][:300]}"
+        else:
+            message = f"原生网页执行未完成：{exc_type}。请查看本次 failure.png；不会自动重复生成。"
         result = {"success": False, "error_code": code, "error_message": message,
                   "output_image_paths": [], "submitted": bool(run and run.submitted),
                   "logs": "\n".join(run.logs) if run else ""}

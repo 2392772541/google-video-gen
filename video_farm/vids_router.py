@@ -650,8 +650,12 @@ def _prepare_shot_task(shot: Dict[str, Any], wf: Dict[str, Any]) -> Task:
         if resolution not in ("720p", "1080p"):
             raise HTTPException(422, "Google Vids 画质仅支持 720p 或 1080p")
         model = f"Omni ({resolution})"
-    elif engine == "flow" and model == "Omni":
-        model = "veo-lite"
+    elif engine == "flow":
+        dur = shot.get("duration") or wf.get("duration_per_shot") or 8
+        if int(dur) == 10:
+            model = "omni-flash"
+        elif model == "Omni":
+            model = "veo-lite"
     task = Task(
         id=f"task_{uuid.uuid4().hex[:10]}", prompt=shot.get("prompt", "").strip(),
         start_image_path=start, end_image_path=end, engine=engine, task_type="video",

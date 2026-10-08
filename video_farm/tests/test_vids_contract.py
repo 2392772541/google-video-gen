@@ -94,3 +94,24 @@ def test_corrupt_frame_rejected_before_enqueue(shot_factory, tmp_path):
         _enqueue_shot_task(shot, wf)
     assert error.value.status_code == 422
     assert task_count() == 0
+
+
+def test_flow_duration_contract_enforced():
+    from video_farm.video_contract import validate_video_request, VideoRequestError
+
+    # Flow 10s with veo-lite is rejected
+    t_invalid = Task(id="test_flow_10s_lite", prompt="test", engine="flow",
+                     model="veo-lite", duration_sec=10, aspect_ratio="16:9")
+    with pytest.raises(VideoRequestError, match="10秒时长仅支持 Omni"):
+        validate_video_request(t_invalid)
+
+    # Flow 10s with omni-flash is valid
+    t_valid = Task(id="test_flow_10s_omni", prompt="test", engine="flow",
+                   model="omni-flash", duration_sec=10, aspect_ratio="16:9")
+    validate_video_request(t_valid)
+
+    # Flow unsupported duration like 12s is rejected
+    t_bad_dur = Task(id="test_flow_bad_dur", prompt="test", engine="flow",
+                     model="omni-flash", duration_sec=12, aspect_ratio="16:9")
+    with pytest.raises(VideoRequestError, match="仅支持 4、6、8、10 秒"):
+        validate_video_request(t_bad_dur)

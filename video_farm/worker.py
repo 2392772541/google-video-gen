@@ -163,11 +163,12 @@ class VideoWorker:
         stdout_path = stderr_path = None
         spool_handles = []
 
-        def failure(code, message):
+        def failure(code, message, submission_possible=None):
+            sub_pos = launched if submission_possible is None else submission_possible
             outcome.update(success=False, pid=proc.pid if proc else None,
                            error_code=code, error_message=message,
                            output_video_path=None, logs=logs,
-                           submission_possible=launched)
+                           submission_possible=sub_pos)
             return outcome
 
         try:
@@ -209,6 +210,8 @@ class VideoWorker:
                         "--out-dir", str(directory), "--json", "--project", str(project_id)])
             if task.model:
                 cmd.extend(["--model", task.model])
+            elif int(task.duration_sec) == 10:
+                cmd.extend(["--model", "omni-flash"])
             cmd.extend(["--duration", str(task.duration_sec)])
             cmd.append(task.prompt)
             control.check()
@@ -261,6 +264,10 @@ class VideoWorker:
                 return failure("AGENTIC_UI_BLOCKED", "Flow 被协议或界面遮挡；系统未同意协议、未再次提交")
             if proc.returncode == 7 and ("wireformaterror" in content or "wire-format" in content):
                 return failure("WIRE_FORMAT_MISMATCH", "Flow 格式校验失败；请核对原工程，不自动重复提交")
+            if proc.returncode in (1, 2) and any(kw in content for kw in ("caps at", "usage:", "only available for", "invalid value", "error: the default model")):
+                err_lines = [line.strip() for line in (stderr + "\n" + stdout).splitlines() if line.strip().startswith("Error:") or "caps at" in line or "only available for" in line]
+                err_detail = err_lines[0] if err_lines else "参数与当前模型不兼容"
+                return failure("CONFIG_ERROR", f"Flow CLI 参数校验失败（未提交请求，未扣除额度）：{err_detail}", submission_possible=False)
             # Authentication/transport failures can occur after an accepted submit.
             # Without a pre-submit receipt, no account failover/retry is safe.
             return failure("FLOW_RESULT_UNCONFIRMED", "Flow 未返回可验证成片；请先核对原工程，可能已经消耗额度，不会自动重发")

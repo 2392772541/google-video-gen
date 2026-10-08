@@ -181,3 +181,15 @@ def test_failed_process_cleanup_retains_execution_owner(tmp_path):
     assert w.has_live_execution(task().id) is True
     proc.is_alive = lambda: False
     assert w.has_live_execution(task().id) is False
+
+
+def test_cli_config_error_not_treated_as_unconfirmed_result(tmp_path):
+    w = worker(tmp_path)
+    stderr_content = "Usage: python -m gflow_cli video i2v\nError: the default model veo_3_1_lite: model 'veo_3_1_lite' caps at 8s; duration 10 is only available for omni_flash"
+    p = Process("", stderr_content)
+    p.returncode = 2
+    with patch("video_farm.worker.VideoWorker._launch_cli", side_effect=lambda command, **kwargs: p.emit(kwargs)):
+        result = w.execute_task(task(), Profile(id="p", name="p"))
+    assert result["error_code"] == "CONFIG_ERROR"
+    assert "caps at 8s" in result["error_message"]
+    assert result["submission_possible"] is False
