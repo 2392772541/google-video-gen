@@ -330,13 +330,40 @@ class VidsWorker:
     def _dismiss_overlays(self, page, logs, control):
         # Only known, non-binding welcome controls. Never remove dialog DOM or
         # click Agree/Accept/同意 on the user's behalf.
-        for name in (r"^(Blank vid|空白视频)$", r"^(Close|关闭|Skip|跳过|Got it|知道了|Dismiss)$"):
-            button = page.get_by_role("dialog").get_by_role("button", name=re.compile(name, re.I))
-            if self._visible(button):
-                control.check()
-                button.first.click(timeout=control.timeout_ms())
-                logs.append("关闭非协议的新手引导")
-        agreement = page.get_by_role("dialog").get_by_role(
+        dismiss_patterns = [
+            re.compile(r"^(Close|关闭|Skip|跳过|Got it|知道了|Dismiss|Not now|稍后再说)$", re.I),
+            re.compile(r"^(Blank vid|空白视频)$", re.I),
+        ]
+        dialogs = page.locator('[role="dialog"], .modal, [aria-modal="true"]')
+        count = dialogs.count()
+        for d_idx in range(count):
+            dlg = dialogs.nth(d_idx)
+            if not self._visible(dlg):
+                continue
+            for pat in dismiss_patterns:
+                btns = dlg.get_by_role("button", name=pat)
+                for b_idx in range(btns.count()):
+                    b = btns.nth(b_idx)
+                    if self._visible(b):
+                        control.check()
+                        b.click(timeout=control.timeout_ms())
+                        logs.append("关闭非协议的新手引导")
+                        control.pause(page, 0.5)
+                        break
+            close_icon = dlg.locator('button[aria-label*="Close" i], button[aria-label*="关闭" i], [aria-label="Close" i], [aria-label="关闭" i]')
+            for b_idx in range(close_icon.count()):
+                b = close_icon.nth(b_idx)
+                if self._visible(b):
+                    control.check()
+                    b.click(timeout=control.timeout_ms())
+                    logs.append("关闭非协议的新手引导")
+                    control.pause(page, 0.5)
+                    break
+        try:
+            page.keyboard.press("Escape")
+        except Exception:
+            pass
+        agreement = page.locator('[role="dialog"]').get_by_role(
             "button", name=re.compile(r"^(I agree|Agree|Accept|同意)$", re.I))
         if self._visible(agreement):
             raise VidsUIError("Google 要求您在原生网页确认协议；请求尚未提交。", "USER_ACTION_REQUIRED")
@@ -387,26 +414,59 @@ class VidsWorker:
 
         for idx, p in enumerate(paths, 1):
             control.check()
+            resolved_p = str(Path(p).resolve())
             if idx == 1:
-                btn = sidebar.get_by_role("button", name=re.compile(r"^(素材|Assets?)$", re.I))
+                btn = sidebar.get_by_role("button", name=re.compile(r"^(素材|Assets?|Ingredients?)$", re.I))
                 if not self._visible(btn):
-                    btn = sidebar.locator('button[aria-label*="素材"], button:has-text("素材")')
+                    btn = sidebar.locator(
+                        'button[aria-label*="素材" i], button[aria-label*="Ingredient" i], '
+                        'button:has-text("素材"), button:has-text("Ingredients")'
+                    )
                 self._wait(page, control, lambda: self._visible(btn), "未找到‘素材’上传入口", seconds=20)
-                with page.expect_file_chooser(timeout=control.timeout_ms(7000)) as chooser:
-                    btn.first.click(timeout=control.timeout_ms())
-                chooser.value.set_files(str(Path(p).resolve()), timeout=control.timeout_ms(10000))
+                try:
+                    with page.expect_file_chooser(timeout=control.timeout_ms(7000)) as chooser:
+                        btn.first.click(timeout=control.timeout_ms())
+                    chooser.value.set_files(resolved_p, timeout=control.timeout_ms(10000))
+                except Exception as fc_err:
+                    logs.append(f"首次素材上传触发 filechooser 异常，尝试通过原生 input 设置: {fc_err}")
+                    file_input = page.locator('input[type="file"]')
+                    if file_input.count() > 0:
+                        file_input.first.set_input_files(resolved_p, timeout=control.timeout_ms(10000))
+                    else:
+                        raise
             else:
-                add_btn = sidebar.locator('button[aria-label*="添加虚拟形象或素材"], button:has-text("添加")')
+                add_btn = sidebar.locator(
+                    'button[aria-label*="avatar or ingredients" i], button[aria-label*="虚拟形象或素材" i], '
+                    'button:has-text("Add"), button:has-text("添加")'
+                )
                 self._wait(page, control, lambda: self._visible(add_btn), f"未找到添加第 {idx} 张素材的入口", seconds=25)
                 add_btn.first.click(timeout=control.timeout_ms())
-                control.pause(page, 0.5)
-                upload_card = page.locator('button:has-text("上传"), [role="button"]:has-text("上传"), div:has-text("上传")')
-                self._wait(page, control, lambda: self._visible(upload_card), "未找到素材‘上传’选项卡片", seconds=10)
-                with page.expect_file_chooser(timeout=control.timeout_ms(7000)) as chooser:
-                    upload_card.last.click(timeout=control.timeout_ms())
-                chooser.value.set_files(str(Path(p).resolve()), timeout=control.timeout_ms(10000))
+                control.pause(page, 0.8)
 
-            preview = sidebar.locator(f'[aria-label*="移除图片 {idx}"], [aria-label*="移除图片"], img.inputPreviewItemPreview')
+                file_inputs = page.locator('input[type="file"]')
+                if file_inputs.count() > 0:
+                    file_inputs.last.set_input_files(resolved_p, timeout=control.timeout_ms(10000))
+                else:
+                    upload_card = page.locator(
+                        'button.videoGenCreationViewFileInputsInputSelectButton, '
+                        'button[aria-label="Upload" i], button[aria-label="上传" i], '
+                        'button:has-text("Upload"), button:has-text("上传")'
+                    )
+                    self._wait(page, control, lambda: self._visible(upload_card), "未找到素材‘上传’选项卡片", seconds=10)
+                    with page.expect_file_chooser(timeout=control.timeout_ms(7000)) as chooser:
+                        upload_card.first.click(timeout=control.timeout_ms())
+                    chooser.value.set_files(resolved_p, timeout=control.timeout_ms(10000))
+
+                try:
+                    page.keyboard.press("Escape")
+                except Exception:
+                    pass
+
+            preview = sidebar.locator(
+                f'[aria-label*="移除图片 {idx}"], [aria-label*="移除图片"], '
+                f'[aria-label*="Remove image {idx}" i], [aria-label*="Remove image" i], '
+                'img.inputPreviewItemPreview'
+            )
             self._wait(page, control, lambda: self._visible(preview) and preview.count() >= idx,
                        f"第 {idx} 张素材未完成上传绑定", seconds=35)
             logs.append(f"第 {idx} 张素材已成功绑定至 Vids（@图片 {idx}）：{Path(p).name}")
@@ -466,7 +526,12 @@ class VidsWorker:
         if not self._visible(sidebar):
             entry = page.locator('#content-library-rail-video-generation-element')
             self._wait(page, control, lambda: self._visible(entry), "未找到 Google Vids AI 视频入口", seconds=25)
-            entry.first.click(timeout=control.timeout_ms())
+            try:
+                entry.first.click(timeout=control.timeout_ms())
+            except Exception as click_err:
+                logs.append(f"AI视频入口初次点击被遮挡或超时，尝试清除遮罩后重试: {click_err}")
+                self._dismiss_overlays(page, logs, control)
+                entry.first.click(timeout=control.timeout_ms())
             self._wait(page, control, lambda: self._visible(sidebar), "AI 视频侧边栏未展开")
         sidebar = sidebar.first
         has_double_frames = bool(task.start_image_path and task.end_image_path)
@@ -489,17 +554,24 @@ class VidsWorker:
         self._configure(page, sidebar, task, control, logs)
         prompt = sidebar.get_by_role("tabpanel").get_by_role("textbox")
         self._wait(page, control, lambda: self._visible(prompt), "未找到当前模式的提示词输入框")
+        p_clean = task.prompt.strip()
         if has_double_frames:
             prompt.first.click(timeout=control.timeout_ms())
             prompt.first.press("End", timeout=control.timeout_ms())
-            prompt.first.press_sequentially(f" {task.prompt.strip()}", timeout=control.timeout_ms())
+            prompt.first.press_sequentially(f" {p_clean}", timeout=control.timeout_ms())
         else:
-            prompt.first.fill(task.prompt.strip(), timeout=control.timeout_ms())
+            prompt.first.fill(p_clean, timeout=control.timeout_ms())
         raw_text = prompt.first.inner_text().strip()
-        if task.prompt.strip() not in raw_text and prompt.first.input_value().strip() != task.prompt.strip():
+        prefix = p_clean[:25].strip()
+        if p_clean not in raw_text and prefix not in raw_text and prompt.first.input_value().strip() != p_clean:
             raise VidsUIError("提示词写入未生效，未提交生成")
         baseline = {self.media_identity(r['src']) for r in self._media_rows(page)}
-        generate = sidebar.get_by_role("tabpanel").get_by_role("button", name=re.compile(r"^(生成|Generate)$", re.I))
+        generate = sidebar.locator(
+            'button[aria-label="Generate" i], button[aria-label="生成" i], '
+            'button:has-text("Generate"), button:has-text("生成")'
+        )
+        if not self._visible(generate):
+            generate = sidebar.get_by_role("tabpanel").get_by_role("button", name=re.compile(r"^(生成|Generate)$", re.I))
         self._wait(page, control, lambda: self._visible(generate) and generate.first.is_enabled(), "生成按钮仍不可用；检查素材/额度")
         control.check()
         # Set before click: a lost click response must not cause a second spend.
