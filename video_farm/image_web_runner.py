@@ -279,13 +279,22 @@ class NativeImageRun:
         download = page.get_by_role("button", name=re.compile(r"^(下载媒体内容|Download media)$", re.I))
         self.wait(lambda: download.count() == 1 and download.is_visible(), "Flow 下载控件未就绪", 15)
         self.click(download)
-        original = page.get_by_role("menuitem", name=re.compile(r"(?:1K.*(?:原始|Original)|(?:原始|Original).*1K)", re.I))
+        # 兼容匹配 1K / 原始尺寸 / Original 下载菜单项
+        original = page.get_by_role("menuitem", name=re.compile(r"(?:1K.*(?:原始|Original)|(?:原始|Original).*1K|1K|原始|Original)", re.I))
         if not original.count():
-            original = page.get_by_role("button", name=re.compile(r"(?:1K.*(?:原始|Original)|(?:原始|Original).*1K)", re.I))
-        if original.count() != 1:
+            original = page.get_by_role("button", name=re.compile(r"(?:1K.*(?:原始|Original)|(?:原始|Original).*1K|1K|原始|Original)", re.I))
+        if not original.count():
+            original = page.locator('[role="menuitem"]:has-text("1K"), [role="menuitem"]:has-text("原始"), [role="menuitem"]:has-text("Original")')
+        if not original.count():
+            # 兜底：若菜单中仅有单一下载项或第一个菜单项
+            menu_items = page.get_by_role("menuitem")
+            if menu_items.count() > 0:
+                original = menu_items.first
+        if not original.count():
             raise ImageWebError("未找到 Flow 原始尺寸下载选项；不调用高清重塑。", "IMAGE_RESULT_UNCONFIRMED")
+        target_item = original.first if original.count() > 1 else original
         with page.expect_download(timeout=self.control.timeout_ms(45000)) as event:
-            self.click(original)
+            self.click(target_item)
         return [self.save(event.value, 1)]
 
     def choose_gemini(self):

@@ -442,7 +442,7 @@
 <option value="4">4 秒</option>
 <option value="6">6 秒</option>
 <option selected="" value="8">8 秒 (标准推荐)</option>
-<option value="10">10 秒</option>
+<option value="10">10 秒 (Omni / Vids 推荐)</option>
 </select>
 </div>
 </div>
@@ -644,6 +644,17 @@
 </div>
 <div style="line-height:1.6;padding:10px 14px;border-radius:8px;margin-bottom:14px">
             💡 <b>无缝联动生视频闭环</b>：点击任意图片卡片下方的<b>【📌 设为首帧】</b>或<b>【📌 设为尾帧】</b>，系统将自动将该图填入“生成视频”工作台，无需手动保存再重新上传！
+          </div>
+          <!-- 实时生图队列与状态监控面板 -->
+          <div id="image-active-tasks-panel" style="display:none; margin-bottom:16px; padding:12px 14px; background:rgba(30, 41, 59, 0.7); border:1px solid rgba(59, 130, 246, 0.3); border-radius:10px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+              <span style="font-size:13px; font-weight:600; color:var(--text-main); display:flex; align-items:center; gap:6px;">
+                <span>⚡ 实时生图队列与生成状态</span>
+                <span id="image-active-count-badge" style="background:rgba(59,130,246,0.2); color:#60a5fa; font-size:11px; padding:1px 6px; border-radius:10px;">0</span>
+              </span>
+              <span style="font-size:11px; color:var(--text-muted);">任务完成后将自动移入下方图片库</span>
+            </div>
+            <div id="image-active-tasks-list" style="display:flex; flex-direction:column; gap:8px;"></div>
           </div>
 <div class="audit-task-pagination"><button class="btn btn-secondary btn-sm btn-task-prev" type="button">上一页</button><span aria-live="polite" class="task-page-info">正在读取历史任务…</span><button class="btn btn-secondary btn-sm btn-task-next" type="button">下一页</button></div>
 <!-- 图像网格容器 -->

@@ -443,7 +443,7 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   // ==================== 双生成引擎切换 ====================
-  function applyEngineMode(engine) {
+    function applyEngineMode(engine) {
     state.currentEngine = engine;
     if (engine === "vids") {
       if (el.btnEngineVids) el.btnEngineVids.classList.add("active");
@@ -451,7 +451,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (el.btnEngineGemini) el.btnEngineGemini.classList.remove("active", "gemini-active");
 
       updateModelOptions("vids", "Omni (1080p)");
-      if (el.labelModelTitle) el.labelModelTitle.innerHTML = `Google Vids 视频模型`;
+      if (el.labelModelTitle) el.labelModelTitle.innerHTML = "Google Vids 视频模型";
       if (el.badgeModelTag) {
         el.badgeModelTag.textContent = "Google Vids";
         el.badgeModelTag.style.background = "rgba(168,85,247,0.15)";
@@ -462,19 +462,29 @@ document.addEventListener("DOMContentLoaded", () => {
         el.inputCustomModel.value = "";
         el.inputCustomModel.style.display = "none";
       }
-      if (el.dropEnd) el.dropEnd.style.display = "none";
-      if (el.btnSwapFrames) el.btnSwapFrames.style.display = "none";
+      // Vids 支持单图动画或首尾双素材过渡
+      if (el.dropEnd) el.dropEnd.style.display = "";
+      if (el.btnSwapFrames) el.btnSwapFrames.style.display = "";
       if (el.dropStart) {
-        el.dropStart.classList.add("gemini-single-card");
+        el.dropStart.classList.remove("gemini-single-card");
         const roleTag = el.dropStart.querySelector(".frame-role-tag");
-        if (roleTag) roleTag.textContent = "首帧/参考图 · 可选";
+        if (roleTag) roleTag.textContent = "素材1 / 首帧 (可选)";
         const dropTxt = el.placeholderStart.querySelector(".drop-text");
-        if (dropTxt) dropTxt.textContent = "上传首帧图片 (可选)";
+        if (dropTxt) dropTxt.textContent = "上传首帧/素材1 (可选)";
         const dropSub = el.placeholderStart.querySelector(".drop-subtext");
-        if (dropSub) dropSub.textContent = "留空则执行纯文本生视频";
+        if (dropSub) dropSub.textContent = "留空则纯文本，传图则微动/双素材过渡";
       }
+      if (el.dropEnd) {
+        const roleTag = el.dropEnd.querySelector(".frame-role-tag");
+        if (roleTag) roleTag.textContent = "素材2 / 尾帧 (可选)";
+        const dropTxt = el.placeholderEnd.querySelector(".drop-text");
+        if (dropTxt) dropTxt.textContent = "上传尾帧/素材2 (可选)";
+        const dropSub = el.placeholderEnd.querySelector(".drop-subtext");
+        if (dropSub) dropSub.textContent = "与素材1配合实现 Google Vids 原生双素材过渡";
+      }
+      if (el.selectDuration) el.selectDuration.value = "8";
       if (el.stageHintText) {
-        el.stageHintText.textContent = "Google Vids 原生工作流：Omni 1080p 超清分镜生成。";
+        el.stageHintText.textContent = "Google Vids 原生工作流：Omni 1080p 超清分镜生成，支持单图或双素材过渡。";
       }
       el.btnSubmitTask.textContent = "创建 Vids 任务";
       el.inputPrompt.placeholder = "输入视频描述提示词（例如：现代化农业种植大棚航拍，阳光透射绿叶生机盎然，16:9横屏，镜头平滑推进，4K质感）...";
@@ -485,7 +495,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       // 模型与标签切换为 Gemini
       updateModelOptions("gemini", "auto");
-      if (el.labelModelTitle) el.labelModelTitle.innerHTML = `Gemini 对话框模型`;
+      if (el.labelModelTitle) el.labelModelTitle.innerHTML = "Gemini 对话框模型";
       if (el.badgeModelTag) {
         el.badgeModelTag.textContent = "Gemini 网页版";
         el.badgeModelTag.style.background = "rgba(16,185,129,0.15)";
@@ -519,12 +529,19 @@ document.addEventListener("DOMContentLoaded", () => {
       if (el.btnEngineGemini) el.btnEngineGemini.classList.remove("active", "gemini-active");
 
       // 模型与标签切换为 Flow
-      updateModelOptions("flow", "veo-lite");
-      if (el.labelModelTitle) el.labelModelTitle.innerHTML = `Google Flow 视频模型`;
+      const currentDur = el.selectDuration ? el.selectDuration.value : "8";
+      const flowDefModel = currentDur === "10" ? "omni-flash" : "veo-lite";
+      updateModelOptions("flow", flowDefModel);
+      if (el.labelModelTitle) el.labelModelTitle.innerHTML = "Google Flow 视频模型";
       if (el.badgeModelTag) {
         el.badgeModelTag.textContent = "Google Flow";
         el.badgeModelTag.style.background = "rgba(59,130,246,0.15)";
         el.badgeModelTag.style.color = "#60a5fa";
+      }
+
+      if (el.inputCustomModel) {
+        el.inputCustomModel.value = "";
+        el.inputCustomModel.style.display = "none";
       }
 
       // 恢复 Flow 首尾帧模式
@@ -537,6 +554,15 @@ document.addEventListener("DOMContentLoaded", () => {
         const dropTxt = el.placeholderStart.querySelector(".drop-text");
         if (dropTxt) dropTxt.textContent = "上传首帧图片";
         const dropSub = el.placeholderStart.querySelector(".drop-subtext");
+        const asp = state.currentAspect || "16:9";
+        if (dropSub) dropSub.textContent = ASPECT_CONFIG[asp] ? ASPECT_CONFIG[asp].resHint : "推荐 16:9 (如 1280x720)";
+      }
+      if (el.dropEnd) {
+        const roleTag = el.dropEnd.querySelector(".frame-role-tag");
+        if (roleTag) roleTag.textContent = "尾帧";
+        const dropTxt = el.placeholderEnd.querySelector(".drop-text");
+        if (dropTxt) dropTxt.textContent = "上传尾帧图片";
+        const dropSub = el.placeholderEnd.querySelector(".drop-subtext");
         const asp = state.currentAspect || "16:9";
         if (dropSub) dropSub.textContent = ASPECT_CONFIG[asp] ? ASPECT_CONFIG[asp].resHint : "推荐 16:9 (如 1280x720)";
       }
@@ -799,13 +825,24 @@ document.addEventListener("DOMContentLoaded", () => {
       formData.append("start_image_path", state.startImagePath);
     }
 
-    if (state.currentEngine === "flow") {
+    // 允许 Flow 和 Google Vids 携带尾帧实现多素材过渡
+    if (state.currentEngine === "flow" || state.currentEngine === "vids") {
       if (state.endFile) {
         formData.append("end_image", state.endFile);
       } else if (state.endImagePath) {
         formData.append("end_image_path", state.endImagePath);
       }
     }
+    // 智能校验时长与模型，避免非法报错
+    let durVal = parseInt(el.selectDuration.value || "8", 10);
+    if (state.currentEngine === "vids") {
+      if (durVal < 3 || durVal > 10) durVal = 8;
+    } else if (state.currentEngine === "flow") {
+      if (durVal === 10) {
+        formData.set("model", "omni-flash");
+      }
+    }
+    formData.set("duration_sec", durVal);
     if (el.selectAssignedProf.value) {
       formData.append("assigned_profile_id", el.selectAssignedProf.value);
     }
@@ -2060,7 +2097,87 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  let activeImageTasksInterval = null;
+
+  function renderImageActiveTasks() {
+    const container = document.getElementById("image-active-tasks-panel");
+    const listEl = document.getElementById("image-active-tasks-list");
+    const countBadge = document.getElementById("image-active-count-badge");
+    if (!container || !listEl) return;
+
+    const allImageTasks = (state.tasks || []).filter(t => t.task_type === "image");
+    const activeOrRecent = allImageTasks.filter(t => t.status === "running" || t.status === "queued" || (t.status === "failed" && (Date.now() - new Date(t.created_at).getTime() < 3600000)));
+
+    if (activeOrRecent.length === 0) {
+      container.style.display = "none";
+      if (activeImageTasksInterval) {
+        clearInterval(activeImageTasksInterval);
+        activeImageTasksInterval = null;
+      }
+      return;
+    }
+
+    container.style.display = "block";
+    const runningCount = activeOrRecent.filter(t => t.status === "running" || t.status === "queued").length;
+    if (countBadge) countBadge.textContent = runningCount > 0 ? `${runningCount} 进行中` : `${activeOrRecent.length} 待关注`;
+
+    listEl.innerHTML = activeOrRecent.map(t => {
+      const isRunning = t.status === "running";
+      const isQueued = t.status === "queued";
+      const isFailed = t.status === "failed";
+      const statusIcon = isRunning ? "⚡ 正在生成中…" : (isQueued ? "⏳ 排队等待中…" : "❌ 生成失败");
+      const statusColor = isRunning ? "#38bdf8" : (isQueued ? "#fbbf24" : "#f87171");
+      const bgCard = isRunning ? "rgba(56, 189, 248, 0.08)" : (isQueued ? "rgba(251, 191, 36, 0.06)" : "rgba(239, 68, 68, 0.08)");
+      const borderCard = isRunning ? "rgba(56, 189, 248, 0.3)" : (isQueued ? "rgba(251, 191, 36, 0.2)" : "rgba(239, 68, 68, 0.3)");
+
+      return `
+        <div style="background:${bgCard}; border:1px solid ${borderCard}; border-radius:8px; padding:10px 12px; display:flex; flex-direction:column; gap:6px;">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span style="font-size:12px; font-weight:700; color:${statusColor}; display:flex; align-items:center; gap:4px;">
+                ${statusIcon}
+              </span>
+              <span style="font-size:11px; color:var(--text-muted); font-family:monospace;">${escapeHtml(t.id)}</span>
+              <span style="font-size:11px; background:rgba(255,255,255,0.06); padding:1px 6px; border-radius:4px; color:var(--text-sub);">
+                ${t.engine === "flow" ? "Google Flow" : "Gemini"} · ${escapeHtml(t.model || "Nano Pro")} · ${escapeHtml(t.aspect_ratio || "9:16")}
+              </span>
+            </div>
+            ${isFailed ? `<button class="btn btn-secondary btn-sm" style="padding:2px 8px; font-size:11px;" onclick="retryImageTask('${escapeAttr(t.id)}')">🔄 重新填入重试</button>` : ''}
+          </div>
+          <div style="font-size:12px; color:var(--text-main); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${escapeAttr(t.prompt)}">
+            ${escapeHtml(t.prompt)}
+          </div>
+          ${isFailed && t.error_message ? `
+            <div style="font-size:11px; color:#f87171; background:rgba(0,0,0,0.25); padding:4px 8px; border-radius:4px; border-left:2px solid #ef4444;">
+              ⚠️ 失败原因: ${escapeHtml(t.error_message)}
+            </div>
+          ` : ''}
+        </div>
+      `;
+    }).join("");
+
+    if (runningCount > 0 && !activeImageTasksInterval) {
+      activeImageTasksInterval = setInterval(() => {
+        fetchTasks(true);
+      }, 2500);
+    }
+  }
+
+  window.retryImageTask = function(taskId) {
+    const t = (state.tasks || []).find(x => x.id === taskId);
+    if (!t) return;
+    if (el.inputImagePrompt) el.inputImagePrompt.value = t.prompt || "";
+    if (el.selectImageEngine && t.engine) {
+      el.selectImageEngine.value = t.engine;
+      updateImageModels();
+    }
+    if (el.selectImageModel && t.model) el.selectImageModel.value = t.model;
+    if (el.selectImageAspect && t.aspect_ratio) el.selectImageAspect.value = t.aspect_ratio;
+    showToast("已载入失败任务配置，点击【创建图像任务】重试", "info");
+  };
+
   function renderImageGallery() {
+    renderImageActiveTasks();
     if (!el.imageGalleryList) return;
     const container = el.imageGalleryList;
     const imageItems = [];

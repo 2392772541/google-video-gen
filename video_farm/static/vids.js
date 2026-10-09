@@ -1,3 +1,37 @@
+
+// 同步顶栏全局画幅胶囊状态
+function syncGlobalAspectPill(aspect) {
+  const btn16 = document.getElementById("btn-aspect-16-9");
+  const btn9 = document.getElementById("btn-aspect-9-16");
+  if (!btn16 || !btn9) return;
+  const is16 = (aspect === "16:9");
+  btn16.style.background = is16 ? "#3b82f6" : "transparent";
+  btn16.style.color = is16 ? "#fff" : "var(--text-sub, #94a3b8)";
+  btn9.style.background = !is16 ? "#10b981" : "transparent";
+  btn9.style.color = !is16 ? "#fff" : "var(--text-sub, #94a3b8)";
+}
+
+// 点击顶栏胶囊切换全局画幅
+async function setGlobalAspect(aspect) {
+  if (!state.currentWorkflowId) {
+    alert("请先选择或新建一个工作流工程！");
+    return;
+  }
+  try {
+    syncGlobalAspectPill(aspect);
+    await api(`/workflows/${state.currentWorkflowId}`, {
+      method: "PUT",
+      body: { aspect_ratio: aspect }
+    });
+    if (state.workflow) state.workflow.aspect_ratio = aspect;
+    appendLog(`已将当前工程全局画幅设为: ${aspect === "16:9" ? "📺 16:9 横屏 (Google Vids 标准)" : "📱 9:16 竖屏 (短剧/Shorts)"}`, "success");
+    if (state.workflow && Array.isArray(state.workflow.shots)) {
+      renderShots(state.workflow.shots);
+    }
+  } catch (e) {
+    appendLog(`修改画幅失败: ${e.message}`, "error");
+  }
+}
 /**
  * Google Vids 连续生成工作台前端核心逻辑
  * Version: 20261001_v10 (极简流式单栏 + 抽屉预设 + 全屏灯箱 + 原地成片回显)
@@ -350,6 +384,7 @@ async function selectWorkflow(workflowId) {
 
   // 刷新并同步下拉框选中状态
   await refreshWorkflowSelect(workflowId);
+  syncGlobalAspectPill(wf.aspect_ratio || "16:9");
 
   // 更新顶部标题与描述
   const titleEl = getEl("workflow-title-display", "current-workflow-title");
@@ -605,6 +640,7 @@ card.innerHTML = `
           <span class="badge" style="font-size: 10px; padding: 1px 5px;">请求 ${shot.duration || 8}s</span>
           <span class="${shotRes === '1080p' ? 'badge-1080p' : 'badge-720p'}">请求 ${shotRes}</span>
           <span class="badge" style="background: rgba(59,130,246,0.15); color: var(--blue-primary); font-size: 10px; padding: 1px 5px;">${shotModel}</span>
+          <span class="badge" style="font-size: 10px; padding: 1px 5px; background: ${(shot.aspect_ratio || state.workflow?.aspect_ratio) === "9:16" ? "rgba(16,185,129,0.15); color: #34d399;" : "rgba(59,130,246,0.15); color: #60a5fa;"}; font-weight: 600;">${(shot.aspect_ratio || state.workflow?.aspect_ratio) === "9:16" ? "📱 9:16 竖屏" : "📺 16:9 横屏"}</span>
         </div>
         <div class="shot-header-actions">
           <div class="shot-status-badge-wrap">${statusBadge}</div>
@@ -1342,6 +1378,17 @@ async function executeBatchImport() {
       clean = lines.join('\n').trim();
     }
     parsed = JSON.parse(clean);
+    // 画幅强制覆盖逻辑
+    const aspectRadio = document.querySelector('input[name="import-aspect-radio"]:checked');
+    const forceAspect = (aspectRadio && aspectRadio.value !== 'keep') ? aspectRadio.value : null;
+    if (forceAspect) {
+      if (Array.isArray(parsed)) {
+        parsed.forEach(it => { if (it && typeof it === 'object') it.aspect_ratio = forceAspect; });
+      } else if (parsed && typeof parsed === 'object') {
+        parsed.aspect_ratio = forceAspect;
+        if (Array.isArray(parsed.shots)) parsed.shots.forEach(it => { if (it && typeof it === 'object') it.aspect_ratio = forceAspect; });
+      }
+    }
   } catch (err) {
     if (msgBox) {
       msgBox.style.display = 'block';
@@ -1725,70 +1772,79 @@ function executeBatchJsonImport() {
   return executeBatchImport();
 }
 
-function fillSampleJson(mode) {
+async function fillSampleJson(mode) {
   const textarea = document.getElementById('json-import-textarea') || document.getElementById('batch-import-textarea');
   if (!textarea) return;
-  if (mode === 'first_last_frame') {
-    const flowRadio = document.getElementById('import-engine-flow');
-    if (flowRadio) flowRadio.checked = true;
-  } else {
-    const vidsRadio = document.getElementById('import-engine-vids');
-    if (vidsRadio) vidsRadio.checked = true;
+
+  let sampleData = null;
+  try {
+    sampleData = await api(`/sample_import_json?type=${mode}`);
+  } catch (e) {
+    console.warn("拉取服务端模版失败:", e);
   }
-  let sampleData = [];
-  if (mode === 'first_last_frame') {
-    sampleData = [
-      {
-        "name": "镜头01·活磷固定",
-        "mode": "first_last_frame",
-        "image_url": "E:/BaiduNetdiskDownload/麟活矛_01_start.png",
-        "end_image_url": "E:/BaiduNetdiskDownload/麟活矛_01_end.png",
-        "prompt": "镜头01: 固定机位缓慢推进悬浮土壤小岛，矿物微粒与金色标记平滑流动，1080p高质量",
-        "narration": "偏碱的土壤里，磷容易与钙结合固定。",
-        "duration": 8,
-        "resolution": "1080p",
-        "model_name": "Omni"
-      },
-      {
-        "name": "镜头02·活磷释放",
-        "mode": "first_last_frame",
-        "image_url": "E:/BaiduNetdiskDownload/麟活矛_02_start.png",
-        "end_image_url": "E:/BaiduNetdiskDownload/麟活矛_02_end.png",
-        "prompt": "镜头02: 沿同一麦苗与根毛运镜，矿物颗粒逐渐解离释放为游离磷素，平滑过渡",
-        "narration": "活磷，就是提高土壤中已有磷的有效性。",
-        "duration": 8,
-        "resolution": "1080p",
-        "model_name": "Omni"
-      }
-    ];
-  } else if (mode === 'image2video') {
-    sampleData = [
-      {
-        "name": "镜头01·幼苗特写",
-        "mode": "image2video",
-        "image_url": "E:/BaiduNetdiskDownload/sample_plant.png",
-        "prompt": "微距摄影，阳光透过温室玻璃照射在深绿麦叶上，露珠晶莹，缓慢运镜",
-        "narration": "健康的根际环境是丰收的基石。",
-        "duration": 8,
-        "resolution": "1080p",
-        "model_name": "Omni"
-      }
-    ];
-  } else {
-    sampleData = [
-      {
-        "name": "镜头01·宏观航拍",
-        "mode": "text2video",
-        "prompt": "Cinematic aerial view of endless golden wheat fields at golden hour, 4k 1080p photorealistic",
-        "narration": "广袤的原野见证科技的力量。",
-        "duration": 8,
-        "resolution": "1080p",
-        "model_name": "Omni"
-      }
-    ];
+
+  if (!sampleData || (Array.isArray(sampleData) && sampleData.length === 0)) {
+    if (mode === 'text2video') {
+      sampleData = [
+        {
+          "engine": "vids",
+          "prompt": "镜头1：清晨阳光穿透薄雾照耀广袤麦田，微风吹拂金色麦浪，航拍镜头平滑向前推入，电影质感，16:9横屏",
+          "aspect_ratio": "16:9",
+          "duration_sec": 8,
+          "priority": 10
+        }
+      ];
+    } else if (mode === 'image2video') {
+      sampleData = [
+        {
+          "engine": "vids",
+          "prompt": "镜头1：以提供的参考图片为起点，麦叶随微风自然轻摆，阳光明暗柔和变幻，运镜平稳向前微移",
+          "start_image_path": "video_farm_data/uploads/shot1_start.png",
+          "aspect_ratio": "16:9",
+          "duration_sec": 8,
+          "priority": 10
+        }
+      ];
+    } else if (mode === 'multi_assets') {
+      sampleData = [
+        {
+          "engine": "vids",
+          "prompt": "镜头1：绑定3张核心素材资产（@Image1麦田全景、@Image2晶体叶肉、@Image3微观细胞）。镜头由宏观金黄麦穗平滑推进到叶表纳米晶体，最后沉浸式穿入深层细胞组织。多视角平滑融合，电影级质感，1080p超清。",
+          "start_image_path": "E:/BaiduNetdiskDownload/素材1.png",
+          "end_image_path": "E:/BaiduNetdiskDownload/素材3.png",
+          "image_paths": [
+            "E:/BaiduNetdiskDownload/素材1.png",
+            "E:/BaiduNetdiskDownload/素材2.png",
+            "E:/BaiduNetdiskDownload/素材3.png"
+          ],
+          "aspect_ratio": "16:9",
+          "duration_sec": 10,
+          "priority": 10
+        }
+      ];
+    } else {
+      sampleData = [
+        {
+          "engine": "vids",
+          "prompt": "镜头1：以提供的首帧开场、尾帧收束，10秒，16:9。烈日麦田镜头沿前景发黄麦叶快速俯冲，穿过叶片表层平滑进入微观细胞内部，最后稳定呈现半透明膜包围的暗淡叶绿体。运镜先快后稳，微观结构自然过渡，无文字、无水印。",
+          "start_image_path": "E:/BaiduNetdiskDownload/首帧.png",
+          "end_image_path": "E:/BaiduNetdiskDownload/尾帧.png",
+          "aspect_ratio": "16:9",
+          "duration_sec": 10,
+          "priority": 10
+        }
+      ];
+    }
   }
+
   textarea.value = JSON.stringify(sampleData, null, 2);
-  appendLog('已载入示范 JSON 数据 (' + mode + ')', 'info');
+  const titles = {
+    text2video: "纯文生视频模版",
+    image2video: "单图参考模版",
+    first_last_frame: "双帧首尾过渡模版",
+    multi_assets: "Google Vids 3图资产模版"
+  };
+  appendLog(`已载入「${titles[mode] || mode}」示范数据，可按需修改`, "info");
 }
 
 // 新建工程 Modal 交互

@@ -534,10 +534,23 @@ class VidsWorker:
                 entry.first.click(timeout=control.timeout_ms())
             self._wait(page, control, lambda: self._visible(sidebar), "AI 视频侧边栏未展开")
         sidebar = sidebar.first
-        has_double_frames = bool(task.start_image_path and task.end_image_path)
-        if has_double_frames:
+        # 汇总当前任务资产列表（支持 1~3 张图片多素材绑定）
+        asset_paths = []
+        if getattr(task, "image_paths", None) and isinstance(task.image_paths, list):
+            asset_paths = [str(p) for p in task.image_paths if p]
+        else:
+            if task.start_image_path:
+                asset_paths.append(str(task.start_image_path))
+            if getattr(task, "ref_image_path", None) and task.ref_image_path:
+                asset_paths.append(str(task.ref_image_path))
+            if task.end_image_path and str(task.end_image_path) not in asset_paths:
+                asset_paths.append(str(task.end_image_path))
+        asset_paths = asset_paths[:3]
+        has_multiple_assets = len(asset_paths) > 1
+
+        if has_multiple_assets:
             mode = "创建|Create"
-        elif task.start_image_path:
+        elif asset_paths:
             mode = "添加动画|Animate"
         else:
             mode = "创建|Create"
@@ -547,15 +560,15 @@ class VidsWorker:
         expand = sidebar.get_by_role("button", name=re.compile(r"^(展开|Expand)$", re.I))
         if self._visible(expand):
             expand.first.click(timeout=control.timeout_ms())
-        if has_double_frames:
-            self._upload_multiple_assets(page, sidebar, [task.start_image_path, task.end_image_path], control, logs)
-        elif task.start_image_path:
-            self._upload(page, sidebar, task.start_image_path, control, logs)
+        if has_multiple_assets:
+            self._upload_multiple_assets(page, sidebar, asset_paths, control, logs)
+        elif asset_paths:
+            self._upload(page, sidebar, asset_paths[0], control, logs)
         self._configure(page, sidebar, task, control, logs)
         prompt = sidebar.get_by_role("tabpanel").get_by_role("textbox")
         self._wait(page, control, lambda: self._visible(prompt), "未找到当前模式的提示词输入框")
         p_clean = task.prompt.strip()
-        if has_double_frames:
+        if has_multiple_assets:
             prompt.first.click(timeout=control.timeout_ms())
             prompt.first.press("End", timeout=control.timeout_ms())
             prompt.first.press_sequentially(f" {p_clean}", timeout=control.timeout_ms())

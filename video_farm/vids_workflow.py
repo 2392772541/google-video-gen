@@ -300,7 +300,7 @@ SAMPLE_BATCH_IMPORT_DATA = {
     ]
 }
 
-def normalize_imported_workflow_json(raw_input: Any, default_workflow: Optional[Dict[str, Any]] = None, default_engine: Optional[str] = None) -> Dict[str, Any]:
+def normalize_imported_workflow_json(raw_input: Any, default_workflow: Optional[Dict[str, Any]] = None, default_engine: Optional[str] = None, force_aspect_ratio: Optional[str] = None) -> Dict[str, Any]:
     import json
     if isinstance(raw_input, str):
         cleaned = raw_input.strip()
@@ -320,7 +320,7 @@ def normalize_imported_workflow_json(raw_input: Any, default_workflow: Optional[
     title = base_wf.get('title') or '批量导入工作流'
     doc_url = base_wf.get('doc_url') or ''
     style_prompt = base_wf.get('style_prompt') or ''
-    aspect_ratio = base_wf.get('aspect_ratio') or '16:9'
+    aspect_ratio = force_aspect_ratio if (force_aspect_ratio and force_aspect_ratio in ('16:9', '9:16')) else (base_wf.get('aspect_ratio') or '16:9')
     resolution = base_wf.get('resolution') or '1080p'
     model_name = base_wf.get('model_name') or 'Omni'
     duration_per_shot = base_wf.get('duration_per_shot') or 10
@@ -338,17 +338,15 @@ def normalize_imported_workflow_json(raw_input: Any, default_workflow: Optional[
         raw_shots = parsed
         if not engine:
             engines = [str(s.get('engine')).strip().lower() for s in raw_shots if isinstance(s, dict) and s.get('engine')]
-            has_paired = any(
-                isinstance(s, dict) and (
-                    (s.get('end_image_path') or s.get('end_image_url') or s.get('end_image') or s.get('last_image_path')) and
-                    (s.get('start_image_path') or s.get('image_url') or s.get('start_image') or s.get('first_image_path'))
-                ) for s in raw_shots
-            )
-            if any(e == 'flow' for e in engines) or has_paired:
+            if any(e == 'flow' for e in engines):
                 engine = 'flow'
             elif any(e == 'gemini' for e in engines):
                 engine = 'gemini'
-        if raw_shots and isinstance(raw_shots[0], dict) and raw_shots[0].get('aspect_ratio'):
+            elif any(e == 'vids' for e in engines):
+                engine = 'vids'
+            else:
+                engine = 'vids'
+        if not force_aspect_ratio and raw_shots and isinstance(raw_shots[0], dict) and raw_shots[0].get('aspect_ratio'):
             aspect_ratio = str(raw_shots[0]['aspect_ratio']).strip()
     elif isinstance(parsed, dict):
         if 'title' in parsed and parsed['title']:
@@ -462,9 +460,8 @@ def normalize_imported_workflow_json(raw_input: Any, default_workflow: Optional[
             shot_engine = str(default_engine).strip().lower()
         elif cand_s_eng in ('vids', 'flow', 'gemini'):
             shot_engine = cand_s_eng
-        elif (end_img_url and img_url) or mode == 'first_last_frame':
-            shot_engine = 'flow'
         else:
+            # 遵循工作流所属引擎；Google Vids 原生全面支持单图与多素材双帧过渡，不再硬编码转流
             shot_engine = engine or 'vids' 
         shot_priority = s.get('priority') or 10
         try:
@@ -472,7 +469,24 @@ def normalize_imported_workflow_json(raw_input: Any, default_workflow: Optional[
         except Exception:
             shot_priority = 10
 
-        shot_aspect_ratio = str(s.get('aspect_ratio') or aspect_ratio or '16:9').strip()
+        # 画幅覆盖支持
+        if force_aspect_ratio and force_aspect_ratio in ('16:9', '9:16'):
+            shot_aspect_ratio = force_aspect_ratio
+        else:
+            shot_aspect_ratio = str(s.get('aspect_ratio') or aspect_ratio or '16:9').strip()
+
+        # 多素材资产解析（最多 3 张）
+        raw_assets = s.get('image_paths') or s.get('images') or s.get('assets') or []
+        if isinstance(raw_assets, list):
+            asset_list = [str(p).strip().strip('"\'') for p in raw_assets if p]
+        else:
+            asset_list = []
+        if not img_url and asset_list:
+            img_url = asset_list[0]
+        if not end_img_url and len(asset_list) >= 2:
+            end_img_url = asset_list[-1]
+        
+        final_assets = asset_list[:3] if asset_list else ([img_url] + ([end_img_url] if end_img_url and end_img_url != img_url else []))
 
         normalized_shots.append({
             'name': name,
@@ -484,6 +498,7 @@ def normalize_imported_workflow_json(raw_input: Any, default_workflow: Optional[
             'mode': mode,
             'image_url': str(img_url).strip(),
             'end_image_url': str(end_img_url).strip(),
+            'image_paths': final_assets,
             'resolution': shot_res,
             'model_name': shot_model,
             'engine': shot_engine,
@@ -502,3 +517,72 @@ def normalize_imported_workflow_json(raw_input: Any, default_workflow: Optional[
         'engine': engine,
         'shots': normalized_shots
     }
+
+
+# ==================== 4 大细分分类导入模版 ====================
+SAMPLE_TEXT2VIDEO = [
+    {
+        "engine": "vids",
+        "prompt": "镜头1：清晨阳光穿透薄雾照耀广袤麦田，微风吹拂金色麦浪，航拍镜头平滑向前推入，电影质感，16:9横屏",
+        "aspect_ratio": "16:9",
+        "duration_sec": 8,
+        "priority": 10
+    },
+    {
+        "engine": "vids",
+        "prompt": "镜头2：特写微距镜头，一颗晶莹剔透的露珠从饱满麦穗顶端缓缓滑落，晨光在水滴中折射出耀眼光晕",
+        "aspect_ratio": "16:9",
+        "duration_sec": 8,
+        "priority": 10
+    }
+]
+
+SAMPLE_IMAGE2VIDEO = [
+    {
+        "engine": "vids",
+        "prompt": "镜头1：以提供的参考图片为起点，麦叶随微风自然轻摆，阳光明暗柔和变幻，运镜平稳向前微移",
+        "start_image_path": "video_farm_data/uploads/shot1_start.png",
+        "aspect_ratio": "16:9",
+        "duration_sec": 8,
+        "priority": 10
+    }
+]
+
+SAMPLE_DOUBLE_FRAMES = [
+    {
+        "engine": "vids",
+        "prompt": "镜头1：以提供的首帧开场、尾帧收束，10秒，16:9。烈日麦田镜头沿前景发黄麦叶快速俯冲，穿过叶片表层平滑进入微观细胞内部，最后稳定呈现半透明膜包围的暗淡叶绿体。运镜先快后稳，微观结构自然过渡，无文字、无水印。",
+        "start_image_path": "E:/BaiduNetdiskDownload/视频生成素材打包/光合密码_首尾帧与脚本/首尾帧/01_首帧_烈日干旱麦田.png",
+        "end_image_path": "E:/BaiduNetdiskDownload/视频生成素材打包/光合密码_首尾帧与脚本/首尾帧/01_尾帧_暗沉叶片内部.png",
+        "aspect_ratio": "16:9",
+        "duration_sec": 10,
+        "priority": 10
+    }
+]
+
+SAMPLE_MULTI_ASSETS = [
+    {
+        "engine": "vids",
+        "prompt": "镜头1：绑定3张核心素材资产（@Image1麦田前景、@Image2晶体叶表、@Image3细胞微观）。镜头由宏观金黄麦穗平滑推进到叶表纳米晶体，最后沉浸式穿入深层细胞组织。多视角平滑融合，电影级质感，1080p超清。",
+        "start_image_path": "E:/BaiduNetdiskDownload/视频生成素材打包/素材1.png",
+        "end_image_path": "E:/BaiduNetdiskDownload/视频生成素材打包/素材3.png",
+        "image_paths": [
+            "E:/BaiduNetdiskDownload/视频生成素材打包/素材1.png",
+            "E:/BaiduNetdiskDownload/视频生成素材打包/素材2.png",
+            "E:/BaiduNetdiskDownload/视频生成素材打包/素材3.png"
+        ],
+        "aspect_ratio": "16:9",
+        "duration_sec": 10,
+        "priority": 10
+    }
+]
+
+def get_sample_by_type(sample_type: str = "double_frames"):
+    st = (sample_type or "").strip().lower()
+    if st in ("text2video", "text", "pure_text"):
+        return SAMPLE_TEXT2VIDEO
+    elif st in ("image2video", "single", "single_image"):
+        return SAMPLE_IMAGE2VIDEO
+    elif st in ("multi_assets", "assets", "3images", "multi"):
+        return SAMPLE_MULTI_ASSETS
+    return SAMPLE_DOUBLE_FRAMES

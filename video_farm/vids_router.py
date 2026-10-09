@@ -221,9 +221,9 @@ def parse_script(req: ParseScriptRequest):
 
 
 @router.get("/sample_import_json")
-def get_sample_import_json():
-    """返回包含 1080p、Omni、首尾帧/图生视频的标准示范 JSON"""
-    return vids_workflow.SAMPLE_BATCH_IMPORT_DATA
+def get_sample_import_json(type: str = "double_frames"):
+    """返回分类细分的标准示范 JSON：纯文生、单图微动、双帧过渡、Vids多素材"""
+    return vids_workflow.get_sample_by_type(type)
 
 
 @router.post("/batch_import")
@@ -263,10 +263,12 @@ def _batch_import_json_locked(payload: Any):
         if not target_wf:
             import_mode = "new"
 
+    force_aspect = payload.get("force_aspect_ratio") if isinstance(payload, dict) else None
     normalized = vids_workflow.normalize_imported_workflow_json(
         raw_data,
         default_workflow=target_wf,
-        default_engine=ui_engine
+        default_engine=ui_engine,
+        force_aspect_ratio=force_aspect
     )
 
     chosen_engine = ui_engine or normalized.get("engine") or (target_wf.get("engine") if target_wf else None) or "vids"

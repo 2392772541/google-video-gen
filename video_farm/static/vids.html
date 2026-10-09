@@ -755,13 +755,19 @@
 <!-- 第一层：顶栏操作台 (合并工作流切换与核心按钮) -->
 <div class="vids-top-bar">
 <div class="vids-header-left">
-<div class="vids-header-mid">
-<label for="workflow-select"> 工程:</label>
-<select class="form-select" id="workflow-select" onchange="onWorkflowSelectChange(this.value)" style="font-weight:600"></select>
+<div class="vids-header-mid" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+<label for="workflow-select" style="font-weight:600;font-size:13px;">📁 工程:</label>
+<select class="form-select" id="workflow-select" onchange="onWorkflowSelectChange(this.value)" style="font-weight:600;min-width:180px;"></select>
+<button class="btn btn-danger btn-sm" id="btn-delete-current-wf" onclick="confirmDeleteCurrentWorkflow()" title="彻底删除当前工程" style="padding:4px 8px;font-size:12px;display:flex;align-items:center;gap:3px;">🗑️ 删除工程</button>
+<button class="btn btn-secondary btn-sm" onclick="openRenameWorkflowModal()" title="重命名当前工程" style="padding:4px 8px;font-size:12px;">✏️ 改名</button>
 
+<!-- 全局画幅切换胶囊 (16:9 横屏 vs 9:16 竖屏) -->
+<div class="aspect-pill-group" style="display:inline-flex;align-items:center;background:rgba(0,0,0,0.35);border:1px solid rgba(255,255,255,0.15);border-radius:18px;padding:2px;margin-left:4px;" title="一键切换当前工程全局画幅比例">
+  <button type="button" class="aspect-pill-btn active" id="btn-aspect-16-9" onclick="setGlobalAspect('16:9')" style="border:none;border-radius:14px;padding:3px 10px;font-size:12px;font-weight:600;cursor:pointer;background:#3b82f6;color:#fff;transition:all 0.2s;">📺 16:9 横屏</button>
+  <button type="button" class="aspect-pill-btn" id="btn-aspect-9-16" onclick="setGlobalAspect('9:16')" style="border:none;border-radius:14px;padding:3px 10px;font-size:12px;font-weight:600;cursor:pointer;background:transparent;color:var(--text-sub, #94a3b8);transition:all 0.2s;">📱 9:16 竖屏</button>
+</div>
 
-
-<details class="project-tools"><summary>工程操作</summary><div class="project-tools-menu"><button class="btn btn-secondary btn-sm" onclick="openRenameWorkflowModal()" title="重命名当前工程">重命名</button><button class="btn btn-secondary btn-sm" onclick="openProjectManagerModal()" title="查看与清理全部工程">📁 管理</button><button class="btn btn-danger btn-sm" onclick="confirmDeleteCurrentWorkflow()" title="删除当前工程">删除工程</button></div></details></div>
+<details class="project-tools" style="margin-left:2px;"><summary style="font-size:12px;">更多</summary><div class="project-tools-menu"><button class="btn btn-secondary btn-sm" onclick="openProjectManagerModal()" title="查看与清理全部工程">📁 全部工程管理</button></div></details></div>
 </div>
 <div class="vids-header-actions">
 <button class="btn btn-primary" id="btn-start-continuous" onclick="startContinuousGeneration()" style="font-weight:700">
@@ -1005,10 +1011,31 @@
 <div class="form-group">
 <div style="display:flex;justify-content:space-between;align-items:center">
 <label class="form-label">粘贴分镜资产 JSON 内容:</label>
-<div style="display:flex;gap:6px">
-<button class="btn btn-secondary btn-sm" onclick="fillSampleJson('first_last_frame')">示例: 首尾帧插值</button>
-<button class="btn btn-secondary btn-sm" onclick="fillSampleJson('image2video')">示例: 单图参考</button>
-<button class="btn btn-secondary btn-sm" onclick="fillSampleJson('text2video')">示例: 纯提示词</button>
+<!-- 模版与画幅覆盖配置 -->
+<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:6px;">
+  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+    <div style="display:flex;align-items:center;gap:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);padding:6px 10px;border-radius:6px;">
+      <span style="font-size:12px;font-weight:600;">📐 画幅覆盖:</span>
+      <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:12px;">
+        <input type="radio" name="import-aspect-radio" value="keep" checked />
+        <span>遵循 JSON</span>
+      </label>
+      <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:12px;font-weight:600;color:#60a5fa;">
+        <input type="radio" name="import-aspect-radio" value="16:9" />
+        <span>强制统一 16:9 横屏</span>
+      </label>
+      <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:12px;font-weight:600;color:#34d399;">
+        <input type="radio" name="import-aspect-radio" value="9:16" />
+        <span>强制统一 9:16 竖屏</span>
+      </label>
+    </div>
+    <div style="display:flex;gap:4px;flex-wrap:wrap;">
+      <button class="btn btn-secondary btn-sm" type="button" onclick="fillSampleJson('text2video')" title="纯文本生成视频">📝 纯文生视频模版</button>
+      <button class="btn btn-secondary btn-sm" type="button" onclick="fillSampleJson('image2video')" title="单图微动/动画生成">🖼️ 单图参考模版</button>
+      <button class="btn btn-secondary btn-sm" type="button" onclick="fillSampleJson('first_last_frame')" title="两张图片定义首帧与尾帧平滑过渡">🎬 双帧过渡模版</button>
+      <button class="btn btn-secondary btn-sm" type="button" onclick="fillSampleJson('multi_assets')" title="Google Vids 原生最多 3 张参考图资产绑定" style="border-color:#a855f7;color:#c084fc;">🌟 Vids 3图资产模版</button>
+    </div>
+  </div>
 </div>
 </div>
 <textarea class="form-textarea" id="json-import-textarea" placeholder='[ { "name": "镜头01", "mode": "first_last_frame", "image_url": "C:/path/start.png", "end_image_url": "C:/path/end.png", "prompt": "..." } ]' rows="10" style="font-family:'Consolas', monospace"></textarea>
