@@ -452,11 +452,16 @@ def normalize_imported_workflow_json(raw_input: Any, default_workflow: Optional[
         # 2. 若请求显式锁定 engine（非 auto），遵循显式选择
         # 3. 若存在首尾双帧约束且未指定 engine，Google Vids 原生无尾帧能力，自动走 flow
         # 4. 回退至工作流级 engine 或默认 vids
+        # 优先级：
+        # 1. 若导入弹窗显式勾选了具体引擎途径（非 auto），以用户当前界面显式指令为准
+        # 2. 若为智能识别 (auto)，优先采纳分镜内显式声明的合法 engine
+        # 3. 若无声明且存在首尾双帧约束，默认推荐走 flow 强插值或跟随工作流
+        # 4. 回退至工作流级 engine 或默认 vids
         cand_s_eng = str(s.get('engine') or '').strip().lower()
-        if cand_s_eng in ('vids', 'flow', 'gemini'):
-            shot_engine = cand_s_eng
-        elif default_engine and str(default_engine).strip().lower() in ('vids', 'flow', 'gemini'):
+        if default_engine and str(default_engine).strip().lower() in ('vids', 'flow', 'gemini'):
             shot_engine = str(default_engine).strip().lower()
+        elif cand_s_eng in ('vids', 'flow', 'gemini'):
+            shot_engine = cand_s_eng
         elif (end_img_url and img_url) or mode == 'first_last_frame':
             shot_engine = 'flow'
         else:

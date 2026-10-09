@@ -32,15 +32,27 @@ def task_count():
         conn.close()
 
 
-def test_vids_double_frames_rejected_without_changing_engine(shot_factory):
+def test_vids_double_frames_accepted_with_vids_engine(shot_factory):
     make, end = shot_factory
     shot, wf = make(mode="first_last_frame", end_image_url=end)
+    task_id = _enqueue_shot_task(shot, wf)
+    task = db.get_task(task_id)
+    assert task.engine == "vids"
+    assert task.start_image_path == shot["image_url"]
+    assert task.end_image_path == end
+    assert "Omni" in task.model
+    assert task_count() == 1
+    assert db.get_vids_shot(shot["id"])["engine"] == "vids"
+
+
+def test_gemini_double_frames_rejected(shot_factory):
+    make, end = shot_factory
+    shot, wf = make(mode="first_last_frame", end_image_url=end, engine="gemini")
     with pytest.raises(HTTPException) as err:
         _enqueue_shot_task(shot, wf)
     assert err.value.status_code == 422
-    assert "Vids" in str(err.value.detail)
-    assert task_count() == 0
-    assert db.get_vids_shot(shot["id"])["engine"] == "vids"
+    assert "Gemini" in str(err.value.detail)
+    assert db.get_vids_shot(shot["id"])["engine"] == "gemini"
 
 
 def test_missing_double_frame_rejected_before_enqueue(shot_factory):

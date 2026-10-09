@@ -379,6 +379,40 @@ class VidsWorker:
             raise VidsUIError(f"生成设置无法确认：{label}", "VIDS_SETTINGS_UNCONFIRMED")
         logs.append(f"原生设置已回读确认：{label}")
 
+    def _upload_multiple_assets(self, page, sidebar, paths, control, logs):
+        clear_btn = sidebar.get_by_role("button", name=re.compile(r"^(清除|Clear)$", re.I))
+        if self._visible(clear_btn):
+            clear_btn.first.click(timeout=control.timeout_ms())
+            control.pause(page, 0.5)
+
+        for idx, p in enumerate(paths, 1):
+            control.check()
+            if idx == 1:
+                btn = sidebar.get_by_role("button", name=re.compile(r"^(素材|Assets?)$", re.I))
+                if not self._visible(btn):
+                    btn = sidebar.locator('button[aria-label*="素材"], button:has-text("素材")')
+                self._wait(page, control, lambda: self._visible(btn), "未找到‘素材’上传入口", seconds=20)
+                with page.expect_file_chooser(timeout=control.timeout_ms(7000)) as chooser:
+                    btn.first.click(timeout=control.timeout_ms())
+                chooser.value.set_files(str(Path(p).resolve()), timeout=control.timeout_ms(10000))
+            else:
+                add_btn = sidebar.locator('button[aria-label*="添加虚拟形象或素材"], button:has-text("添加")')
+                self._wait(page, control, lambda: self._visible(add_btn), f"未找到添加第 {idx} 张素材的入口", seconds=25)
+                add_btn.first.click(timeout=control.timeout_ms())
+                control.pause(page, 0.5)
+                upload_card = page.locator('button:has-text("上传"), [role="button"]:has-text("上传"), div:has-text("上传")')
+                self._wait(page, control, lambda: self._visible(upload_card), "未找到素材‘上传’选项卡片", seconds=10)
+                with page.expect_file_chooser(timeout=control.timeout_ms(7000)) as chooser:
+                    upload_card.last.click(timeout=control.timeout_ms())
+                chooser.value.set_files(str(Path(p).resolve()), timeout=control.timeout_ms(10000))
+
+            preview = sidebar.locator(f'[aria-label*="移除图片 {idx}"], [aria-label*="移除图片"], img.inputPreviewItemPreview')
+            self._wait(page, control, lambda: self._visible(preview) and preview.count() >= idx,
+                       f"第 {idx} 张素材未完成上传绑定", seconds=35)
+            logs.append(f"第 {idx} 张素材已成功绑定至 Vids（@图片 {idx}）：{Path(p).name}")
+        self._dismiss_overlays(page, logs, control)
+        logs.append(f"Vids 多素材上传完成，共绑定 {len(paths)} 张参考帧")
+
     def _upload(self, page, sidebar, path, control, logs):
         remove = sidebar.get_by_role("button", name=re.compile(r"^(移除图片|Remove image)$", re.I))
         if self._visible(remove):
@@ -435,20 +469,34 @@ class VidsWorker:
             entry.first.click(timeout=control.timeout_ms())
             self._wait(page, control, lambda: self._visible(sidebar), "AI 视频侧边栏未展开")
         sidebar = sidebar.first
-        mode = "添加动画|Animate" if task.start_image_path else "创建|Create"
+        has_double_frames = bool(task.start_image_path and task.end_image_path)
+        if has_double_frames:
+            mode = "创建|Create"
+        elif task.start_image_path:
+            mode = "添加动画|Animate"
+        else:
+            mode = "创建|Create"
         tab = sidebar.get_by_role("tab", name=re.compile(rf"^({mode})$", re.I))
         self._wait(page, control, lambda: self._visible(tab), "未找到所请求的 Vids 原生模式")
         tab.first.click(timeout=control.timeout_ms())
         expand = sidebar.get_by_role("button", name=re.compile(r"^(展开|Expand)$", re.I))
         if self._visible(expand):
             expand.first.click(timeout=control.timeout_ms())
-        if task.start_image_path:
+        if has_double_frames:
+            self._upload_multiple_assets(page, sidebar, [task.start_image_path, task.end_image_path], control, logs)
+        elif task.start_image_path:
             self._upload(page, sidebar, task.start_image_path, control, logs)
         self._configure(page, sidebar, task, control, logs)
         prompt = sidebar.get_by_role("tabpanel").get_by_role("textbox")
         self._wait(page, control, lambda: self._visible(prompt), "未找到当前模式的提示词输入框")
-        prompt.first.fill(task.prompt.strip(), timeout=control.timeout_ms())
-        if prompt.first.inner_text().strip() != task.prompt.strip() and prompt.first.input_value() != task.prompt.strip():
+        if has_double_frames:
+            prompt.first.click(timeout=control.timeout_ms())
+            prompt.first.press("End", timeout=control.timeout_ms())
+            prompt.first.press_sequentially(f" {task.prompt.strip()}", timeout=control.timeout_ms())
+        else:
+            prompt.first.fill(task.prompt.strip(), timeout=control.timeout_ms())
+        raw_text = prompt.first.inner_text().strip()
+        if task.prompt.strip() not in raw_text and prompt.first.input_value().strip() != task.prompt.strip():
             raise VidsUIError("提示词写入未生效，未提交生成")
         baseline = {self.media_identity(r['src']) for r in self._media_rows(page)}
         generate = sidebar.get_by_role("tabpanel").get_by_role("button", name=re.compile(r"^(生成|Generate)$", re.I))

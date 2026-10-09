@@ -184,7 +184,14 @@ def test_invalid_tail_frame_does_not_launch_or_change_engine(worker, profile, ta
     from PIL import Image
     frame = tmp_path / "frame.png"
     Image.new("RGB", (4, 4)).save(frame)
-    task.start_image_path = task.end_image_path = str(frame)
+    task.start_image_path = str(frame)
+    if worker.provider_label.lower() == "gemini":
+        task.end_image_path = str(frame)
+    else:
+        # Vids 原生支持合法双素材；此处测试不可解码的损坏尾帧必须在启动前被严格拦截
+        corrupt_tail = tmp_path / "corrupt_tail.png"
+        corrupt_tail.write_bytes(b"corrupt image data")
+        task.end_image_path = str(corrupt_tail)
     launch = Mock(side_effect=AssertionError("Must reject before launch"))
     monkeypatch.setattr(worker, "_launch_runner", launch)
     result = worker.execute_task(task, profile)
@@ -192,7 +199,6 @@ def test_invalid_tail_frame_does_not_launch_or_change_engine(worker, profile, ta
     assert "尾帧" in result["error_message"]
     assert result["submission_possible"] is False
     assert task.engine == worker.provider_label.lower()
-    assert task.end_image_path == str(frame)
     launch.assert_not_called()
 
 

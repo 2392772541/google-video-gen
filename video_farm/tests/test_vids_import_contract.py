@@ -70,7 +70,7 @@ def test_append_draft_preserves_existing_document_url(client):
     assert task_count() == 0
 
 
-def test_valid_paired_frames_import_then_generate_fails_closed(client, tmp_path):
+def test_valid_paired_frames_import_then_generate_success(client, tmp_path):
     start, end = tmp_path/"start.png", tmp_path/"end.png"
     Image.new("RGB", (64, 36), "blue").save(start)
     Image.new("RGB", (64, 36), "red").save(end)
@@ -84,13 +84,13 @@ def test_valid_paired_frames_import_then_generate_fails_closed(client, tmp_path)
     assert task_count() == 0
     shot = body["workflow"]["shots"][0]
     response = client.post(f"/api/vids/shots/{shot['id']}/generate", json={})
-    assert response.status_code == 422, response.text
-    assert "Vids" in str(response.json()["detail"])
-    assert task_count() == 0
+    assert response.status_code == 200, response.text
+    assert response.json()["success"] is True
+    assert task_count() == 1
     current = db.get_vids_shot(shot["id"])
     assert current["engine"] == "vids" and current["mode"] == "first_last_frame"
     assert current["image_url"] == str(start) and current["end_image_url"] == str(end)
-    assert not current["task_id"]
+    assert current["task_id"]
 
 
 def test_empty_account_ui_does_not_hardcode_a_personal_project():

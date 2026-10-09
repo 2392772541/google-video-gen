@@ -38,11 +38,11 @@ def validate_video_request(task: Task, *, require_pair: bool = False) -> None:
                 image.load()
         except (OSError, ValueError, UnidentifiedImageError, Image.DecompressionBombError) as exc:
             raise VideoRequestError(f"{label}不是可解码图片，请重新选择素材") from exc
-    if task.end_image_path and task.engine != "flow":
+    if task.end_image_path and task.engine not in ("flow", "vids"):
         raise VideoRequestError(
-            f"Google { 'Vids' if task.engine == 'vids' else 'Gemini' } 当前适配器没有尾帧绑定能力。"
+            f"Google { 'Gemini' if task.engine == 'gemini' else task.engine } 当前适配器没有尾帧绑定能力。"
             "请求未提交，也不会丢弃尾帧或自动切换平台。"
-            "请显式选择 Google Flow 生成首尾帧，或移除尾帧并改用单图动画。"
+            "请显式选择 Google Flow 或 Google Vids 生成首尾帧，或移除尾帧并改用单图动画。"
         )
     if task.end_image_path and not task.start_image_path:
         raise VideoRequestError("尾帧必须与首帧一起提供")

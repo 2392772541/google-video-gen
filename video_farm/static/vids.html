@@ -750,7 +750,7 @@
 <a class="btn btn-secondary btn-sm" href="https://docs.google.com/videos/" rel="noopener noreferrer" style="text-decoration:none" target="_blank"> 打开 Google Vids</a>
 <a class="btn btn-secondary btn-sm" href="/" style="text-decoration:none">返回中央控制台</a>
 </div>
-</header><div class="vids-container"><div class="page-heading"><div><h1>连续分镜 · Google Vids 创作工作台</h1><p>默认直接使用 Google Vids：导入分镜与图片 → 生成 → 原地预览与下载。当前 Vids 适配器支持单图参考，不支持尾帧绑定；双帧请求会明确拒绝，不丢图、不自动切换到 Flow。</p></div></div>
+</header><div class="vids-container"><div class="page-heading"><div><h1>连续分镜 · Google Vids 创作工作台</h1><p>默认直接使用 Google Vids：导入分镜与图片 → 生成 → 原地预览与下载。原生支持单图微动与首尾双素材绑定（Create 模式 @图片1/@图片2 过渡生成），支持 1080p 超清分镜。</p></div></div>
 
 <!-- 第一层：顶栏操作台 (合并工作流切换与核心按钮) -->
 <div class="vids-top-bar">
@@ -985,7 +985,7 @@
 <span style="font-weight:600;display:flex;align-items:center;gap:6px">
 <span>🎯</span> 视频生成途径 / 引擎选择:
 </span>
-<span style="font-size:12px;color:var(--text-sub, #9ca3af)">💡 优先按 JSON 内设定，首尾双帧资产自动走 Flow 模式</span>
+<span style="font-size:12px;color:var(--text-sub, #9ca3af)">💡 勾选具体途径可覆盖 JSON 设定；Vids 支持首尾双素材绑定，Flow 支持首尾强插值</span>
 </div>
 <div style="display:flex;align-items:center;gap:18px;flex-wrap:wrap">
 <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:600">
@@ -998,7 +998,7 @@
 </label>
 <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:600">
 <input id="import-engine-vids" name="import-engine-radio" style="accent-color:#3b82f6" type="radio" value="vids"/>
-<span>🎬 Google Vids 原生工作流 <span style="font-size:12px;font-weight:normal;color:#9ca3af">(docs.google.com/videos · Omni 1080p 超清分镜)</span></span>
+<span>🎬 Google Vids 原生工作流 <span style="font-size:12px;font-weight:normal;color:#9ca3af">(docs.google.com/videos · Omni 1080p 超清分镜 · 支持首尾双素材绑定)</span></span>
 </label>
 </div>
 </div>

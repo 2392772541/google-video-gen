@@ -19,23 +19,27 @@ def make_shot(tmp_path, **changes):
 
 
 def test_enqueue_shot_task_first_last_frame_adapter(tmp_path):
-    """双帧不静默切平台：Vids明确拒绝，只有显式Flow才可入队。"""
+    """首尾双素材：Vids 原生支持绑定 @图片1/@图片2，Flow 支持物理插值，两者均严格保留平台与模型。"""
     shot, wf, start, end = make_shot(tmp_path)
-    db.update_vids_shot(shot["id"], {"mode": "first_last_frame", "end_image_url": end})
-    with pytest.raises(HTTPException) as error:
-        _enqueue_shot_task(shot, wf)
-    assert error.value.status_code == 422
-    assert "Vids" in str(error.value.detail)
-    assert db.get_vids_shot(shot["id"])["task_id"] == ""
-
-    db.update_vids_shot(shot["id"], {"engine": "flow"})
+    db.update_vids_shot(shot["id"], {"mode": "first_last_frame", "end_image_url": end, "engine": "vids"})
     task_id = _enqueue_shot_task(shot, wf)
     task = db.get_task(task_id)
-    assert task.engine == "flow"
-    assert task.model == "veo-lite"
+    assert task.engine == "vids"
+    assert task.model == "Omni (1080p)"
     assert task.start_image_path == start
     assert task.end_image_path == end
     assert db.get_vids_shot(shot["id"])["task_id"] == task_id
+
+    # 显式 Flow 也正常保留
+    shot2, wf2, start2, end2 = make_shot(tmp_path)
+    db.update_vids_shot(shot2["id"], {"mode": "first_last_frame", "end_image_url": end2, "engine": "flow"})
+    task_id2 = _enqueue_shot_task(shot2, wf2)
+    task2 = db.get_task(task_id2)
+    assert task2.engine == "flow"
+    assert task2.model == "veo-lite"
+    assert task2.start_image_path == start2
+    assert task2.end_image_path == end2
+    assert db.get_vids_shot(shot2["id"])["task_id"] == task_id2
 
 
 def test_enqueue_shot_task_single_frame_vids_retention(tmp_path):

@@ -469,7 +469,7 @@ function getShotMediaPreviewHtml(shot, index, isDone, isRunning, isFailed, shotR
         <div style="font-size: 20px; opacity: 0.6;">🎬</div>
         <div style="font-size: 12px; font-weight: 600; color: var(--text-main);">等待镜头成片</div>
         <div style="font-size: 10px; color: var(--text-muted); line-height: 1.2;">
-          ${mode === "first_last_frame" ? "首尾帧约束 · 仅 Google Flow 通道可用" : (mode === "image2video" ? "单图参考生成" : "纯提示词渲染")}
+          ${mode === "first_last_frame" ? "首尾帧/双素材过渡 (支持 Vids 与 Flow)" : (mode === "image2video" ? "单图参考生成" : "纯提示词渲染")}
         </div>
         <button class="btn btn-primary btn-sm" style="margin-top: 4px; font-size: 10px; padding: 2px 12px;" onclick="generateSingleShot('${shot.id}')">
           ⚡ 单独渲染
@@ -652,11 +652,11 @@ card.innerHTML = `
           <!-- 资产胶囊条带 (严控高、首尾帧并排) -->
           ${frameAssetHtml}
 
-          <!-- 当首尾帧与 Vids 冲突时的显式提示 -->
+          <!-- 首尾帧途径提示 -->
           ${((mode === 'first_last_frame' || Boolean(shot.end_image_url)) && (shot.engine || state.workflow?.engine || 'vids') === 'vids') ? `
-            <div class="vids-engine-warn-pill" style="font-size: 10px; color: #f59e0b; background: rgba(245,158,11,0.12); border: 1px solid rgba(245,158,11,0.3); border-radius: 4px; padding: 2px 6px; display: flex; align-items: center; justify-content: space-between; gap: 4px; margin-top: 2px;">
-              <span>⚠️ <strong>提示：</strong>Google Vids 仅支持首帧微动（无法约束尾帧）。如需首尾两端关键帧插值，请将途径切换为 ⚡ Flow</span>
-              <button class="btn btn-secondary btn-sm" style="font-size: 9px; padding: 1px 5px; height: 18px; color: #38bdf8; border-color: rgba(56,189,248,0.4);" onclick="updateShotField('${shot.id}', 'engine', 'flow'); this.parentElement.style.display='none';">切为Flow</button>
+            <div class="vids-engine-warn-pill" style="font-size: 10px; color: #38bdf8; background: rgba(56,189,248,0.08); border: 1px solid rgba(56,189,248,0.25); border-radius: 4px; padding: 2px 6px; display: flex; align-items: center; justify-content: space-between; gap: 4px; margin-top: 2px;">
+              <span>🎬 <strong>Google Vids：</strong>已启用首尾双素材绑定过渡 (@图片1/@图片2 实体约束，1080p 超清)</span>
+              <button class="btn btn-secondary btn-sm" style="font-size: 9px; padding: 1px 5px; height: 18px; color: #fbbf24; border-color: rgba(251,191,36,0.4);" onclick="updateShotField('${shot.id}', 'engine', 'flow');" title="切换为 Flow 物理插值">切为Flow</button>
             </div>
           ` : `
             <div class="vids-engine-warn-pill" style="display: none;"></div>
@@ -1690,13 +1690,6 @@ async function updateShotField(shotId, field, value) {
 async function updateShotMode(shotId, mode) {
   try {
     const payload = { mode: mode };
-    if (mode === 'first_last_frame') {
-      const s = state.workflow?.shots?.find(x => x.id === shotId);
-      if (s && (!s.engine || s.engine === 'vids')) {
-        payload.engine = 'flow';
-        appendLog(`[分镜 #${s.sequence || ''}] 切换为首尾帧过渡模式，自动将途径切换为 ⚡ Flow (支持首尾关键帧插值)`, 'info');
-      }
-    }
     await api(`/shots/${shotId}`, {
       method: 'PUT',
       body: payload
