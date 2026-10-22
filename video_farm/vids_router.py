@@ -230,7 +230,14 @@ def get_sample_import_json(type: str = "double_frames"):
 def batch_import_json(payload: Any = Body(...)):
     from . import web
     with web._scheduler_guard():
-        return _batch_import_json_locked(payload)
+        try:
+            return _batch_import_json_locked(payload)
+        except HTTPException:
+            raise
+        except Exception as exc:
+            import logging
+            logging.exception("Batch import unexpected error: %s", exc)
+            raise HTTPException(500, f"批量导入执行异常: {exc}")
 
 
 def _batch_import_json_locked(payload: Any):
@@ -393,13 +400,19 @@ async def upload_asset(file: UploadFile = File(...)):
                 if size > 32 * 1024 * 1024:
                     raise HTTPException(413, "图片不能超过 32 MiB")
                 f.write(chunk)
-        from PIL import Image
+        from PIL import Image, ImageFile
+        ImageFile.LOAD_TRUNCATED_IMAGES = True
         with Image.open(dest_path) as img:
-            img.verify()
+            try:
+                img.verify()
+            except Exception:
+                pass
+        with Image.open(dest_path) as img:
+            img.load()
     except Exception as exc:
         dest_path.unlink(missing_ok=True)
         if isinstance(exc, HTTPException): raise
-        raise HTTPException(400, "上传文件不是有效图片")
+        raise HTTPException(400, f"上传文件不是有效图片: {exc}")
     finally:
         await file.close()
 

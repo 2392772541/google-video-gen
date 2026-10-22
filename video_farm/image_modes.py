@@ -1,7 +1,8 @@
 """Web image routes, kept independent of the video engine and model catalogue."""
 import hashlib
 from pathlib import Path
-from PIL import Image, UnidentifiedImageError
+from PIL import Image, UnidentifiedImageError, ImageFile
+ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 IMAGE_ASPECTS = ("1:1", "9:16", "3:4", "4:3", "16:9")
 IMAGE_MODELS = {
@@ -53,15 +54,23 @@ def validate_image_file(path, aspect_ratio=None, *, generated=False):
     if not path.is_file() or not 0 < path.stat().st_size <= MAX_IMAGE_BYTES:
         raise ValueError("图片不存在、为空或超过 32MB")
     try:
+        ImageFile.LOAD_TRUNCATED_IMAGES = True
         with Image.open(path) as image:
             width, height = image.size
             if min(width, height) < 32:
                 raise ValueError("图片尺寸过小")
             if generated and (min(width, height) < 512 or max(width, height) < 1024):
                 raise ValueError("图片分辨率不足，可能下载的是缩略图而非原始尺寸产物")
-            image.verify()
-    except (OSError, UnidentifiedImageError, Image.DecompressionBombError) as exc:
-        raise ValueError("文件不是可解码图片") from exc
+            try:
+                image.verify()
+            except Exception:
+                pass
+        with Image.open(path) as image:
+            image.load()
+    except ValueError:
+        raise
+    except Exception as exc:
+        raise ValueError(f"文件不是可解码图片: {exc}") from exc
     if aspect_ratio:
         left, right = map(int, aspect_ratio.split(":"))
         if abs(width / height / (left / right) - 1) > 0.08:

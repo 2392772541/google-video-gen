@@ -1417,6 +1417,7 @@ async function executeBatchImport() {
         workflow_id: state.currentWorkflowId,
         import_mode: importMode,
         engine: selectedEngine,
+        force_aspect_ratio: forceAspect,
         auto_start: autoStart,
         data: parsed
       }
@@ -1448,7 +1449,17 @@ async function executeBatchImport() {
       msgBox.style.background = 'rgba(239, 68, 68, 0.15)';
       msgBox.style.color = '#ef4444';
       msgBox.style.border = '1px solid #ef4444';
-      msgBox.innerHTML = `❌ 导入失败：${err.message}`;
+      let cleanMsg = err.message || '未知错误';
+      try {
+        const jsonMatch = cleanMsg.match(/API \d+:\s*(\{.*\})/);
+        if (jsonMatch) {
+          const parsedErr = JSON.parse(jsonMatch[1]);
+          if (parsedErr.detail) {
+            cleanMsg = typeof parsedErr.detail === 'string' ? parsedErr.detail : JSON.stringify(parsedErr.detail);
+          }
+        }
+      } catch (e) {}
+      msgBox.textContent = `❌ 导入失败: ${cleanMsg}`;
     }
     appendLog('批量导入失败: ' + err.message, 'error');
   } finally {

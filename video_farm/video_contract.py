@@ -1,7 +1,8 @@
 """Provider capabilities checked before queueing and again before a worker runs."""
 from pathlib import Path
 import re
-from PIL import Image, UnidentifiedImageError
+from PIL import Image, UnidentifiedImageError, ImageFile
+ImageFile.LOAD_TRUNCATED_IMAGES = True
 from .models import Task
 
 
@@ -32,12 +33,16 @@ def validate_video_request(task: Task, *, require_pair: bool = False) -> None:
         if not Path(path).is_file():
             raise VideoRequestError(f"{label}不存在或不可读取，请重新选择图片：{path}")
         try:
+            ImageFile.LOAD_TRUNCATED_IMAGES = True
             with Image.open(path) as image:
-                image.verify()
+                try:
+                    image.verify()
+                except Exception:
+                    pass
             with Image.open(path) as image:
                 image.load()
-        except (OSError, ValueError, UnidentifiedImageError, Image.DecompressionBombError) as exc:
-            raise VideoRequestError(f"{label}不是可解码图片，请重新选择素材") from exc
+        except Exception as exc:
+            raise VideoRequestError(f"{label}不是可解码图片，请重新选择素材: {exc}") from exc
     if task.end_image_path and task.engine not in ("flow", "vids"):
         raise VideoRequestError(
             f"Google { 'Gemini' if task.engine == 'gemini' else task.engine } 当前适配器没有尾帧绑定能力。"
