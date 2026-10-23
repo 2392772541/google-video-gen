@@ -121,13 +121,16 @@ class LocalBrowserBoundary:
             if message['type'] == 'http.response.start':
                 started = True
                 extra_headers = [(b'x-content-type-options', b'nosniff')]
-                if is_cross_origin_loopback:
+                is_media_path = scope['path'].startswith(('/media/', '/v1/videos/', '/api/vids/assets/'))
+                if is_cross_origin_loopback or is_media_path:
                     extra_headers.append((b'cross-origin-resource-policy', b'cross-origin'))
                     if origin_header:
                         extra_headers.append((b'access-control-allow-origin', origin_header.encode('latin1')))
                         extra_headers.append((b'access-control-allow-credentials', b'true'))
-                        extra_headers.append((b'access-control-allow-methods', b'GET, POST, PUT, DELETE, PATCH, OPTIONS'))
+                        extra_headers.append((b'access-control-allow-methods', b'GET, POST, PUT, DELETE, PATCH, OPTIONS, HEAD'))
                         extra_headers.append((b'access-control-allow-headers', b'*'))
+                    else:
+                        extra_headers.append((b'access-control-allow-origin', b'*'))
                 else:
                     extra_headers.append((b'cross-origin-resource-policy', b'same-origin'))
                 message['headers'] = list(message.get('headers', [])) + extra_headers

@@ -1868,6 +1868,7 @@ def api_serve_pipeline_video(job_id: str):
     return FileResponse(str(vp), media_type="video/mp4")
 
 @app.get("/media/outputs/{filename:path}")
+@app.head("/media/outputs/{filename:path}")
 def serve_output_file(filename: str):
     p = (OUTPUTS_DIR / filename).resolve()
     if not p.is_file() or OUTPUTS_DIR.resolve() not in p.parents:
@@ -1875,6 +1876,7 @@ def serve_output_file(filename: str):
     return FileResponse(str(p), media_type=media_type(p))
 
 @app.get("/media/qa/{task_id}/{filename}")
+@app.head("/media/qa/{task_id}/{filename}")
 def serve_qa_file(task_id: str, filename: str):
     p = (QA_DIR / task_id / filename).resolve()
     if not p.is_file() or QA_DIR.resolve() not in p.parents:

@@ -2,8 +2,20 @@
   'use strict';
   document.addEventListener('DOMContentLoaded', () => {
     const iframe = document.getElementById('canvas-iframe');
+    const standalone = document.getElementById('btn-open-standalone');
     const refreshBtn = document.getElementById('btn-refresh-canvas');
     const drawerBtn = document.getElementById('btn-toggle-media-drawer');
+
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      const projId = urlParams.get('project');
+      if (projId && iframe) {
+        iframe.src = `http://127.0.0.1:3000/canvas/${encodeURIComponent(projId)}`;
+        if (standalone) standalone.href = `http://127.0.0.1:3000/canvas/${encodeURIComponent(projId)}`;
+      }
+    } catch (e) {
+      console.warn('Failed to parse project param', e);
+    }
     const drawer = document.getElementById('canvas-media-drawer');
     const drawerList = document.getElementById('drawer-media-list');
     const importBtn = document.getElementById('btn-import-canvas-local');

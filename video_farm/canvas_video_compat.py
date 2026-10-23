@@ -20,7 +20,7 @@ import urllib.error
 import urllib.request
 from starlette.datastructures import UploadFile as StarletteUploadFile
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from PIL import Image, ImageFile
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
@@ -119,6 +119,20 @@ def list_canvas_models():
             "id": "flow-image",
             "object": "model",
             "name": "Flow Local Image",
+            "owned_by": "video-farm",
+            "permission": []
+        },
+        {
+            "id": "gpt-6-astra",
+            "object": "model",
+            "name": "GPT-6 Astra (分镜推演与提示词)",
+            "owned_by": "video-farm",
+            "permission": []
+        },
+        {
+            "id": "gpt-5.6-sol",
+            "object": "model",
+            "name": "GPT-5.6 Sol (通用大模型)",
             "owned_by": "video-farm",
             "permission": []
         }
@@ -413,3 +427,99 @@ def get_canvas_video_content(task_id: str):
             "Accept-Ranges": "bytes"
         }
     )
+@router.post("/chat/completions")
+async def create_canvas_chat_completion(request: Request):
+    """
+    无限画布文本推演 / 提示词生成 OpenAI 兼容适配接口：
+    自动转发至本地 8317 模型网关，支持标准 JSON 与流式 SSE 返回。
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(400, "请求体必须为合法 JSON")
+
+    model = (body.get("model") or "gpt-6-astra").split("::")[-1].strip()
+    target_body = dict(body)
+    target_body["model"] = model or "gpt-6-astra"
+    is_stream = bool(body.get("stream", False))
+
+    try:
+        req = urllib.request.Request(
+            f"{CLI_PROXY_URL}/chat/completions",
+            data=json.dumps(target_body).encode("utf-8"),
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {CLI_PROXY_KEY}",
+                "Accept": "text/event-stream" if is_stream else "application/json"
+            }
+        )
+        if is_stream:
+            resp = urllib.request.urlopen(req, timeout=60)
+            def stream_generator():
+                try:
+                    while chunk := resp.read(1024):
+                        yield chunk
+                finally:
+                    resp.close()
+            return StreamingResponse(stream_generator(), media_type="text/event-stream")
+        else:
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                return data
+    except urllib.error.HTTPError as exc:
+        err_body = exc.read().decode("utf-8", errors="ignore")
+        try:
+            return JSONResponse(status_code=exc.code, content=json.loads(err_body))
+        except Exception:
+            raise HTTPException(exc.code, f"模型网关返回异常: {err_body}") from exc
+    except Exception as exc:
+        raise HTTPException(502, f"连接模型网关失败: {exc}") from exc
+
+
+@router.post("/responses")
+async def create_canvas_response_stream(request: Request):
+    """
+    无限画布 Agent 交互 / 提示词流式响应适配接口：
+    转发至 8317 /v1/responses，支持流式 SSE 连续推演与打字机效果。
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(400, "请求体必须为合法 JSON")
+
+    model = (body.get("model") or "gpt-6-astra").split("::")[-1].strip()
+    target_body = dict(body)
+    target_body["model"] = model or "gpt-6-astra"
+    is_stream = bool(body.get("stream", True))
+
+    try:
+        req = urllib.request.Request(
+            f"{CLI_PROXY_URL}/responses",
+            data=json.dumps(target_body).encode("utf-8"),
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {CLI_PROXY_KEY}",
+                "Accept": "text/event-stream" if is_stream else "application/json"
+            }
+        )
+        if is_stream:
+            resp = urllib.request.urlopen(req, timeout=60)
+            def stream_generator():
+                try:
+                    while chunk := resp.read(1024):
+                        yield chunk
+                finally:
+                    resp.close()
+            return StreamingResponse(stream_generator(), media_type="text/event-stream")
+        else:
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                return data
+    except urllib.error.HTTPError as exc:
+        err_body = exc.read().decode("utf-8", errors="ignore")
+        try:
+            return JSONResponse(status_code=exc.code, content=json.loads(err_body))
+        except Exception:
+            raise HTTPException(exc.code, f"模型网关返回异常: {err_body}") from exc
+    except Exception as exc:
+        raise HTTPException(502, f"连接模型网关失败: {exc}") from exc
