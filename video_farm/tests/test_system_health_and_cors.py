@@ -1,11 +1,99 @@
 import unittest
+import io
+from PIL import Image
 from fastapi.testclient import TestClient
 from video_farm.web import app, DB_PATH
 from video_farm import db
+from video_farm.models import Task
 
 class SystemHealthAndCorsTests(unittest.TestCase):
     def setUp(self):
         self.client = TestClient(app, base_url="http://127.0.0.1:8088")
+
+    def test_canvas_models_discovery(self):
+        resp = self.client.get("/v1/models")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(data.get("object"), "list")
+        model_ids = [m["id"] for m in data.get("data", [])]
+        self.assertIn("flow", model_ids)
+        self.assertIn("vids", model_ids)
+        self.assertIn("gemini", model_ids)
+
+    def test_canvas_create_video_task_flow(self):
+        resp = self.client.post("/v1/videos", data={
+            "model": "flow",
+            "prompt": "微风吹过麦田，金色麦浪起伏",
+            "seconds": "6",
+            "ratio": "16:9"
+        })
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertIn("id", data)
+        self.assertEqual(data["status"], "queued")
+        self.assertEqual(data["model"], "flow")
+
+        # Poll task status
+        task_id = data["id"]
+        poll_resp = self.client.get(f"/v1/videos/{task_id}")
+        self.assertEqual(poll_resp.status_code, 200)
+        pdata = poll_resp.json()
+        self.assertEqual(pdata["id"], task_id)
+        self.assertEqual(pdata["status"], "pending")
+
+        # Clean up
+        db.delete_task(task_id, DB_PATH)
+
+    def test_canvas_create_video_task_vids(self):
+        resp = self.client.post("/v1/videos", data={
+            "model": "vids",
+            "prompt": "实验室分子结构动画",
+            "seconds": "8",
+            "ratio": "9:16"
+        })
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertIn("id", data)
+        task = db.get_task(data["id"], DB_PATH)
+        self.assertIsNotNone(task)
+        self.assertEqual(task.engine, "vids")
+        self.assertEqual(task.aspect_ratio, "9:16")
+        self.assertEqual(task.duration_sec, 8)
+
+        # Clean up
+        db.delete_task(data["id"], DB_PATH)
+
+    def test_canvas_create_video_task_first_and_last_frames(self):
+        buf1 = io.BytesIO()
+        Image.new("RGB", (100, 100), color="blue").save(buf1, format="PNG")
+        buf1.seek(0)
+
+        buf2 = io.BytesIO()
+        Image.new("RGB", (100, 100), color="red").save(buf2, format="PNG")
+        buf2.seek(0)
+
+        resp = self.client.post(
+            "/v1/videos",
+            data={
+                "model": "flow",
+                "prompt": "首尾帧过渡动态镜头",
+                "seconds": "6",
+                "mode": "frames"
+            },
+            files={
+                "first_frame": ("start.png", buf1, "image/png"),
+                "last_frame": ("end.png", buf2, "image/png")
+            }
+        )
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        task = db.get_task(data["id"], DB_PATH)
+        self.assertIsNotNone(task)
+        self.assertTrue(task.start_image_path)
+        self.assertTrue(task.end_image_path)
+
+        # Clean up
+        db.delete_task(data["id"], DB_PATH)
 
     def test_health_endpoint_healthy(self):
         resp = self.client.get("/api/health")

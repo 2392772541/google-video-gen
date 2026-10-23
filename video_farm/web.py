@@ -1902,6 +1902,10 @@ def serve_arbitrary_local_file(path: str = Query(...)):
 from .vids_router import router as vids_router
 app.include_router(vids_router)
 
+from .canvas_video_compat import router as canvas_video_router
+app.include_router(canvas_video_router, prefix="/v1")
+app.include_router(canvas_video_router, prefix="/api/canvas/v1")
+
 
 # ============================================================
 # Gemini 多模态综合工作台 API (对话、视频配音、AI绘画与多账号管理)
