@@ -1,0 +1,20 @@
+{
+  "batch_name": "批量概念生成验证",
+  "tasks": [
+    {
+      "prompt": "未来都市飞行器 A",
+      "aspect_ratio": "16:9",
+      "count": 2
+    },
+    {
+      "prompt": "赛博机甲装配车间 B",
+      "aspect_ratio": "9:16",
+      "count": 2
+    },
+    {
+      "prompt": "深空探测器着陆火星 C",
+      "aspect_ratio": "1:1",
+      "count": 1
+    }
+  ]
+}

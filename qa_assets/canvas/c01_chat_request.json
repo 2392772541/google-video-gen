@@ -1,0 +1,13 @@
+{
+  "model": "grok-3-mini-fast",
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are a creative visual art director."
+    },
+    {
+      "role": "user",
+      "content": "Suggest a compelling concept for an interactive sci-fi storyboard."
+    }
+  ]
+}
