@@ -2277,6 +2277,21 @@ def get_canvas_status():
         }
     }
 
+@app.get("/api/canvas/sample-project-zip")
+def download_sample_project_zip():
+    pkg = BASE_DIR / "canvas_verified_suite.zip"
+    if not pkg.exists():
+        pkg = BASE_DIR / "video_farm_data" / "exports" / "canvas_verified_suite.zip"
+    if not pkg.exists():
+        raise HTTPException(404, "示例工程包尚未生成")
+    return FileResponse(
+        str(pkg),
+        media_type="application/zip",
+        filename="canvas_verified_suite.zip",
+        headers={"Content-Disposition": 'attachment; filename="canvas_verified_suite.zip"'}
+    )
+
+
 @app.get("/api/canvas/recent-media")
 def get_canvas_recent_media(limit: int = 30):
     media = []

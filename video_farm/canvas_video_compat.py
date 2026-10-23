@@ -291,11 +291,13 @@ async def create_canvas_video_task(request: Request):
                 sec_int = 8
                 internal_model = "veo-quality"
             else:
-                internal_model = "Omni"
+                internal_model = "omni-flash"
+        elif sec_int == 6:
+            internal_model = "omni-flash"
         elif raw_model in ("veo-quality", "veo-fast", "veo-lite", "veo-lite-lp"):
             internal_model = raw_model
         else:
-            internal_model = "flow"
+            internal_model = "omni-flash"
     elif engine == "vids":
         # Vids 允许 3 到 10
         sec_int = max(3, min(10, sec_int))
