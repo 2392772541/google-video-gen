@@ -91,7 +91,7 @@
         try {
           iframe.src = iframe.src;
         } catch (e) {
-          iframe.src = 'http://127.0.0.1:3000/';
+          iframe.src = 'http://127.0.0.1:3000/?baseUrl=http://127.0.0.1:8317/v1&apiKey=sk-local-23fa8d80e597d0c0d90c2e75d1c1430787ed13afe1175d70';
         }
       });
     }
