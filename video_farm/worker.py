@@ -201,11 +201,21 @@ class VideoWorker:
                 return failure("INVALID_VIDEO_REQUEST", "Flow 工程 ID 不合法；未提交请求")
             directory = self.output_dir / task.id / ("attempt_" + uuid.uuid4().hex)
             directory.mkdir(parents=True, exist_ok=False)
-            cmd = [str(self.python_bin), "-m", "gflow_cli", "video", "i2v" if start_img else "t2v"]
-            if start_img:
-                cmd.extend(["--initial-frame", str(start_img)])
-            if end_img:
-                cmd.extend(["--end-frame", str(end_img)])
+            ref_imgs = [p.strip() for p in (task.start_image_path or "").split(";") if p.strip()]
+            start_img = ref_imgs[0] if ref_imgs else ""
+            end_img = task.end_image_path or ""
+            is_r2v = len(ref_imgs) > 1 and not end_img
+
+            if is_r2v:
+                cmd = [str(self.python_bin), "-m", "gflow_cli", "video", "r2v"]
+                for r_path in ref_imgs:
+                    cmd.extend(["--ref", str(r_path)])
+            elif start_img:
+                cmd = [str(self.python_bin), "-m", "gflow_cli", "video", "i2v", "--initial-frame", str(start_img)]
+                if end_img:
+                    cmd.extend(["--end-frame", str(end_img)])
+            else:
+                cmd = [str(self.python_bin), "-m", "gflow_cli", "video", "t2v"]
             cmd.extend(["--aspect", task.aspect_ratio or "16:9", "--profile", profile.name,
                         "--out-dir", str(directory), "--json", "--project", str(project_id)])
             flow_model = None

@@ -54,7 +54,7 @@ def _is_upload_file(obj: Any) -> bool:
 async def _save_upload_image(upload: UploadFile, directory: Path, stem: str) -> str:
     suffix = Path(upload.filename or "image.png").suffix.lower()
     if suffix not in (".png", ".jpg", ".jpeg", ".webp"):
-        suffix = ".png"
+        raise HTTPException(422, f"参考图片格式不支持 ({suffix or '未知后缀'})，仅支持 JPG、PNG、WEBP 格式图片")
     directory.mkdir(parents=True, exist_ok=True)
     dest = directory / f"{stem}{suffix}"
     size = 0
@@ -66,10 +66,19 @@ async def _save_upload_image(upload: UploadFile, directory: Path, stem: str) -> 
                     raise HTTPException(413, "参考图片体积超过限制 (最大 32MB)")
                 f.write(chunk)
         if size == 0:
-            raise HTTPException(400, "上传的参考图片内容为空")
-        # Verify image loadable
+            raise HTTPException(400, "上传的参考图片内容为空 (0 字节)")
         with Image.open(str(dest)) as img:
+            fmt = (img.format or "").upper()
+            if fmt not in ("JPEG", "JPG", "PNG", "WEBP"):
+                raise HTTPException(422, f"参考图片格式不支持 ({fmt})，仅支持 JPG、PNG、WEBP 格式")
             img.load()
+            w, h = img.size
+            if w < 32 or h < 32:
+                raise HTTPException(422, f"参考图片分辨率过低 ({w}x{h})，宽高均需至少 32 像素")
+            if w > 8192 or h > 8192:
+                raise HTTPException(422, f"参考图片单边分辨率超过上限 ({w}x{h})，单边最大支持 8192 像素")
+            if max(w, h) / max(1, min(w, h)) > 16.0:
+                raise HTTPException(422, f"参考图片长宽比异常 ({w}:{h})，不支持极端狭长图片")
         return str(dest.resolve())
     except (HTTPException, VideoRequestError):
         if dest.exists():
@@ -244,6 +253,7 @@ async def create_canvas_video_task(request: Request):
     form = await request.form()
     raw_model = str(form.get("model") or "flow").split("::")[-1].strip().lower()
     clean_prompt = (str(form.get("prompt") or "")).strip() or "根据输入参考生成高质量连贯动态视频"
+    mode = str(form.get("mode") or "").strip().lower()
 
     vquality_str = str(form.get("vquality") or form.get("resolution_name") or "720").strip().lower()
     is_1080p = "1080" in vquality_str
@@ -277,7 +287,13 @@ async def create_canvas_video_task(request: Request):
             else:
                 sec_int = 10
         if sec_int == 10:
-            internal_model = "Omni"
+            if "quality" in raw_model:
+                sec_int = 8
+                internal_model = "veo-quality"
+            else:
+                internal_model = "Omni"
+        elif raw_model in ("veo-quality", "veo-fast", "veo-lite", "veo-lite-lp"):
+            internal_model = raw_model
         else:
             internal_model = "flow"
     elif engine == "vids":
@@ -304,21 +320,44 @@ async def create_canvas_video_task(request: Request):
         first_frame = form.get("first_frame")
         last_frame = form.get("last_frame")
 
-        if _is_upload_file(first_frame):
-            start_image_path = await _save_upload_image(first_frame, directory, "start")
-        if _is_upload_file(last_frame):
-            end_image_path = await _save_upload_image(last_frame, directory, "end")
+        if mode == "frames":
+            if last_frame and not first_frame and len(collected_files) <= 1:
+                raise HTTPException(422, "首尾帧模式缺少起始帧；仅提供尾帧时无法生成，请补齐起始帧或切换为单图参考模式")
 
-        # 如果未显式命名 first_frame/last_frame，按收集顺序填充
-        if not start_image_path and len(collected_files) > 0:
-            start_image_path = await _save_upload_image(collected_files[0], directory, "start")
-        if not end_image_path and len(collected_files) > 1 and engine in ("flow", "vids"):
-            end_image_path = await _save_upload_image(collected_files[1], directory, "end")
+        if mode == "reference":
+            if engine == "flow":
+                if "quality" in raw_model and len(collected_files) > 0:
+                    raise HTTPException(422, "Flow Veo Quality 模型不支持参考图 (Ingredients) 生成，请切换为 Veo Fast / Lite 或 Omni 模型，或改用首尾帧模式")
+                if any(k in raw_model for k in ("omni-flash", "omni_flash", "omni")):
+                    if len(collected_files) > 7:
+                        raise HTTPException(422, f"Flow Omni 模型最多支持 7 张参考图，当前上传了 {len(collected_files)} 张，请减少参考图数量 (最大 7 张)")
+                else:
+                    if len(collected_files) > 3:
+                        raise HTTPException(422, f"Flow {raw_model} 模型最多支持 3 张参考图，当前上传了 {len(collected_files)} 张，请减少参考图数量 (最大 3 张)")
+            elif engine == "vids":
+                if len(collected_files) > 2:
+                    raise HTTPException(422, "Google Vids 当前仅支持首帧或首尾帧模式，不支持超过 2 张参考图")
 
-        # 容错：如果只传入了尾帧而无首帧，平滑置换为首帧，避免报“尾帧必须与首帧一起提供”
-        if end_image_path and not start_image_path:
-            start_image_path = end_image_path
+            saved_refs = []
+            for idx, f in enumerate(collected_files):
+                saved_p = await _save_upload_image(f, directory, f"ref_{idx+1}")
+                saved_refs.append(saved_p)
+            start_image_path = ";".join(saved_refs)
             end_image_path = ""
+        else:
+            if _is_upload_file(first_frame):
+                start_image_path = await _save_upload_image(first_frame, directory, "start")
+            if _is_upload_file(last_frame):
+                end_image_path = await _save_upload_image(last_frame, directory, "end")
+
+            if not start_image_path and len(collected_files) > 0:
+                start_image_path = await _save_upload_image(collected_files[0], directory, "start")
+            if not end_image_path and len(collected_files) > 1 and engine in ("flow", "vids"):
+                end_image_path = await _save_upload_image(collected_files[1], directory, "end")
+
+            if end_image_path and not start_image_path:
+                start_image_path = end_image_path
+                end_image_path = ""
 
         task = Task(
             id=task_id,

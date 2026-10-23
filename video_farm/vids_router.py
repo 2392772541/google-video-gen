@@ -858,6 +858,7 @@ def download_shot_video(shot_id: str):
 
 
 @router.get("/workflows/{workflow_id}/package_zip")
+@router.head("/workflows/{workflow_id}/package_zip")
 def package_workflow_zip(workflow_id: str):
     """一键打包当前工程全部分镜成片（规范语义命名）并附带剪辑分镜与台词对齐清单"""
     wf = _runtime_workflow(workflow_id)
