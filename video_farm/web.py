@@ -15,7 +15,7 @@ import zipfile
 import tempfile
 from starlette.background import BackgroundTask
 from pathlib import Path
-from contextlib import nullcontext
+from contextlib import nullcontext, asynccontextmanager
 from typing import Optional, List, Dict, Any
 
 import uvicorn
@@ -203,7 +203,13 @@ class SchedulerManager:
 
 mgr = SchedulerManager()
 
-app = FastAPI(title="Video Farm Control Studio", version="1.0.0")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    mgr.initialize()
+    yield
+    mgr.shutdown()
+
+app = FastAPI(title="Video Farm Control Studio", version="1.0.0", lifespan=lifespan)
 
 app.add_middleware(LocalBrowserBoundary)
 
@@ -217,15 +223,37 @@ async def pipeline_input_error(request, exc):
 async def pipeline_capacity_error(request, exc):
     return JSONResponse(status_code=429, content={"detail":str(exc)})
 
-@app.on_event("startup")
-def on_startup():
-    mgr.initialize()
-
-@app.on_event("shutdown")
-def on_shutdown():
-    mgr.shutdown()
-
 # ==================== API Endpoints ====================
+
+@app.get("/api/health")
+def get_health_status():
+    """系统级健康探测端点，提供 DB、调度器、内存与磁盘核心指标"""
+    db_ok = True
+    try:
+        conn = db.get_db_connection(DB_PATH)
+        conn.execute("SELECT 1").fetchone()
+        conn.close()
+    except Exception:
+        db_ok = False
+
+    active_tasks = len(mgr.scheduler.active_tasks) if (mgr.scheduler and hasattr(mgr.scheduler, "active_tasks")) else 0
+    proc = psutil.Process()
+    mem_mb = round(proc.memory_info().rss / 1024 / 1024, 2)
+    disk = shutil.disk_usage(DATA_DIR)
+    disk_free_gb = round(disk.free / (1024 ** 3), 2)
+    from datetime import datetime
+
+    return {
+        "status": "healthy" if db_ok else "unhealthy",
+        "service": "video_farm_studio",
+        "version": "1.0.0",
+        "database": "ok" if db_ok else "error",
+        "scheduler_running": mgr.is_running(),
+        "active_tasks": active_tasks,
+        "memory_rss_mb": mem_mb,
+        "disk_free_gb": disk_free_gb,
+        "timestamp": datetime.now().astimezone().isoformat()
+    }
 
 @app.get("/api/overview")
 def get_overview():

@@ -15,6 +15,7 @@ def get_db_connection(db_path: Path = DEFAULT_DB_PATH) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("PRAGMA busy_timeout=30000")
     return conn
 
 def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
@@ -212,6 +213,29 @@ def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_priority ON tasks(priority DESC, submit_time ASC)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_profiles_status ON profiles(status, enabled)")
+            conn.execute("PRAGMA optimize")
+
+            # 启动期工作流状态自愈：纠正无活动任务却残留 generating 状态的工作流
+            stale_wfs = conn.execute("""
+                SELECT w.id FROM vids_workflows w
+                WHERE w.status IN ('generating', 'running', 'queued')
+                AND NOT EXISTS (
+                    SELECT 1 FROM vids_shots s
+                    JOIN tasks t ON s.task_id = t.id
+                    WHERE s.workflow_id = w.id
+                    AND t.status IN ('queued', 'dispatching', 'running', 'verifying', 'retry_wait')
+                )
+            """).fetchall()
+            if stale_wfs:
+                now_ts = datetime.now().astimezone().isoformat()
+                for wf_row in stale_wfs:
+                    wf_id = wf_row["id"]
+                    shots = conn.execute("SELECT status FROM vids_shots WHERE workflow_id = ?", (wf_id,)).fetchall()
+                    if shots and all(s["status"] == "completed" for s in shots):
+                        new_st = "completed"
+                    else:
+                        new_st = "draft"
+                    conn.execute("UPDATE vids_workflows SET status = ?, updated_at = ? WHERE id = ?", (new_st, now_ts, wf_id))
     finally:
         conn.close()
 
@@ -920,6 +944,31 @@ def sync_shot_with_task(shot_dict: Dict[str, Any], conn: sqlite3.Connection) -> 
         shot_dict.update(updates)
         
     return shot_dict
+
+def sync_workflow_status(wf: Dict[str, Any], shots: List[Dict[str, Any]], conn: sqlite3.Connection) -> str:
+    """自动同步工作流与其分镜的真实状态，自愈历史遗留孤儿状态"""
+    active_states = {"queued", "dispatching", "running", "verifying", "retry_wait"}
+    has_active = any(s.get("status") in active_states for s in shots)
+    current_status = wf.get("status", "draft")
+
+    if has_active:
+        new_status = "generating"
+    elif not shots:
+        new_status = "draft"
+    elif all(s.get("status") == "completed" for s in shots):
+        new_status = "completed"
+    elif all(s.get("status") == "pending" for s in shots):
+        new_status = "draft"
+    else:
+        # 无执行中镜头：已完成部分则标记为 draft（待继续创作）或 completed（视情况）
+        new_status = "draft"
+
+    if new_status != current_status:
+        now = datetime.now().astimezone().isoformat()
+        conn.execute("UPDATE vids_workflows SET status = ?, updated_at = ? WHERE id = ?", (new_status, now, wf["id"]))
+        wf["status"] = new_status
+    return new_status
+
 def get_vids_workflow(workflow_id: str, db_path: Path = DEFAULT_DB_PATH) -> Optional[Dict[str, Any]]:
     conn = get_db_connection(db_path)
     try:
@@ -930,6 +979,7 @@ def get_vids_workflow(workflow_id: str, db_path: Path = DEFAULT_DB_PATH) -> Opti
             wf = dict(row)
             shots = conn.execute("SELECT * FROM vids_shots WHERE workflow_id = ? ORDER BY sequence ASC", (workflow_id,)).fetchall()
             wf["shots"] = [sync_shot_with_task(dict(s), conn) for s in shots]
+            sync_workflow_status(wf, wf["shots"], conn)
             return wf
     finally:
         conn.close()
@@ -947,6 +997,7 @@ def list_vids_workflows(db_path: Path = DEFAULT_DB_PATH) -> List[Dict[str, Any]]
                 synced_shots = [sync_shot_with_task(dict(s), conn) for s in shots]
                 wf["total_shots"] = len(synced_shots)
                 wf["completed_shots"] = sum(1 for s in synced_shots if s["status"] == "completed")
+                sync_workflow_status(wf, synced_shots, conn)
                 res.append(wf)
             return res
     finally:

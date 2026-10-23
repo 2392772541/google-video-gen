@@ -5,6 +5,7 @@ import mimetypes
 from fastapi import HTTPException
 
 MEDIA_EXTENSIONS = {'.png','.jpg','.jpeg','.webp','.bmp','.gif','.mp4','.mov','.mkv','.webm','.mp3','.wav','.m4a','.aac','.ogg','.flac'}
+ALLOWED_LOOPBACK_PORTS = {3000, 8088, 8089, 8317, 23210, 5173, 5174, 8080}
 
 def local_file(value: str, *, downloads=False, managed_root=None) -> Path:
     # Do not double URL-decode: FastAPI already decoded the query string.
@@ -51,6 +52,8 @@ class LocalBrowserBoundary:
         if not valid_host:
             return await reject(403, 'Only loopback Host is allowed')
         protected = scope['path'].startswith(('/api/', '/media/'))
+        origin_header = headers.get('origin')
+        is_cross_origin_loopback = False
         if protected:
             for name in ('origin', 'referer'):
                 if name not in headers:
@@ -64,15 +67,33 @@ class LocalBrowserBoundary:
                         origin.scheme in ('http', 'https')
                         and (origin.scheme == target.scheme)
                         and is_loopback
-                        and (port == target_port or port in {3000, 8089})
+                        and (port == target_port or port in ALLOWED_LOOPBACK_PORTS)
                         and origin.username is None
                     )
+                    if valid and is_loopback and port != target_port:
+                        is_cross_origin_loopback = True
                 except ValueError:
                     valid = False
                 if not valid:
                     return await reject(403, 'Cross-origin local service access denied')
             if headers.get('sec-fetch-site') == 'cross-site':
                 return await reject(403, 'Cross-site local service access denied')
+
+            # Handle CORS preflight OPTIONS request for loopback callers
+            if scope.get('method') == 'OPTIONS' and origin_header:
+                cors_headers = [
+                    (b'content-type', b'text/plain; charset=utf-8'),
+                    (b'access-control-allow-origin', origin_header.encode('latin1')),
+                    (b'access-control-allow-credentials', b'true'),
+                    (b'access-control-allow-methods', b'GET, POST, PUT, DELETE, PATCH, OPTIONS'),
+                    (b'access-control-allow-headers', b'Content-Type, Authorization, X-Requested-With, Range, Accept, Origin'),
+                    (b'access-control-max-age', b'86400'),
+                    (b'x-content-type-options', b'nosniff'),
+                    (b'cross-origin-resource-policy', b'cross-origin'),
+                ]
+                await send({'type': 'http.response.start', 'status': 204, 'headers': cors_headers})
+                await send({'type': 'http.response.body', 'body': b''})
+                return
         try:
             if int(headers.get('content-length', '0')) > self.max_body_bytes:
                 return await reject(413, 'Request exceeds 512 MiB limit')
@@ -99,7 +120,17 @@ class LocalBrowserBoundary:
                 return
             if message['type'] == 'http.response.start':
                 started = True
-                message['headers'] = list(message.get('headers', [])) + [(b'x-content-type-options',b'nosniff'),(b'cross-origin-resource-policy',b'same-origin')]
+                extra_headers = [(b'x-content-type-options', b'nosniff')]
+                if is_cross_origin_loopback:
+                    extra_headers.append((b'cross-origin-resource-policy', b'cross-origin'))
+                    if origin_header:
+                        extra_headers.append((b'access-control-allow-origin', origin_header.encode('latin1')))
+                        extra_headers.append((b'access-control-allow-credentials', b'true'))
+                        extra_headers.append((b'access-control-allow-methods', b'GET, POST, PUT, DELETE, PATCH, OPTIONS'))
+                        extra_headers.append((b'access-control-allow-headers', b'*'))
+                else:
+                    extra_headers.append((b'cross-origin-resource-policy', b'same-origin'))
+                message['headers'] = list(message.get('headers', [])) + extra_headers
             await send(message)
         try:
             await self.app(scope, limited_receive, safe_send)
