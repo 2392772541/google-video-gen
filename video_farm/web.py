@@ -2199,6 +2199,199 @@ def serve_vids_page():
         return JSONResponse({"message": "Google Vids Studio static/vids.html is not created yet."})
     return FileResponse(str(vids_file), headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache"})
 
+@app.get("/canvas")
+def serve_canvas_page():
+    canvas_file = STATIC_DIR / "canvas.html"
+    if not canvas_file.exists():
+        return JSONResponse({"message": "Infinite Canvas static/canvas.html is not created yet."})
+    return FileResponse(str(canvas_file), headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache"})
+
+@app.get("/api/canvas/status")
+def get_canvas_status():
+    import socket
+    def is_port_listening(port: int) -> bool:
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(0.2)
+                return s.connect_ex(('127.0.0.1', port)) == 0
+        except BaseException:
+            return False
+
+    canvas_3000 = is_port_listening(3000)
+    proxy_23210 = is_port_listening(23210)
+    cpa_8317 = is_port_listening(8317)
+    models_count = 0
+    if cpa_8317:
+        try:
+            import urllib.request
+            req = urllib.request.Request("http://127.0.0.1:8317/v1/models", headers={"Authorization": "Bearer sk-local-23fa8d80e597d0c0d90c2e75d1c1430787ed13afe1175d70"})
+            with urllib.request.urlopen(req, timeout=0.8) as resp:
+                data = json.loads(resp.read().decode())
+                models_count = len(data.get("data", []))
+        except BaseException:
+            pass
+    return {
+        "canvas_app": canvas_3000,
+        "canvas_proxy": proxy_23210,
+        "cliproxyapi": cpa_8317,
+        "models_count": models_count,
+        "ports": {
+            "canvas": 3000,
+            "proxy": 23210,
+            "cliproxyapi": 8317,
+            "farm": 8088
+        }
+    }
+
+@app.get("/api/canvas/recent-media")
+def get_canvas_recent_media(limit: int = 30):
+    media = []
+    try:
+        tasks = db.list_tasks(status="completed", limit=max(limit * 2, 40), db_path=DB_PATH)
+        for t in tasks:
+            task_id = getattr(t, "id", None) or (t.get("id") if isinstance(t, dict) else "")
+            completed = getattr(t, "completed_at", None) or getattr(t, "finish_time", None) or (t.get("completed_at") if isinstance(t, dict) else "")
+            prompt = getattr(t, "prompt", None) or (t.get("prompt") if isinstance(t, dict) else "")
+            display_name = (prompt[:25] + "...") if prompt and len(prompt) > 25 else (prompt or "媒体素材")
+
+            # 1. 视频产物
+            out_vid = getattr(t, "output_video_path", None) or getattr(t, "output_path", None) or (t.get("output_video_path") if isinstance(t, dict) else None)
+            if out_vid:
+                p = Path(out_vid)
+                if p.is_file():
+                    media.append({
+                        "id": task_id,
+                        "name": display_name,
+                        "url": f"/media/outputs/{p.name}",
+                        "type": "video",
+                        "size_desc": f"{round(p.stat().st_size / 1024 / 1024, 1)}MB",
+                        "time_desc": str(completed)[:16] if completed else ""
+                    })
+
+            # 2. 图片产物 (output_image_paths JSON 数组)
+            out_imgs = getattr(t, "output_image_paths", None) or (t.get("output_image_paths") if isinstance(t, dict) else None)
+            if out_imgs:
+                try:
+                    img_list = json.loads(out_imgs) if isinstance(out_imgs, str) else out_imgs
+                    if isinstance(img_list, list):
+                        for idx, img_path_str in enumerate(img_list):
+                            if not img_path_str:
+                                continue
+                            p = Path(img_path_str)
+                            if p.is_file():
+                                sub_name = f"{display_name} (图{idx+1})" if len(img_list) > 1 else display_name
+                                media.append({
+                                    "id": f"{task_id}_{idx}" if len(img_list) > 1 else task_id,
+                                    "name": sub_name,
+                                    "url": f"/media/outputs/{p.name}",
+                                    "type": "image",
+                                    "size_desc": f"{round(p.stat().st_size / 1024 / 1024, 2)}MB",
+                                    "time_desc": str(completed)[:16] if completed else ""
+                                })
+                except Exception:
+                    pass
+            if len(media) >= limit:
+                break
+    except Exception as e:
+        print(f"Failed to fetch recent media for canvas: {e}")
+    return media[:limit]
+
+
+class CanvasImportRequest(BaseModel):
+    data_url: Optional[str] = None
+    url: Optional[str] = None
+    media_type: str = "image"
+    prompt: Optional[str] = "无限画布素材导入"
+
+
+@app.post("/api/canvas/import-to-farm")
+def import_canvas_media_to_farm(req: CanvasImportRequest):
+    import base64
+    import uuid
+    from datetime import datetime
+
+    media_type_clean = (req.media_type or "image").strip().lower()
+    if media_type_clean not in ("image", "video"):
+        raise HTTPException(400, "仅支持导入 image 或 video 媒体类型")
+
+    ext = ".png" if media_type_clean == "image" else ".mp4"
+    data_bytes = None
+
+    if req.data_url:
+        data_url = req.data_url.strip()
+        if not data_url.startswith("data:"):
+            raise HTTPException(400, "非法的 Data URL 格式")
+        try:
+            header, encoded = data_url.split(",", 1)
+            if "image/jpeg" in header or "image/jpg" in header:
+                ext = ".jpg"
+            elif "image/webp" in header:
+                ext = ".webp"
+            elif "image/png" in header:
+                ext = ".png"
+            elif "video/mp4" in header:
+                ext = ".mp4"
+            elif "video/webm" in header:
+                ext = ".webm"
+            data_bytes = base64.b64decode(encoded)
+        except Exception as e:
+            raise HTTPException(400, f"Data URL base64 解码失败: {e}")
+    elif req.url:
+        cand_url = req.url.strip()
+        if cand_url.startswith("/media/outputs/"):
+            fname = cand_url.split("/media/outputs/")[-1].split("?")[0]
+            src_path = (OUTPUTS_DIR / Path(fname).name).resolve()
+            if src_path.is_file() and OUTPUTS_DIR.resolve() in src_path.parents:
+                data_bytes = src_path.read_bytes()
+                ext = src_path.suffix.lower() or ext
+        elif cand_url.startswith("/api/vids/assets/"):
+            fname = cand_url.split("/api/vids/assets/")[-1].split("?")[0]
+            from .vids_router import UPLOADS_VIDS_DIR
+            src_path = (UPLOADS_VIDS_DIR / Path(fname).name).resolve()
+            if src_path.is_file() and UPLOADS_VIDS_DIR.resolve() in src_path.parents:
+                data_bytes = src_path.read_bytes()
+                ext = src_path.suffix.lower() or ext
+        else:
+            raise HTTPException(400, "仅支持引用本地合法受管理的媒体 URL 或直接传递 base64")
+    else:
+        raise HTTPException(400, "必须提供 data_url 或 url")
+
+    if not data_bytes or len(data_bytes) == 0:
+        raise HTTPException(400, "媒体内容为空")
+    if len(data_bytes) > 64 * 1024 * 1024:
+        raise HTTPException(413, "导入文件体积不能超过 64 MiB")
+
+    file_id = f"canvas_{uuid.uuid4().hex[:12]}{ext}"
+    dest_path = (OUTPUTS_DIR / file_id).resolve()
+    dest_path.write_bytes(data_bytes)
+
+    now_iso = datetime.now().astimezone().isoformat()
+    prompt_text = (req.prompt or "无限画布素材导入").strip()[:100]
+
+    from .models import Task
+    new_task = Task(
+        id=f"t_{uuid.uuid4().hex[:12]}",
+        prompt=prompt_text,
+        engine="canvas",
+        task_type=media_type_clean,
+        status="completed",
+        submit_time=now_iso,
+        start_time=now_iso,
+        finish_time=now_iso,
+        output_video_path=str(dest_path) if media_type_clean == "video" else None,
+        output_image_paths=json.dumps([str(dest_path)]) if media_type_clean == "image" else None
+    )
+    db.add_task(new_task, DB_PATH)
+
+    return {
+        "success": True,
+        "task_id": new_task.id,
+        "filename": file_id,
+        "url": f"/media/outputs/{file_id}",
+        "media_type": media_type_clean,
+        "prompt": prompt_text
+    }
+
 class NoCacheStaticFiles(StaticFiles):
     def is_not_modified(self, response_headers, request_headers) -> bool:
         return False

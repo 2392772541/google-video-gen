@@ -58,7 +58,15 @@ class LocalBrowserBoundary:
                 try:
                     origin = urlsplit(headers[name])
                     port = origin.port or (443 if origin.scheme == 'https' else 80)
-                    valid = (origin.scheme, origin.hostname, port) == (target.scheme, target.hostname, target_port) and origin.username is None
+                    loopback_hosts = {'localhost', '127.0.0.1', '::1'}
+                    is_loopback = (origin.hostname in loopback_hosts and target.hostname in loopback_hosts)
+                    valid = (
+                        origin.scheme in ('http', 'https')
+                        and (origin.scheme == target.scheme)
+                        and is_loopback
+                        and (port == target_port or port in {3000, 8089})
+                        and origin.username is None
+                    )
                 except ValueError:
                     valid = False
                 if not valid:

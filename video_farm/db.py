@@ -451,21 +451,26 @@ def _insert_task(conn: sqlite3.Connection, task: Task) -> None:
     task_type = getattr(task, "task_type", "video") or "video"
     model = getattr(task, "model", "") or ""
     input_video_path = getattr(task, "input_video_path", "") or ""
+    output_video_path = getattr(task, "output_video_path", None)
     output_image_paths = getattr(task, "output_image_paths", None)
     output_audio_path = getattr(task, "output_audio_path", None)
+    start_time = getattr(task, "start_time", None)
+    finish_time = getattr(task, "finish_time", None)
     conn.execute("""
     INSERT INTO tasks (
         id, project_id, prompt, start_image_path, end_image_path, aspect_ratio,
         duration_sec, status, assigned_profile_id, priority, retry_count,
         max_retries, require_clean_watermark, submit_time, created_at, updated_at, engine,
-        task_type, model, input_video_path, output_image_paths, output_audio_path
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        task_type, model, input_video_path, output_video_path, output_image_paths, output_audio_path,
+        start_time, finish_time
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         task.id, task.project_id, task.prompt, task.start_image_path, task.end_image_path,
         task.aspect_ratio, task.duration_sec, task.status, task.assigned_profile_id,
         task.priority, task.retry_count, task.max_retries, 1 if task.require_clean_watermark else 0,
         task.submit_time, task.created_at, task.updated_at, engine,
-        task_type, model, input_video_path, output_image_paths, output_audio_path
+        task_type, model, input_video_path, output_video_path, output_image_paths, output_audio_path,
+        start_time, finish_time
     ))
 
 
