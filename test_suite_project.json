@@ -1,0 +1,102 @@
+{
+  "id": "proj_test_suite_001",
+  "title": "【系统全功能实测】文生图与双平台视频编排工程",
+  "createdAt": "2026-10-23T20:00:00.000Z",
+  "updatedAt": "2026-10-23T20:00:00.000Z",
+  "nodes": [
+    {
+      "id": "node_prompt_text",
+      "type": "text",
+      "title": "分镜创意设定 (Text Prompt)",
+      "position": {
+        "x": 60,
+        "y": 100
+      },
+      "width": 320,
+      "height": 240,
+      "metadata": {
+        "content": "一只赛博朋克风格的机械小猫在未来科技城市雨夜中闪烁奔跑，高精度CG写实，电影光影",
+        "status": "success",
+        "model": "default::gpt-6-astra"
+      }
+    },
+    {
+      "id": "node_image_gen",
+      "type": "image",
+      "title": "AI 文生图 · 首帧参考 (Image Node)",
+      "position": {
+        "x": 440,
+        "y": 100
+      },
+      "width": 360,
+      "height": 380,
+      "metadata": {
+        "prompt": "一只赛博朋克风格的机械小猫在未来科技城市雨夜中闪烁奔跑，高精度CG写实，电影光影",
+        "model": "video-farm-8088::gpt-image-1.5",
+        "size": "1024x1024",
+        "quality": "standard",
+        "status": "idle"
+      }
+    },
+    {
+      "id": "node_video_flow",
+      "type": "video",
+      "title": "Google Flow 图生视频 (Flow Video Node)",
+      "position": {
+        "x": 860,
+        "y": 100
+      },
+      "width": 380,
+      "height": 400,
+      "metadata": {
+        "prompt": "赛博机械小猫向前奔跑，电影级动态跟随摄影，霓虹倒影飞速掠过",
+        "model": "video-farm-8088::flow",
+        "seconds": "6",
+        "vquality": "720",
+        "videoMode": "frames",
+        "status": "idle"
+      }
+    },
+    {
+      "id": "node_video_vids",
+      "type": "video",
+      "title": "Google Vids 连续运镜 (Vids Video Node)",
+      "position": {
+        "x": 860,
+        "y": 540
+      },
+      "width": 380,
+      "height": 400,
+      "metadata": {
+        "prompt": "未来科技城市全景运镜，雨夜霓虹街道视角延展",
+        "model": "video-farm-8088::vids",
+        "seconds": "5",
+        "vquality": "720",
+        "videoMode": "frames",
+        "status": "idle"
+      }
+    }
+  ],
+  "connections": [
+    {
+      "id": "conn_prompt_to_img",
+      "fromNodeId": "node_prompt_text",
+      "toNodeId": "node_image_gen"
+    },
+    {
+      "id": "conn_img_to_flow",
+      "fromNodeId": "node_image_gen",
+      "toNodeId": "node_video_flow"
+    },
+    {
+      "id": "conn_img_to_vids",
+      "fromNodeId": "node_image_gen",
+      "toNodeId": "node_video_vids"
+    }
+  ],
+  "viewport": {
+    "x": 0,
+    "y": 0,
+    "k": 1
+  }
+}

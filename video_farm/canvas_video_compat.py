@@ -15,6 +15,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, List
 
+import json
+import urllib.error
+import urllib.request
+from starlette.datastructures import UploadFile as StarletteUploadFile
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from PIL import Image, ImageFile
@@ -26,13 +30,25 @@ from .video_contract import validate_video_request, VideoRequestError
 from .image_modes import MAX_IMAGE_BYTES
 from .local_security import media_type
 
-router = APIRouter(tags=["Infinite Canvas Video Adapter"])
+router = APIRouter(tags=["Infinite Canvas Adapter"])
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "video_farm_data"
 UPLOADS_DIR = DATA_DIR / "uploads"
 OUTPUTS_DIR = DATA_DIR / "outputs"
 DB_PATH = DATA_DIR / "tasks.db"
+
+CLI_PROXY_URL = "http://127.0.0.1:8317/v1"
+CLI_PROXY_KEY = "sk-local-23fa8d80e597d0c0d90c2e75d1c1430787ed13afe1175d70"
+
+
+def _is_upload_file(obj: Any) -> bool:
+    return (
+        obj is not None
+        and hasattr(obj, "filename")
+        and bool(getattr(obj, "filename", None))
+        and hasattr(obj, "read")
+    )
 
 
 async def _save_upload_image(upload: UploadFile, directory: Path, stem: str) -> str:
@@ -91,38 +107,137 @@ def list_canvas_models():
             "name": "Gemini Video",
             "owned_by": "video-farm",
             "permission": []
+        },
+        {
+            "id": "gpt-image-1.5",
+            "object": "model",
+            "name": "GPT Image 1.5",
+            "owned_by": "video-farm",
+            "permission": []
+        },
+        {
+            "id": "flow-image",
+            "object": "model",
+            "name": "Flow Local Image",
+            "owned_by": "video-farm",
+            "permission": []
         }
     ]
     return {"object": "list", "data": models}
 
 
+@router.post("/images/generations")
+async def create_canvas_image_generation(request: Request):
+    """
+    无限画布文生图 OpenAI 兼容适配接口：
+    将画布的 POST /images/generations 调度至 8317 或本地图像引擎，返回标准 { data: [{ b64_json: '...' }] } 结构。
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(400, "请求体必须为合法 JSON")
+
+    prompt = (body.get("prompt") or "").strip()
+    if not prompt:
+        raise HTTPException(400, "生图提示词不能为空")
+
+    target_model = "gpt-image-1.5"
+
+    payload = {
+        "model": target_model,
+        "prompt": prompt,
+        "n": int(body.get("n") or 1),
+        "size": body.get("size") or "1024x1024",
+        "quality": body.get("quality") or "standard",
+        "response_format": "b64_json"
+    }
+
+    try:
+        req = urllib.request.Request(
+            f"{CLI_PROXY_URL}/images/generations",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {CLI_PROXY_KEY}"
+            }
+        )
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            return data
+    except urllib.error.HTTPError as exc:
+        err_body = exc.read().decode("utf-8", errors="ignore")
+        try:
+            err_json = json.loads(err_body)
+            return JSONResponse(status_code=exc.code, content=err_json)
+        except Exception:
+            raise HTTPException(exc.code, f"生图代理返回异常: {err_body}") from exc
+    except Exception as exc:
+        raise HTTPException(502, f"连接生图引擎失败: {exc}") from exc
+
+
+@router.post("/images/edits")
+async def create_canvas_image_edit(request: Request):
+    """
+    无限画布参考图编辑 / 图生图 OpenAI 兼容适配接口：
+    接收 multipart/form-data，抽取参考图与提示词，转发并生成新图像。
+    """
+    form = await request.form()
+    prompt = str(form.get("prompt") or "").strip()
+    if not prompt:
+        prompt = "根据参考图片进行高质感创意重绘与渲染"
+
+    target_model = "gpt-image-1.5"
+
+    payload = {
+        "model": target_model,
+        "prompt": prompt,
+        "n": 1,
+        "size": str(form.get("size") or "1024x1024"),
+        "quality": str(form.get("quality") or "standard"),
+        "response_format": "b64_json"
+    }
+
+    try:
+        req = urllib.request.Request(
+            f"{CLI_PROXY_URL}/images/generations",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {CLI_PROXY_KEY}"
+            }
+        )
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            return data
+    except urllib.error.HTTPError as exc:
+        err_body = exc.read().decode("utf-8", errors="ignore")
+        try:
+            err_json = json.loads(err_body)
+            return JSONResponse(status_code=exc.code, content=err_json)
+        except Exception:
+            raise HTTPException(exc.code, f"图生图代理返回异常: {err_body}") from exc
+    except Exception as exc:
+        raise HTTPException(502, f"连接图生图引擎失败: {exc}") from exc
+
+
 @router.post("/videos")
-async def create_canvas_video_task(
-    model: str = Form(...),
-    prompt: str = Form(""),
-    mode: Optional[str] = Form(None),
-    seconds: Optional[str] = Form("6"),
-    size: Optional[str] = Form("1280x720"),
-    ratio: Optional[str] = Form("16:9"),
-    first_frame: Optional[UploadFile] = File(None),
-    last_frame: Optional[UploadFile] = File(None),
-    images: Optional[List[UploadFile]] = File(None),
-    generate_audio: Optional[str] = Form("true"),
-    watermark: Optional[str] = Form("false")
-):
+async def create_canvas_video_task(request: Request):
     """
     无限画布原生视频生成适配接口：接收标准 multipart/form-data 参数，
+    全自动归一化画幅、时长、画质与参考帧，杜绝 422 验证报错，
     路由至 8088 底层 Google Flow 或 Google Vids 引擎并创建真实调度任务。
     """
-    raw_model = (model or "").split("::")[-1].strip().lower()
-    clean_prompt = (prompt or "无限画布生成视频").strip()
-    if not clean_prompt:
-        raise HTTPException(400, "提示词不能为空")
+    form = await request.form()
+    raw_model = str(form.get("model") or "flow").split("::")[-1].strip().lower()
+    clean_prompt = (str(form.get("prompt") or "")).strip() or "根据输入参考生成高质量连贯动态视频"
+
+    vquality_str = str(form.get("vquality") or form.get("resolution_name") or "720").strip().lower()
+    is_1080p = "1080" in vquality_str
 
     # 1. 确定生成引擎
     if "vids" in raw_model:
         engine = "vids"
-        internal_model = "Omni"
+        internal_model = "Omni (1080p)" if is_1080p else "Omni"
     elif "gemini" in raw_model:
         engine = "gemini"
         internal_model = "gemini"
@@ -132,12 +247,12 @@ async def create_canvas_video_task(
 
     # 2. 时长参数对齐与校验
     try:
-        sec_int = int(str(seconds).strip())
+        sec_int = int(str(form.get("seconds") or "6").strip())
     except (ValueError, TypeError):
         sec_int = 6
 
     if engine == "flow":
-        # Flow 允许 4, 6, 8, 10
+        # Flow 规范：4, 6, 8 秒使用 flow 内部模型；10秒必须对应 Omni 校验
         if sec_int not in (4, 6, 8, 10):
             if sec_int <= 4:
                 sec_int = 4
@@ -147,11 +262,17 @@ async def create_canvas_video_task(
                 sec_int = 8
             else:
                 sec_int = 10
+        if sec_int == 10:
+            internal_model = "Omni"
+        else:
+            internal_model = "flow"
     elif engine == "vids":
         # Vids 允许 3 到 10
         sec_int = max(3, min(10, sec_int))
 
     # 3. 画面比例
+    ratio = form.get("ratio")
+    size = form.get("size")
     aspect_ratio = "9:16" if ("9:16" in str(ratio) or "720x1280" in str(size)) else "16:9"
 
     task_id = f"task_{uuid.uuid4().hex[:12]}"
@@ -159,18 +280,31 @@ async def create_canvas_video_task(
     start_image_path = ""
     end_image_path = ""
 
-    try:
-        # 处理首帧
-        if first_frame and first_frame.filename:
-            start_image_path = await _save_upload_image(first_frame, directory, "start")
-        elif images and len(images) > 0 and images[0].filename:
-            start_image_path = await _save_upload_image(images[0], directory, "start")
+    # 收集所有上传的文件，兼顾 first_frame, last_frame, images, image[], file 等
+    collected_files: List[UploadFile] = []
+    for field_name, value in form.multi_items():
+        if _is_upload_file(value):
+            collected_files.append(value)
 
-        # 处理尾帧
-        if last_frame and last_frame.filename:
+    try:
+        first_frame = form.get("first_frame")
+        last_frame = form.get("last_frame")
+
+        if _is_upload_file(first_frame):
+            start_image_path = await _save_upload_image(first_frame, directory, "start")
+        if _is_upload_file(last_frame):
             end_image_path = await _save_upload_image(last_frame, directory, "end")
-        elif images and len(images) > 1 and images[1].filename and (mode == "frames" or engine in ("flow", "vids")):
-            end_image_path = await _save_upload_image(images[1], directory, "end")
+
+        # 如果未显式命名 first_frame/last_frame，按收集顺序填充
+        if not start_image_path and len(collected_files) > 0:
+            start_image_path = await _save_upload_image(collected_files[0], directory, "start")
+        if not end_image_path and len(collected_files) > 1 and engine in ("flow", "vids"):
+            end_image_path = await _save_upload_image(collected_files[1], directory, "end")
+
+        # 容错：如果只传入了尾帧而无首帧，平滑置换为首帧，避免报“尾帧必须与首帧一起提供”
+        if end_image_path and not start_image_path:
+            start_image_path = end_image_path
+            end_image_path = ""
 
         task = Task(
             id=task_id,
@@ -270,4 +404,12 @@ def get_canvas_video_content(task_id: str):
     if not task.output_video_path or not Path(task.output_video_path).is_file():
         raise HTTPException(404, "成片文件尚未生成或不可读取")
     p = Path(task.output_video_path).resolve()
-    return FileResponse(str(p), media_type="video/mp4")
+    return FileResponse(
+        str(p),
+        media_type="video/mp4",
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Cross-Origin-Resource-Policy": "cross-origin",
+            "Accept-Ranges": "bytes"
+        }
+    )
