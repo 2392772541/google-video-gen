@@ -291,10 +291,19 @@ async def create_canvas_video_task(request: Request):
             if "quality" in raw_model:
                 sec_int = 8
                 internal_model = "veo-quality"
+            elif any(k in raw_model for k in ("fast", "lite")):
+                sec_int = 8
+                internal_model = "veo-lite" if "lite" in raw_model else "veo-fast"
             else:
                 internal_model = "omni-flash"
-        elif sec_int == 6:
-            internal_model = "omni-flash"
+        elif "quality" in raw_model:
+            internal_model = "veo-quality"
+        elif "fast" in raw_model:
+            internal_model = "veo-fast"
+        elif "lp" in raw_model:
+            internal_model = "veo-lite-lp"
+        elif "lite" in raw_model:
+            internal_model = "veo-lite"
         elif raw_model in ("veo-quality", "veo-fast", "veo-lite", "veo-lite-lp"):
             internal_model = raw_model
         else:

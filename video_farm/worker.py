@@ -219,13 +219,9 @@ class VideoWorker:
             cmd.extend(["--aspect", task.aspect_ratio or "16:9", "--profile", profile.name,
                         "--out-dir", str(directory), "--json", "--project", str(project_id)])
             flow_model = None
-            if int(task.duration_sec) in (6, 10):
-                flow_model = "omni-flash"
-            elif task.model:
+            if task.model:
                 raw_m = str(task.model).strip().lower()
-                if "omni" in raw_m:
-                    flow_model = "omni-flash"
-                elif "quality" in raw_m:
+                if "quality" in raw_m:
                     flow_model = "veo-quality"
                 elif "fast" in raw_m:
                     flow_model = "veo-fast"
@@ -233,8 +229,12 @@ class VideoWorker:
                     flow_model = "veo-lite-lp"
                 elif "lite" in raw_m:
                     flow_model = "veo-lite"
+                elif "omni" in raw_m or "flash" in raw_m:
+                    flow_model = "omni-flash"
                 elif raw_m in ("omni-flash", "veo-lite", "veo-fast", "veo-quality", "veo-lite-lp"):
                     flow_model = raw_m
+            if int(task.duration_sec) == 10:
+                flow_model = "omni-flash"
             if not flow_model:
                 flow_model = "omni-flash"
             cmd.extend(["--model", flow_model])
