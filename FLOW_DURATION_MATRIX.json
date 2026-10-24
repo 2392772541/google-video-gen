@@ -1,0 +1,98 @@
+{
+  "version": "1.0.0",
+  "generated_at": "2026-10-25T00:30:00Z",
+  "theoretical_model_matrix": {
+    "flow": {
+      "display_name": "Google Flow (Omni 旗舰)",
+      "modes": {
+        "text_to_video": { "duration_control": "selectable", "durations": [4, 6, 8, 10], "default": 6 },
+        "frames": { "duration_control": "selectable", "durations": [4, 6, 8, 10], "default": 6 },
+        "ingredients": { "duration_control": "selectable", "durations": [4, 6, 8, 10], "default": 6 }
+      }
+    },
+    "omni-flash": {
+      "display_name": "Google Flow Omni Flash",
+      "modes": {
+        "text_to_video": { "duration_control": "selectable", "durations": [4, 6, 8, 10], "default": 6 },
+        "frames": { "duration_control": "selectable", "durations": [4, 6, 8, 10], "default": 6 },
+        "ingredients": { "duration_control": "selectable", "durations": [4, 6, 8, 10], "default": 6 }
+      }
+    },
+    "veo-lite": {
+      "display_name": "Google Veo 3.1 Lite (极速)",
+      "modes": {
+        "text_to_video": { "duration_control": "selectable", "durations": [4, 6, 8], "default": 6 },
+        "frames": { "duration_control": "selectable", "durations": [4, 6, 8], "default": 6 },
+        "ingredients": { "duration_control": "fixed", "durations": [8], "default": 8 },
+        "extend": { "duration_control": "fixed", "durations": [8], "default": 8 }
+      }
+    },
+    "veo-fast": {
+      "display_name": "Google Veo 3.1 Fast (均衡)",
+      "modes": {
+        "text_to_video": { "duration_control": "selectable", "durations": [4, 6, 8], "default": 6 },
+        "frames": { "duration_control": "selectable", "durations": [4, 6, 8], "default": 6 },
+        "ingredients": { "duration_control": "fixed", "durations": [8], "default": 8 }
+      }
+    },
+    "veo-quality": {
+      "display_name": "Google Veo 3.1 Quality (高保真)",
+      "modes": {
+        "text_to_video": { "duration_control": "selectable", "durations": [4, 6, 8], "default": 6 },
+        "frames": { "duration_control": "selectable", "durations": [4, 6, 8], "default": 6 },
+        "ingredients": { "duration_control": "blocked", "durations": [], "default": null }
+      }
+    },
+    "vids": {
+      "display_name": "Google Vids (多镜头与参考图)",
+      "modes": {
+        "storyboard": { "duration_control": "selectable", "durations": [3, 4, 5, 6, 7, 8, 9, 10], "default": 8 }
+      }
+    },
+    "gemini": {
+      "display_name": "Gemini Web Video (网页多模态)",
+      "modes": {
+        "reference": { "duration_control": "upstream_default", "durations": [10], "default": 10 }
+      }
+    }
+  },
+  "session_capabilities": {
+    "current_active_profile": "profile_gflow-test",
+    "account_name": "Gopal Kumar Pro",
+    "verified_at": "2026-10-25T00:28:15Z",
+    "ui_variants": {
+      "flow_omni": {
+        "ui_variant": "slider_available",
+        "duration_control": "selectable",
+        "available_durations": [4, 6, 8, 10],
+        "default_duration": 6,
+        "confidence": 1.0
+      },
+      "flow_veo_current_account": {
+        "ui_variant": "no_slider_server_default",
+        "duration_control": "upstream_default",
+        "available_durations": [],
+        "default_duration": 6,
+        "observed_average_duration": 6.8,
+        "confidence": 1.0,
+        "note": "当前账号下 Veo 网页端无时长控件行，由 Flow 服务端默认渲染，传递 --duration 会触发 CLI exit 11/23，系统自动省略 --duration"
+      },
+      "gemini_web": {
+        "ui_variant": "no_slider_server_default",
+        "duration_control": "upstream_default",
+        "available_durations": [],
+        "default_duration": 10,
+        "observed_average_duration": 10.0,
+        "confidence": 1.0,
+        "note": "Gemini 网页端由平台服务端默认决定成片时长为 10s，界面标注平台决定"
+      },
+      "vids_web": {
+        "ui_variant": "slider_available",
+        "duration_control": "selectable",
+        "available_durations": [3, 4, 5, 6, 7, 8, 9, 10],
+        "default_duration": 8,
+        "confidence": 1.0
+      }
+    }
+  }
+}
