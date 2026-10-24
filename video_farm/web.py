@@ -2252,6 +2252,46 @@ def serve_canvas_page():
         pass
     return FileResponse(str(canvas_file), headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache"})
 
+@app.get("/museflow")
+def serve_museflow_page():
+    museflow_studio_file = STATIC_DIR / "museflow.html"
+    if museflow_studio_file.exists():
+        return FileResponse(str(museflow_studio_file), headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache"})
+    fallback = STATIC_DIR / "museflow" / "app.html"
+    if fallback.exists():
+        return FileResponse(str(fallback), headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache"})
+    return JSONResponse({"message": "MuseFlow static files are not created yet."})
+
+@app.get("/api/museflow/project")
+def get_museflow_project(project_id: str = "default"):
+    clean_id = re.sub(r"[^\w\-]", "", project_id).strip() or "default"
+    proj_file = DATA_DIR / "museflow_projects" / f"{clean_id}.json"
+    if not proj_file.exists():
+        return {"ok": False, "message": "Project not found", "data": None}
+    try:
+        with open(proj_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return {"ok": True, "data": data}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+@app.post("/api/museflow/project")
+async def save_museflow_project(request: Request, project_id: str = "default"):
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(400, "Request body must be JSON")
+    clean_id = re.sub(r"[^\w\-]", "", project_id).strip() or "default"
+    proj_dir = DATA_DIR / "museflow_projects"
+    proj_dir.mkdir(parents=True, exist_ok=True)
+    proj_file = proj_dir / f"{clean_id}.json"
+    try:
+        with open(proj_file, "w", encoding="utf-8") as f:
+            json.dump(body, f, ensure_ascii=False, indent=2)
+        return {"ok": True, "project_id": clean_id}
+    except Exception as e:
+        raise HTTPException(500, f"Failed to save project: {e}")
+
 @app.get("/api/canvas/status")
 def get_canvas_status():
     import socket

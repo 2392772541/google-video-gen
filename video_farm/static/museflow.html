@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8"/>
+  <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+  <title>MuseFlow 节点分镜工作台 - Video Farm Studio</title>
+  <link href="/static/style.css?v=studio20261003-10" rel="stylesheet"/>
+  <link href="/static/studio.css?v=studio20261003-10" rel="stylesheet"/>
+  <style>
+    .museflow-workspace-layout {
+      position: relative;
+      display: flex;
+      flex: 1;
+      width: 100%;
+      height: calc(100vh - 53px);
+      overflow: hidden;
+      background: #101116;
+    }
+    .museflow-iframe-wrapper {
+      flex: 1;
+      height: 100%;
+      display: flex;
+      position: relative;
+    }
+    .museflow-iframe {
+      width: 100%;
+      height: 100%;
+      border: none;
+      background: #101116;
+    }
+    .farm-media-drawer {
+      position: absolute;
+      top: 0;
+      right: 0;
+      width: 320px;
+      height: 100%;
+      background: var(--surface-bg, #1a1b24);
+      border-left: 1px solid var(--border-color, #2d3040);
+      display: flex;
+      flex-direction: column;
+      transform: translateX(100%);
+      transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+      z-index: 20;
+      box-shadow: -4px 0 16px rgba(0, 0, 0, 0.5);
+    }
+    .farm-media-drawer.open {
+      transform: translateX(0);
+    }
+    .drawer-header {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border-color, #2d3040);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .drawer-header h3 {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 600;
+    }
+    .drawer-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px;
+      display: grid;
+      gap: 12px;
+    }
+    .drawer-media-card {
+      background: var(--card-bg, #222432);
+      border: 1px solid var(--border-color, #33374b);
+      border-radius: 6px;
+      padding: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .pill.status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      padding: 3px 8px;
+      border-radius: 12px;
+      font-weight: 500;
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--text-muted, #aaa);
+    }
+    .pill.status-pill.online {
+      background: rgba(16, 185, 129, 0.15);
+      color: #34d399;
+    }
+    .pill.status-pill.warn {
+      background: rgba(245, 158, 11, 0.15);
+      color: #fbbf24;
+    }
+  </style>
+</head>
+<body class="farm-console">
+  <div class="studio-shell">
+    <aside aria-label="主导航" class="studio-sidebar" id="studio-sidebar">
+      <a class="studio-brand" href="/">
+        <span class="studio-mark">VF</span>
+        <span class="brand-caption">Video Farm</span>
+      </a>
+      <nav aria-label="工作空间" class="studio-navigation">
+        <a class="tab-button" href="/#view-generate" title="视频创作">
+          <span aria-hidden="true" class="ui-icon icon-clapperboard"></span>
+          <span>视频创作</span>
+        </a>
+        <a class="tab-button" href="/#view-images" title="图像素材">
+          <span aria-hidden="true" class="ui-icon icon-images"></span>
+          <span>图像素材</span>
+        </a>
+        <a class="tab-button" href="/#view-tasks" title="任务成片">
+          <span aria-hidden="true" class="ui-icon icon-list-video"></span>
+          <span>任务成片</span>
+        </a>
+        <a class="tab-button" href="/#view-profiles" title="账号管理">
+          <span aria-hidden="true" class="ui-icon icon-users-round"></span>
+          <span>账号管理</span>
+        </a>
+        <a class="tab-button" href="/vids" title="连续分镜工程">
+          <span aria-hidden="true" class="ui-icon icon-panels-top-left"></span>
+          <span>连续分镜</span>
+        </a>
+        <a class="tab-button" href="/canvas" id="nav-infinite-canvas" title="无限画布工作台">
+          <span aria-hidden="true" class="ui-icon icon-layers"></span>
+          <span>无限画布</span>
+        </a>
+        <a class="tab-button active" href="/museflow" id="nav-museflow" title="MuseFlow 节点分镜工作流">
+          <span aria-hidden="true" class="ui-icon icon-git-branch"></span>
+          <span>MuseFlow</span>
+        </a>
+      </nav>
+      <div class="sidebar-foot"><span class="sidebar-dot"></span> 本机工作室</div>
+    </aside>
+    <div class="studio-main" style="padding:0;display:flex;flex-direction:column;height:100vh;overflow:hidden;">
+      <header class="navbar" style="border-bottom:1px solid var(--border-color,#333);padding:8px 16px;display:flex;align-items:center;justify-content:space-between;background:var(--surface-bg,#1a1a1a);flex-shrink:0;">
+        <div class="workspace-location" style="display:flex;align-items:center;gap:12px;">
+          <span>工作空间 / <b id="workspace-title">MuseFlow 节点分镜工作流 (MuseFlow 0.5.0)</b></span>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <span class="pill status-pill online" id="farm-status-pill">● 视频工坊 8088 就绪</span>
+            <span class="pill status-pill online" id="canvas-status-pill">● 画布 3000 在线</span>
+            <span class="pill status-pill online" id="engine-status-pill">● 本地引擎：Flow/Gemini/Vids</span>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <button class="btn btn-secondary btn-sm" id="btn-refresh-museflow" title="重新加载 MuseFlow 工作区">刷新工作区</button>
+          <button class="btn btn-secondary btn-sm" id="btn-toggle-media-drawer" title="查看视频工坊媒体并置入 MuseFlow">视频工坊素材库</button>
+          <a class="btn btn-primary btn-sm" id="btn-open-standalone" href="/static/museflow/app.html" target="_blank" rel="noopener noreferrer" style="text-decoration:none;" title="在新标签页全屏独立打开 MuseFlow">独立窗口 ↗</a>
+        </div>
+      </header>
+      <main class="museflow-workspace-layout">
+        <div class="museflow-iframe-wrapper">
+          <iframe class="museflow-iframe" id="museflow-iframe" src="/static/museflow/app.html" allow="clipboard-read; clipboard-write; fullscreen"></iframe>
+        </div>
+        <aside class="farm-media-drawer" id="farm-media-drawer">
+          <div class="drawer-header">
+            <h3>视频工坊素材库</h3>
+            <div style="display:flex;align-items:center;gap:6px;">
+              <button class="btn btn-secondary btn-sm" id="btn-refresh-media-list" style="font-size:11px;padding:2px 8px;">刷新</button>
+              <button class="btn btn-icon btn-sm" onclick="document.getElementById('farm-media-drawer').classList.remove('open')" title="关闭抽屉">✕</button>
+            </div>
+          </div>
+          <div class="drawer-body" id="drawer-media-list">
+            <div style="padding:12px;color:var(--text-muted);font-size:12px;">点击上方按钮加载最新成片...</div>
+          </div>
+        </aside>
+      </main>
+    </div>
+  </div>
+
+  <script>
+    const iframe = document.getElementById('museflow-iframe');
+    const drawer = document.getElementById('farm-media-drawer');
+    const toggleBtn = document.getElementById('btn-toggle-media-drawer');
+    const refreshBtn = document.getElementById('btn-refresh-museflow');
+    const refreshMediaBtn = document.getElementById('btn-refresh-media-list');
+
+    refreshBtn.onclick = () => {
+      iframe.src = iframe.src;
+    };
+
+    toggleBtn.onclick = () => {
+      drawer.classList.toggle('open');
+      if (drawer.classList.contains('open')) {
+        loadDrawerMedia();
+      }
+    };
+
+    refreshMediaBtn.onclick = loadDrawerMedia;
+
+    async function loadDrawerMedia() {
+      const listEl = document.getElementById('drawer-media-list');
+      listEl.innerHTML = '<div style="padding:12px;color:var(--text-muted);font-size:12px;">正在加载最新素材...</div>';
+      try {
+        const resp = await fetch('/api/canvas/recent-media?limit=30');
+        const items = await resp.json();
+        if (!items || items.length === 0) {
+          listEl.innerHTML = '<div style="padding:12px;color:var(--text-muted);font-size:12px;">暂无生成素材，可先创建任务。</div>';
+          return;
+        }
+        listEl.innerHTML = '';
+        items.forEach(item => {
+          const card = document.createElement('div');
+          card.className = 'drawer-media-card';
+          const isVid = item.type === 'video';
+          card.innerHTML = `
+            <div style="position:relative;width:100%;height:110px;background:#000;border-radius:4px;overflow:hidden;">
+              ${isVid ? `<video src="${item.url}" style="width:100%;height:100%;object-fit:cover;" muted playsinline></video>` : `<img src="${item.url}" style="width:100%;height:100%;object-fit:cover;"/>`}
+              <span style="position:absolute;top:4px;right:4px;background:rgba(0,0,0,0.7);color:#38bdf8;font-size:10px;padding:2px 6px;border-radius:3px;">${isVid ? '视频' : '图片'}</span>
+            </div>
+            <div style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${item.name}">${item.name}</div>
+            <div style="font-size:11px;color:#888;">${item.size_desc || ''} · ${item.time_desc || ''}</div>
+            <button class="btn btn-secondary btn-sm" style="font-size:11px;padding:4px 8px;background:#2563eb;color:#fff;border:none;" data-insert>${isVid ? '＋ 加入时间线' : '＋ 置入图片'}</button>
+          `;
+          card.querySelector('[data-insert]').onclick = () => {
+            iframe.contentWindow.postMessage({ type: 'MUSEFLOW_INSERT_MEDIA', asset: item }, '*');
+          };
+          listEl.appendChild(card);
+        });
+      } catch (e) {
+        listEl.innerHTML = `<div style="padding:12px;color:#f87171;font-size:12px;">加载失败: ${e.message}</div>`;
+      }
+    }
+  </script>
+</body>
+</html>

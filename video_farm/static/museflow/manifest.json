@@ -1,0 +1,43 @@
+{
+  "manifest_version": 3,
+  "name": "26Flow 中文版",
+  "version": "0.5.0",
+  "description": "26Flow 可视化工作流画布，直接使用已登录的 Muse.ai 浏览器会话。",
+  "action": {
+    "default_title": "打开 MuseFlow 中文版",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": [
+    "storage",
+    "tabs",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://muse.ai/*",
+    "https://*.muse.ai/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://muse.ai/*",
+        "https://*.muse.ai/*"
+      ],
+      "js": [
+        "muse-bridge.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}

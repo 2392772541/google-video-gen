@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>26Flow · MuseFlow 0.5.0 中文版</title>
+  <link rel="icon" type="image/png" sizes="128x128" href="icons/icon128.png" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="toolbar">
+    <div class="brand"><img class="brand-logo" src="icons/26flow.svg" alt="26Flow" /><strong class="brand-name">Flow</strong><span class="brand-version">0.5.0</span></div>
+    <div class="toolbar-tools" aria-label="添加工作流节点">
+      <button id="scriptImportBtn" type="button">＋ 脚本 → 节点</button>
+      <button data-add="prompt">+ 提示词</button>
+      <button data-add="negativePrompt">+ 反向提示词</button>
+      <button data-add="textAppend">+ 追加文本</button>
+      <button data-add="textConcat">+ 合并文本</button>
+      <button data-add="imageInput">+ 输入图片</button>
+      <button data-add="references">+ 参考图片</button>
+      <button data-add="generateImage">+ 生成图片</button>
+      <button data-add="generateVideo">+ 生成视频</button>
+      <button data-add="timeline">+ 时间线</button>
+      <button data-add="imageResize">+ 调整图片尺寸</button>
+      <button data-add="preview">+ 预览</button>
+    </div>
+    <div class="toolbar-actions">
+      <button id="saveBtn">保存</button>
+      <button id="workflowExportBtn" type="button" title="将工作流保存为可复用的 JSON 文件">导出工作流</button>
+      <button id="workflowImportBtn" type="button" title="导入已保存的 MuseFlow 工作流">导入工作流</button>
+      <input id="workflowFileInput" type="file" accept=".json,application/json" hidden />
+      <button id="settingsBtn">设置</button>
+      <button id="resetBtn" class="danger">重置</button>
+      <button id="runAllBtn" type="button" title="忽略已生成缓存，重新生成全部节点">↺ 全量运行</button>
+      <button id="runBtn" class="primary" title="智能增量运行：仅生成未生成或已修改的节点">▶ 运行</button>
+    </div>
+  </header>
+
+  <div class="statusbar">
+    <span id="museStatus">● 正在检查 muse.ai…</span>
+    <span id="backendStatus">生成方式：Muse.ai 浏览器会话</span>
+    <span id="runStatus"></span>
+  </div>
+
+  <main id="viewport">
+    <svg id="edges"></svg>
+    <div id="canvas"></div>
+    <div id="canvasTools" class="canvas-tools" aria-label="画布控制">
+      <button id="handTool" type="button" title="抓手工具（H）">✋</button>
+      <button id="zoomOut" type="button" title="缩小">−</button>
+      <span id="zoomLevel">100%</span>
+      <button id="zoomIn" type="button" title="放大">＋</button>
+      <button id="fitCanvas" type="button" title="显示全部节点">适应画布</button>
+    </div>
+  </main>
+  <section id="timelineDock" class="timeline-dock collapsed" aria-label="视频时间线">
+    <div class="timeline-dock-header"><div class="timeline-heading"><strong>时间线</strong><span id="timelineClipCount">0 个片段</span><small>编排场景 · 拖动片段可调整顺序</small></div><div class="timeline-dock-actions"><button id="timelineImportAllBtn" type="button" title="将全部“生成视频”节点加入时间线">＋ 导入全部视频</button><div class="timeline-output-picker"><button id="timelineAddVideoBtn" type="button" title="添加视频输出">＋ 添加片段</button><div id="timelineOutputMenu" class="timeline-output-menu hidden"></div></div><button id="timelinePlayBtn" type="button" title="预览视频序列">▶ 预览</button><button id="timelineExportBtn" type="button" title="将完整时间线拼接导出为 WebM 视频">⇩ 导出</button><button id="timelineToggleBtn" type="button" aria-expanded="false" title="展开时间线">▲</button></div></div>
+    <div id="timelineDropZone" class="timeline-drop-zone">将“生成视频”节点或视频片段拖到这里</div>
+    <div class="timeline-dock-content"><div id="timelineTrack" class="timeline-dock-track"></div></div>
+  </section>
+
+  <aside id="timelinePreviewPanel" class="timeline-preview-panel hidden" aria-label="时间线视频预览">
+    <header><strong>时间线预览</strong><button id="closeTimelinePreview" type="button" aria-label="关闭预览">×</button></header>
+    <div class="timeline-preview-stage"><video id="timelinePlayer" class="is-active" controls playsinline preload="auto"></video><video id="timelinePlayerNext" playsinline preload="auto"></video></div>
+    <div class="timeline-preview-caption">场景播放</div>
+  </aside>
+
+  <div id="canvasMenu" class="canvas-menu hidden" role="menu">
+    <div class="menu-caption">添加节点</div>
+    <button data-context-action="add:prompt" role="menuitem">＋ 提示词</button>
+    <button data-context-action="add:negativePrompt" role="menuitem">＋ 反向提示词</button>
+    <button data-context-action="add:textAppend" role="menuitem">＋ 追加文本</button>
+    <button data-context-action="add:textConcat" role="menuitem">＋ 合并文本</button>
+    <button data-context-action="add:imageInput" role="menuitem">＋ 输入图片</button>
+    <button data-context-action="add:references" role="menuitem">＋ 参考图片</button>
+    <button data-context-action="add:generateImage" role="menuitem">＋ 生成图片</button>
+    <button data-context-action="add:generateVideo" role="menuitem">＋ 生成视频</button>
+    <button data-context-action="add:timeline" role="menuitem">＋ 时间线</button>
+    <button data-context-action="add:imageResize" role="menuitem">＋ 调整图片尺寸</button>
+    <button data-context-action="add:preview" role="menuitem">＋ 预览</button>
+    <div class="menu-divider"></div>
+    <button data-context-action="save" role="menuitem">导出工作流</button>
+    <button data-context-action="run-selected" role="menuitem">▶ 运行选中节点</button>
+    <button data-context-action="run" role="menuitem">▶ 智能运行工作流</button>
+    <button data-context-action="run-all" role="menuitem">↺ 全量重新运行</button>
+    <button data-context-action="arrange" role="menuitem">整理节点</button>
+    <div class="menu-divider"></div>
+    <button data-context-action="delete-selected" role="menuitem">删除选中节点</button>
+    <button data-context-action="disconnect-all" role="menuitem">移除全部连接</button>
+  </div>
+
+  <div id="settingsModal" class="modal-backdrop hidden">
+    <section class="modal">
+      <h2>Muse.ai 会话</h2>
+      <p>MuseFlow 直接使用浏览器中已登录的 Muse.ai 标签页。运行工作流时，请保持 Muse 聊天标签页打开。</p>
+      <div class="connection-check"><button id="testMuseBtn" type="button">检查 Muse 会话</button><span id="connectionStatus" role="status"></span></div>
+      <div class="settings-section">
+        <h3>生图模型设置</h3>
+        <p>配置新建“生成图片”节点的默认模型，以及管理你的自定义生图模型列表。</p>
+        <label for="defaultImageModelSelect">默认生图模型</label>
+        <select id="defaultImageModelSelect"></select>
+        <label for="customModelInput">添加自定义模型</label>
+        <div class="model-input-group">
+          <input id="customModelInput" type="text" placeholder="输入自定义模型名称，如 flux-pro 或 my-sd" />
+          <button id="addCustomModelBtn" type="button">添加模型</button>
+        </div>
+        <div id="customModelsList" class="custom-models-chips"></div>
+      </div>
+      <div class="modal-actions">
+        <button id="closeSettingsBtn">取消</button>
+        <button id="saveSettingsBtn" class="primary">保存</button>
+      </div>
+    </section>
+  </div>
+
+  <div id="scriptModal" class="modal-backdrop hidden">
+    <section class="modal script-modal" role="dialog" aria-modal="true" aria-labelledby="scriptModalTitle">
+      <h2 id="scriptModalTitle">从分镜脚本创建节点</h2>
+      <p>粘贴包含“场景”“图片提示词”“视频提示词”和可选“音频”的分镜脚本；也兼容原版越南语格式。MuseFlow 会创建并连接各场景，然后按顺序将视频片段加入时间线。</p>
+      <label for="scriptInput">分镜脚本</label>
+      <textarea id="scriptInput" placeholder="场景 1（0:00–0:07）：场景标题&#10;&#10;图片提示词：...&#10;&#10;视频提示词：...&#10;音频：..."></textarea>
+      <div id="scriptImportStatus" role="status"></div>
+      <div class="modal-actions">
+        <button id="cancelScriptImport" type="button">取消</button>
+        <button id="buildScriptNodes" type="button" class="primary">创建场景节点</button>
+      </div>
+    </section>
+  </div>
+
+  <script src="runtime-adapter.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
