@@ -1,0 +1,56 @@
+{
+  "project": "PROJECT_B_YOUGEN_PRODUCT_PROMO",
+  "provenanceTitle": "添添向上 · 优根优苗 商业三镜头验证物料溯源与保真链条",
+  "auditVersion": "B2_PROVENANCE_1.0",
+  "generatedAt": "2026-10-25T15:36:00+08:00",
+  "assets": [
+    {
+      "shotId": "shot_b_2",
+      "name": "真实土壤根系微距穿行",
+      "role": "科学机理呈现 (Science Microscopic)",
+      "provenanceChain": {
+        "sourceType": "PHYSICAL_GENERATED_ASSET",
+        "upstreamFile": "video_farm_data/outputs/0e0c3bdd-0dce-4bc6-98b3-74cd7cc85363.mp4",
+        "sha256": "49c91e2e10562b5953c4b403d5fb5f86c62e4093435f6aa713e700c015b95a35",
+        "visualIntegrity": "PASS: 根毛与团粒结构写实，无发光粒子、无伪科幻解剖，严格遵循《视觉规范》"
+      }
+    },
+    {
+      "shotId": "shot_b_4",
+      "name": "产品亮相 · 添添向上 优根优苗",
+      "role": "核心产品包装亮相 (Product Intro & Packaging Fidelity)",
+      "provenanceChain": {
+        "sourceType": "AUTHORITATIVE_BRAND_DELIVERY_COMPOSITING",
+        "authoritativePackagingImage": "video_farm_data/deliveries/10_products_cinematic_16x9/12_添添向上_优根优苗_16x9_首帧.png",
+        "packagingImageSha256": "84ceb1ff2546a317346e77baf15de9d7ee4dbb5fd219aaf1e6d157746f0270b3",
+        "masterVideoClip": "video_farm_data/deliveries/10_products_cinematic_16x9/12_添添向上_优根优苗_16x9.mp4",
+        "masterClipSha256": "637a325a8abc8f202b6a392aab675b563353b4d9152eac4580055f8f0fe2303c",
+        "visualIntegrity": "PASS: 品牌包装正面文字『添添向上 · 优根优苗』100% 物理真实，瓶身标签清晰可辨，杜绝 AI 乱码臆造"
+      }
+    },
+    {
+      "shotId": "shot_b_7",
+      "name": "品牌定格 · 关注根系 守护丰收",
+      "role": "商业尾帧品牌定格 (Brand Outro Freeze)",
+      "provenanceChain": {
+        "sourceType": "SUBCLIP_CINEMATIC_FREEZE",
+        "sourceMasterClip": "video_farm_data/deliveries/10_products_cinematic_16x9/12_添添向上_优根优苗_16x9.mp4",
+        "sourceRangeSeconds": [3.0, 8.0],
+        "outputFile": "video_farm_data/outputs/project_b_shot7_freeze.mp4",
+        "outputSha256": "c7ee6125535076afcd29e975f268f331f4d7fce5cb5b8e4e3ceaba78749f45ab",
+        "visualIntegrity": "PASS: 静物高级产品摄影光影，台面反射自然，品牌 Logo 居中稳定定格，无抽搐与跳帧"
+      }
+    }
+  ],
+  "timelineAssembly": {
+    "pipeline": "video_farm.timeline_assembler.assemble_timeline",
+    "targetResolution": "1080x1920",
+    "targetFps": 30.0,
+    "shotsSequence": [
+      {"shotId": "shot_b_2", "trim": [0.0, 6.0], "frames": 180},
+      {"shotId": "shot_b_4", "trim": [0.0, 6.0], "frames": 180},
+      {"shotId": "shot_b_7", "trim": [0.0, 5.0], "frames": 150}
+    ],
+    "outputSha256": "a9becfb8c7d92c1adcb67b611852492476ed28f3cdf31e2470e46b5437624cc0"
+  }
+}

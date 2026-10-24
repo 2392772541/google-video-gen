@@ -1,0 +1,37 @@
+{
+  "runId": "B2_COMMERCIAL_VALIDATION_17S",
+  "shot2": {
+    "taskId": "task_project_b_shot2",
+    "sha256": "49c91e2e10562b5953c4b403d5fb5f86c62e4093435f6aa713e700c015b95a35",
+    "trim": [
+      0.0,
+      6.0
+    ],
+    "verdict": "SCIENCE_APPROVED"
+  },
+  "shot4": {
+    "taskId": "task_project_b_shot4",
+    "sha256": "637a325a8abc8f202b6a392aab675b563353b4d9152eac4580055f8f0fe2303c",
+    "trim": [
+      0.0,
+      6.0
+    ],
+    "verdict": "BRAND_APPROVED"
+  },
+  "shot7": {
+    "taskId": "task_project_b_shot7",
+    "sha256": "c7ee6125535076afcd29e975f268f331f4d7fce5cb5b8e4e3ceaba78749f45ab",
+    "trim": [
+      0.0,
+      5.0
+    ],
+    "verdict": "BRAND_APPROVED"
+  },
+  "trialClip": {
+    "filename": "assembled_project_b_3_shots_17s_exact.mp4",
+    "sha256": "a9becfb8c7d92c1adcb67b611852492476ed28f3cdf31e2470e46b5437624cc0",
+    "resolution": "1080x1920",
+    "duration": 17.0,
+    "frames": 510
+  }
+}

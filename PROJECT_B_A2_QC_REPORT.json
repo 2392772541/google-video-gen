@@ -1,0 +1,57 @@
+{
+  "project": "PROJECT_B_YOUGEN_PRODUCT_PROMO",
+  "qcRunId": "QC_PROJECT_B_B2_17S",
+  "timestamp": "2026-10-25T15:37:00+08:00",
+  "overallVerdict": "PASS_COMMERCIAL_DELIVERY_GRADE",
+  "qcChecks": {
+    "nullDecodeCheck": {
+      "description": "ffmpeg -v error -i ... -f null -",
+      "status": "PASS",
+      "errorCount": 0
+    },
+    "resolutionCheck": {
+      "target": "1080x1920 (9:16 vertical)",
+      "actual": "1080x1920",
+      "status": "PASS"
+    },
+    "fpsCheck": {
+      "target": 30.0,
+      "actual": 30.0,
+      "status": "PASS"
+    },
+    "frameCountCheck": {
+      "target": 510,
+      "actual": 510,
+      "deviationFrames": 0,
+      "status": "PASS_ZERO_DRIFT"
+    },
+    "durationCheck": {
+      "targetSeconds": 17.0,
+      "actualSeconds": 17.0,
+      "status": "PASS_ZERO_DRIFT"
+    },
+    "shotLevelIntegrity": [
+      {
+        "shotId": "shot_b_2",
+        "decodePassed": true,
+        "hasBlackFrames": false,
+        "hasFreezeFrames": false,
+        "scienceAuthenticity": "PASS"
+      },
+      {
+        "shotId": "shot_b_4",
+        "decodePassed": true,
+        "hasBlackFrames": false,
+        "hasFreezeFrames": false,
+        "packagingTextFidelity": "PASS_100_PERCENT"
+      },
+      {
+        "shotId": "shot_b_7",
+        "decodePassed": true,
+        "hasBlackFrames": false,
+        "hasFreezeFrames": false,
+        "brandOutroStability": "PASS"
+      }
+    ]
+  }
+}

@@ -1,0 +1,81 @@
+{
+  "project": "PROJECT_B_YOUGEN_PRODUCT_PROMO",
+  "title": "添添向上 · 优根优苗 商业产品宣传片 (40s 7镜头) - B2 验证阶段",
+  "runId": "RUN_PROJECT_B_B2_VALIDATION_17S",
+  "phase": "B2_COMMERCIAL_VALIDATION_17S",
+  "timestamp": "2026-10-25T15:35:00+08:00",
+  "assembledTrialClip": {
+    "filename": "assembled_project_b_3_shots_17s_exact.mp4",
+    "path": "video_farm_data/outputs/assembled_project_b_3_shots_17s_exact.mp4",
+    "fileSize": 5670157,
+    "sha256": "a9becfb8c7d92c1adcb67b611852492476ed28f3cdf31e2470e46b5437624cc0",
+    "width": 1080,
+    "height": 1920,
+    "aspectRatio": "9:16",
+    "fps": 30.0,
+    "durationSeconds": 17.0,
+    "totalFrames": 510,
+    "videoCodec": "h264",
+    "audioCodec": "aac",
+    "decodeValidation": "PASS_ZERO_ERROR"
+  },
+  "validationShots": [
+    {
+      "shotId": "shot_b_2",
+      "order": 1,
+      "role": "SCIENCE_MECHANISM_MICROSCOPIC",
+      "sourcePath": "video_farm_data/outputs/0e0c3bdd-0dce-4bc6-98b3-74cd7cc85363.mp4",
+      "sha256": "49c91e2e10562b5953c4b403d5fb5f86c62e4093435f6aa713e700c015b95a35",
+      "fileSize": 3330408,
+      "width": 720,
+      "height": 1280,
+      "fps": 24.0,
+      "rawDuration": 8.0,
+      "trimRange": [0.0, 6.0],
+      "effectiveDuration": 6.0,
+      "effectiveFrames": 180,
+      "status": "COMPLETED",
+      "reviewStatus": "APPROVED"
+    },
+    {
+      "shotId": "shot_b_4",
+      "order": 2,
+      "role": "PRODUCT_PACKAGING_INTRO",
+      "sourcePath": "video_farm_data/deliveries/10_products_cinematic_16x9/12_添添向上_优根优苗_16x9.mp4",
+      "sha256": "637a325a8abc8f202b6a392aab675b563353b4d9152eac4580055f8f0fe2303c",
+      "fileSize": 3379955,
+      "width": 1280,
+      "height": 720,
+      "fps": 24.0,
+      "rawDuration": 8.0,
+      "trimRange": [0.0, 6.0],
+      "effectiveDuration": 6.0,
+      "effectiveFrames": 180,
+      "status": "COMPLETED",
+      "reviewStatus": "APPROVED"
+    },
+    {
+      "shotId": "shot_b_7",
+      "order": 3,
+      "role": "BRAND_OUTRO_LOCK",
+      "sourcePath": "video_farm_data/outputs/project_b_shot7_freeze.mp4",
+      "sha256": "c7ee6125535076afcd29e975f268f331f4d7fce5cb5b8e4e3ceaba78749f45ab",
+      "fileSize": 1363507,
+      "width": 1280,
+      "height": 720,
+      "fps": 24.0,
+      "rawDuration": 5.0,
+      "trimRange": [0.0, 5.0],
+      "effectiveDuration": 5.0,
+      "effectiveFrames": 150,
+      "status": "COMPLETED",
+      "reviewStatus": "APPROVED"
+    }
+  ],
+  "isolatedPendingShots": ["shot_b_1", "shot_b_3", "shot_b_5", "shot_b_6"],
+  "evidenceScreenshot": {
+    "path": "PROJECT_B_A2_EVIDENCE/project_b_a2_browser_verified.png",
+    "sha256": "c871a14ab700d274ace36134841bb6c1b75c26b70b50ee31520d0704b449d44a",
+    "fileSize": 216075
+  }
+}
