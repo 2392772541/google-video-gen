@@ -679,6 +679,47 @@
         }
         renderShotDeck();
       };
+
+      const batchBtn = document.getElementById('batchExecuteBtn');
+      if (batchBtn) {
+        batchBtn.onclick = async () => {
+          const plan = sm.generateBatchPlan('unready');
+          if (plan.targetShotsCount === 0) {
+            alert('所有分镜均已生成就绪，无需批量生成。');
+            return;
+          }
+          const ok = confirm(`即将按依赖顺序串行执行批量生成：\n待执行镜头数: ${plan.targetShotsCount}\n并发限制: 1\n是否启动任务队列？`);
+          if (ok) {
+            batchBtn.disabled = true;
+            batchBtn.textContent = '⏳ 批量队列运行中...';
+            try {
+              await sm.startBatchExecution(window.__museFlowAdapter, 'unready');
+              alert('批量生成任务已全部执行完成！');
+            } catch (e) {
+              alert('批量执行发生异常: ' + e.message);
+            } finally {
+              batchBtn.disabled = false;
+              batchBtn.textContent = '▶ 批量生成计划';
+              renderShotDeck();
+            }
+          }
+        };
+      }
+
+      const archiveBtn = document.getElementById('exportArchiveBtn');
+      if (archiveBtn) {
+        archiveBtn.onclick = () => {
+          const pkg = sm.exportArchivePackage();
+          const blob = new Blob([JSON.stringify(pkg, null, 2)], { type: 'application/json' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `museflow-archive-${sm.projectId}-${Date.now()}.json`;
+          a.click();
+          setTimeout(() => URL.revokeObjectURL(url), 5000);
+          alert('已成功导出工程全量归档包 (含镜头表、候选清单与时间线裁切配置)！');
+        };
+      }
     }
 
     // 渲染镜头表卡片
@@ -730,6 +771,19 @@
                 <span>目标时长: <strong>${s.targetDuration}s</strong></span>
                 <span>剪裁入出点: <strong>${s.trimStart}s ~ ${s.trimEnd}s</strong> (实际用量: ${(s.trimEnd - s.trimStart).toFixed(1)}s)</span>
               </div>
+              <div style="display: flex; gap: 10px; align-items: center; margin-top: 4px; font-size: 11px;">
+                <span style="color: ${s.qcResult?.passed ? '#34d399' : '#f87171'}; font-weight: 600;">
+                  QC质检: ${s.qcResult?.passed ? '✓ 合格' : '✗ 待复核'}
+                </span>
+                <span style="color: #64748b;">|</span>
+                <span style="color: #94a3b8;">人工审片:</span>
+                <select class="review-status-select" style="padding: 1px 6px; font-size: 11px; background: #0f172a; color: #fff; border: 1px solid #334155; border-radius: 3px;">
+                  <option value="PENDING_REVIEW" ${s.reviewStatus === 'PENDING_REVIEW' ? 'selected' : ''}>⏳ 待审片</option>
+                  <option value="APPROVED" ${s.reviewStatus === 'APPROVED' ? 'selected' : ''}>✓ 审核通过</option>
+                  <option value="NEEDS_REVISION" ${s.reviewStatus === 'NEEDS_REVISION' ? 'selected' : ''}>✗ 需要修改</option>
+                  <option value="SKIPPED" ${s.reviewStatus === 'SKIPPED' ? 'selected' : ''}>— 暂不审核</option>
+                </select>
+              </div>
               ${s.candidateResults.length > 1 ? `
                 <div style="display: flex; align-items: center; gap: 8px; margin-top: 4px;">
                   <span style="color: #38bdf8;">候选结果 (${s.candidateResults.length}个):</span>
@@ -770,6 +824,14 @@
               alert(`镜头 ${s.shotId} 生成失败: ${err.message}`);
               renderShotDeck();
             }
+          };
+        }
+
+        const revSel = card.querySelector('.review-status-select');
+        if (revSel) {
+          revSel.onchange = (e) => {
+            sm.setReviewStatus(s.shotId, e.target.value);
+            renderShotDeck();
           };
         }
 

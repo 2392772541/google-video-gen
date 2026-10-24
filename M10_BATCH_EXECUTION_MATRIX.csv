@@ -1,0 +1,8 @@
+Test,Status,Detail
+T1_SAFE_SCRIPT_IMPORT,PASS,"更新/追加/替换三模式完备，快照恢复成功，重复导入防翻倍生效(当前2项)"
+T2_DAG_BATCH_SCHEDULER,PASS,"8镜头DAG拓扑计划生成通过，单并发串行调度，前置依赖未就绪拦截生效"
+T3_SOURCE_INTEGRITY_IDEMPOTENCY,PASS,"taskId/sha256物理来源元数据完备，重复完成事件幂等去重生效"
+T4_FAILURE_ISOLATION_RETRY,PASS,"单镜头失败隔离，Shot 1/2 稳定保持，Shot 3 单独重试闭环"
+T5_HUMAN_REVIEW_LIFECYCLE,PASS,"审片流转完整，V2 新版本自动重置审核状态，杜绝已通过误判"
+T6_RELIABLE_EXPORT_ARCHIVE,PASS,"18.00s成片无损解码导出(assembled_6af12c37b7d4_assembled_m10_tomato_exact_18s.mp4)，工程归档包(m10_project_archive.json)成功生成"
+T7_BACKWARD_COMPAT_M8_M9,PASS,"M8与M9历史工程读取无丢失，向下兼容100%"

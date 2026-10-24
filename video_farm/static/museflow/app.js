@@ -283,13 +283,13 @@
   function buildSceneNodesFromScript(){
     const status=$('#scriptImportStatus'),scenes=parseSceneScript($('#scriptInput').value);
     if(!scenes.length){status.className='error';status.textContent="未识别到场景。请使用“场景 1（0:00–0:07）：标题”，并填写“图片提示词”或“视频提示词”；也兼容原版 CẢNH 格式。";return;}
-    const clearCanvas = $('#scriptClearCanvas')?.checked ?? true;
-    if (clearCanvas) {
+    const mode = document.querySelector('input[name="scriptImportMode"]:checked')?.value || 'update';
+    if (mode === 'replace') {
       state.nodes = state.nodes.filter(n => n.data?.dockOnly);
       state.edges = [];
     }
     if (window.__shotManager) {
-      window.__shotManager.initFromParsedScenes(scenes, clearCanvas);
+      window.__shotManager.importScenesWithMode(scenes, mode);
     }
     const baseY=Math.max(40,...state.nodes.filter(node=>!node.data?.dockOnly).map(node=>node.y+360)),createdVideos=[];let made=0;
     scenes.forEach((scene,index)=>{
@@ -1290,6 +1290,16 @@
   $('#scriptImportBtn').onclick=()=>{$('#scriptModal').classList.remove('hidden');$('#scriptImportStatus').textContent='';$('#scriptInput').focus();};
   $('#cancelScriptImport').onclick=()=>$('#scriptModal').classList.add('hidden');
   $('#buildScriptNodes').onclick=buildSceneNodesFromScript;
+  if ($('#undoImportBtn')) {
+    $('#undoImportBtn').onclick = () => {
+      if (window.__shotManager?.undoLastSnapshot()) {
+        render();
+        alert('已恢复到导入前的分镜状态！');
+      } else {
+        alert('暂无可撤销的快照备份。');
+      }
+    };
+  }
   $('#scriptModal').onclick=event=>{if(event.target.id==='scriptModal')$('#scriptModal').classList.add('hidden');};
   $('#scriptInput').addEventListener('input',()=>{
     const scenes=parseSceneScript($('#scriptInput').value);

@@ -1,0 +1,120 @@
+{
+  "format": "museflow-m10-archive",
+  "version": 2,
+  "exported_at": "2026-10-25 02:37:49",
+  "project_id": "M10_PRODUCTION_WORKFLOW",
+  "title": "温室番茄全生命周期观察 (M10 批量生产与审片交付)",
+  "final_assembled_media": {
+    "filename": "assembled_6af12c37b7d4_assembled_m10_tomato_exact_18s.mp4",
+    "duration": 18.0,
+    "sha256": "bf2fa0757d2fb5ea6394f127f9eecd55a9ee04fe7fc7226522fa1f5f881de263",
+    "resolution": "1280x720",
+    "encoding_note": "FFmpeg H.264 广播级精准入出点裁切标准化重编码 (6.0s x 3)"
+  },
+  "shots": [
+    {
+      "shotId": "shot_1",
+      "sceneNumber": 1,
+      "title": "清晨温室全景",
+      "status": "COMPLETED",
+      "targetDuration": 6.0,
+      "trimStart": 0.0,
+      "trimEnd": 6.0,
+      "candidateResults": [
+        {
+          "resultId": "s1_v1",
+          "version": 1,
+          "taskId": "t_s1_init",
+          "assetUrl": "/media/outputs/gemini_verified_physical.mp4",
+          "fileHash": "5f403addf19f5f68c5a0fbc72c8c74c6a0d5da88917346388ea95ac1fd2f4bdb",
+          "duration": 10.01
+        }
+      ],
+      "selectedResultId": "s1_v1",
+      "reviewStatus": "APPROVED",
+      "qcResult": {
+        "passed": true,
+        "issues": []
+      }
+    },
+    {
+      "shotId": "shot_2",
+      "sceneNumber": 2,
+      "title": "叶片微距观察",
+      "status": "COMPLETED",
+      "targetDuration": 6.0,
+      "trimStart": 0.0,
+      "trimEnd": 6.0,
+      "candidateResults": [
+        {
+          "resultId": "s2_v1",
+          "version": 1,
+          "taskId": "t_s2_01",
+          "assetUrl": "/media/outputs/0e0c3bdd-0dce-4bc6-98b3-74cd7cc85363.mp4",
+          "fileHash": "49c91e2e10562b5953c4b403d5fb5f86c62e4093435f6aa713e700c015b95a35",
+          "duration": 8.0
+        },
+        {
+          "resultId": "s2_v2",
+          "version": 2,
+          "taskId": "t_s2_revised",
+          "assetUrl": "/media/outputs/10be203a-c921-4c7d-a2c5-6b95fec5bd85.mp4",
+          "fileHash": "ca4d9b36092b37aa2a5b64c91c8ac7bb7e4e1b557b683c3dfc372d9df64f52a8",
+          "duration": 8.0
+        }
+      ],
+      "selectedResultId": "s2_v2",
+      "dependencies": {
+        "upstreamShotId": "shot_1",
+        "tailFrameAssetUrl": "/media/outputs/m8_shot1_tail_frame.png"
+      },
+      "reviewStatus": "APPROVED",
+      "qcResult": {
+        "passed": true,
+        "issues": []
+      },
+      "reviewNotes": "水珠质感与微距景深完美符合 Visual Bible 要求",
+      "reviewedAt": "2026-10-25 02:37:42",
+      "reviewedVersionId": "s2_v2"
+    },
+    {
+      "shotId": "shot_3",
+      "sceneNumber": 3,
+      "title": "根系土壤微观",
+      "status": "COMPLETED",
+      "targetDuration": 6.0,
+      "trimStart": 0.0,
+      "trimEnd": 6.0,
+      "candidateResults": [
+        {
+          "resultId": "s3_v1",
+          "version": 1,
+          "taskId": "t_s3_retry",
+          "assetUrl": "/media/outputs/0efe8d6e-48a0-456d-999b-244bce0445fb.mp4",
+          "fileHash": "d2a7ee22484989256ce7c6cd3cdcda5254375de62c0b2e1b46bbf1b92596f660",
+          "duration": 8.0
+        }
+      ],
+      "selectedResultId": "s3_v1",
+      "reviewStatus": "PENDING_REVIEW",
+      "qcResult": {
+        "passed": true,
+        "issues": []
+      }
+    }
+  ],
+  "qc_summary": [
+    {
+      "shotId": "shot_2",
+      "version": "s2_v1",
+      "reviewStatus": "NEEDS_REVISION",
+      "notes": "光照偏暗，需要微距水珠反光更明亮"
+    },
+    {
+      "shotId": "shot_2",
+      "version": "s2_v2",
+      "reviewStatus": "APPROVED",
+      "notes": "水珠质感与微距景深完美符合 Visual Bible 要求"
+    }
+  ]
+}

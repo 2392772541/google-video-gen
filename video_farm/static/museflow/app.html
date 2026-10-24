@@ -121,9 +121,17 @@
       <p>粘贴包含“场景”“图片提示词”“视频提示词”和可选“音频”的分镜脚本；也兼容原版越南语格式。MuseFlow 会创建并连接各场景，然后按顺序将视频片段加入时间线。</p>
       <label for="scriptInput">分镜脚本</label>
       <textarea id="scriptInput" placeholder="场景 1（0:00–0:07）：场景标题&#10;&#10;图片提示词：...&#10;&#10;视频提示词：...&#10;音频：..."></textarea>
-      <div class="script-options" style="margin: 8px 0; display: flex; gap: 15px; align-items: center; font-size: 13px;">
-        <label><input type="checkbox" id="scriptClearCanvas" checked /> 导入前清空当前画布草稿</label>
-        <label><input type="checkbox" id="scriptApplyBible" checked /> 批量套用工程视觉规范 (Visual Bible)</label>
+      <div class="script-options" style="margin: 8px 0; display: flex; flex-direction: column; gap: 8px; font-size: 13px;">
+        <div style="display: flex; gap: 15px; align-items: center;">
+          <span style="font-weight: 600; color: #94a3b8;">导入模式:</span>
+          <label><input type="radio" name="scriptImportMode" value="update" checked /> 增量更新 (保留成片)</label>
+          <label><input type="radio" name="scriptImportMode" value="append" /> 追加新分镜</label>
+          <label><input type="radio" name="scriptImportMode" value="replace" /> 替换草稿 (自动快照)</label>
+        </div>
+        <div style="display: flex; gap: 15px; align-items: center;">
+          <label><input type="checkbox" id="scriptApplyBible" checked /> 批量套用工程视觉规范 (Visual Bible)</label>
+          <button id="undoImportBtn" type="button" style="padding: 2px 8px; font-size: 12px;">↩ 撤销上次导入</button>
+        </div>
       </div>
       <div id="scriptPreviewContainer" class="script-preview-container hidden" style="margin: 8px 0; max-height: 160px; overflow-y: auto;"></div>
       <div id="scriptImportStatus" role="status"></div>
@@ -193,7 +201,9 @@
       <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; padding-bottom: 8px;">
         <h2 style="margin: 0;">🎬 分镜镜头表与独立版本控制 (Shot Deck)</h2>
         <div style="display: flex; gap: 8px;">
+          <button id="batchExecuteBtn" type="button" class="primary" style="background: #0284c7;">▶ 批量生成计划</button>
           <button id="batchRegenFailedBtn" type="button">仅重生成失败镜头</button>
+          <button id="exportArchiveBtn" type="button" style="background: #475569;">📦 导出工程归档包</button>
           <button id="closeShotDeckBtn" type="button">关闭</button>
         </div>
       </div>

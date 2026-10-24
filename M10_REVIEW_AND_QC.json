@@ -1,0 +1,14 @@
+[
+  {
+    "shotId": "shot_2",
+    "version": "s2_v1",
+    "reviewStatus": "NEEDS_REVISION",
+    "notes": "光照偏暗，需要微距水珠反光更明亮"
+  },
+  {
+    "shotId": "shot_2",
+    "version": "s2_v2",
+    "reviewStatus": "APPROVED",
+    "notes": "水珠质感与微距景深完美符合 Visual Bible 要求"
+  }
+]
