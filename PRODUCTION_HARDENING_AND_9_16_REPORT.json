@@ -1,0 +1,24 @@
+{
+  "target_b_duplicate_click_lock": "PASS",
+  "target_c_version_and_material_safety": "PASS",
+  "target_d_vertical_9_16_project": "PASS",
+  "target_e_resource_monitoring": "PASS",
+  "evidence": {
+    "vertical_video": {
+      "filename": "assembled_faadfd6de276_tomato_slow_growth_1080x1920_vertical.mp4",
+      "path": "C:\\Users\\win10\\Documents\\ChatGPT\\视频制作\\video_farm_data\\outputs\\assembled_faadfd6de276_tomato_slow_growth_1080x1920_vertical.mp4",
+      "resolution": "1080x1920",
+      "fps": 30.0,
+      "duration_seconds": 21.0,
+      "file_size_bytes": 5828602,
+      "sha256": "d003e14f81d56d64fe9cd2adcbf82000b7db4da82db5579c4825a55bf97e32bf",
+      "playback_progress": 2.463546,
+      "screenshot": "C:\\Users\\win10\\Documents\\ChatGPT\\视频制作\\QA_EVIDENCE\\vertical_9_16_project_verified.png"
+    },
+    "duplicate_click_statuses": [
+      409,
+      200
+    ],
+    "orphan_ffmpeg_processes": 0
+  }
+}

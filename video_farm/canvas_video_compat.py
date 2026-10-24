@@ -7,8 +7,10 @@ Provides OpenAI-compatible endpoints for infinite-canvas:
 - GET  /models
 """
 from __future__ import annotations
+import asyncio
 import os
 import re
+import threading
 import time
 import uuid
 from datetime import datetime
@@ -33,6 +35,9 @@ from pydantic import BaseModel
 from .timeline_assembler import assemble_timeline, TimelineAssemblyError, calculate_sha256, ShotSpec
 
 router = APIRouter(tags=["Infinite Canvas Adapter"])
+
+_ACTIVE_PROJECT_ASSEMBLIES: set[str] = set()
+_ACTIVE_PROJECT_ASSEMBLIES_LOCK = threading.Lock()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "video_farm_data"
@@ -624,6 +629,9 @@ class TimelineAssemblyRequest(BaseModel):
     shots: Optional[List[TimelineAssemblyShot]] = None
     title: Optional[str] = "多镜头合成视频"
     output_filename: Optional[str] = None
+    aspect_ratio: Optional[str] = "16:9"
+    aspect_mode: Optional[str] = "fit"
+    fps: Optional[int] = None
 
 
 def resolve_media_url_to_path(url_or_path: str) -> Path:
@@ -668,54 +676,72 @@ async def handle_timeline_assembly(req: TimelineAssemblyRequest):
     接收有序分镜视频 URL 列表，调用底层 FFmpeg 滤波图合成标准化 MP4。
     成片注册入库，返回精确时间线时刻清单、总时长及下载 URL。
     """
-    resolved_specs: List[ShotSpec] = []
-    if req.shots and len(req.shots) >= 2:
-        sorted_shots = sorted(req.shots, key=lambda s: s.order if s.order is not None else 0)
-        for idx, shot in enumerate(sorted_shots):
-            try:
-                rp = resolve_media_url_to_path(shot.source_url)
-                resolved_specs.append(ShotSpec(
-                    path=rp,
-                    trim_start_s=shot.trim_start_s or 0.0,
-                    trim_end_s=shot.trim_end_s,
-                    shot_id=shot.shot_id,
-                    order=shot.order if shot.order is not None else idx
-                ))
-            except HTTPException as e:
-                raise HTTPException(e.status_code, f"第 {idx + 1} 个分镜视频错误: {e.detail}") from e
-    elif req.shot_video_urls and len(req.shot_video_urls) >= 2:
-        for idx, u in enumerate(req.shot_video_urls):
-            try:
-                rp = resolve_media_url_to_path(u)
-                resolved_specs.append(ShotSpec(path=rp, order=idx))
-            except HTTPException as e:
-                raise HTTPException(e.status_code, f"第 {idx + 1} 个分镜视频错误: {e.detail}") from e
-    else:
-        raise HTTPException(400, "时间线合成至少需要 2 个有效镜头视频")
-
-    out_stem = f"assembled_{uuid.uuid4().hex[:12]}"
-    if req.output_filename:
-        clean_name = re.sub(r"[^\w\-.]", "_", req.output_filename).strip("_")
-        if clean_name.lower().endswith(".mp4"):
-            clean_name = clean_name[:-4]
-        if clean_name:
-            out_stem = f"{out_stem}_{clean_name}"
-    out_file = OUTPUTS_DIR / f"{out_stem}.mp4"
+    with _ACTIVE_PROJECT_ASSEMBLIES_LOCK:
+        if req.project_id in _ACTIVE_PROJECT_ASSEMBLIES:
+            raise HTTPException(409, f"工程 [{req.project_id}] 已有时间线合成任务正在执行中，请勿重复提交")
+        _ACTIVE_PROJECT_ASSEMBLIES.add(req.project_id)
 
     try:
-        result = assemble_timeline(
+        resolved_specs: List[ShotSpec] = []
+        if req.shots and len(req.shots) >= 2:
+            sorted_shots = sorted(req.shots, key=lambda s: s.order if s.order is not None else 0)
+            for idx, shot in enumerate(sorted_shots):
+                try:
+                    rp = resolve_media_url_to_path(shot.source_url)
+                    resolved_specs.append(ShotSpec(
+                        path=rp,
+                        trim_start_s=shot.trim_start_s or 0.0,
+                        trim_end_s=shot.trim_end_s,
+                        shot_id=shot.shot_id,
+                        order=shot.order if shot.order is not None else idx
+                    ))
+                except HTTPException as e:
+                    raise HTTPException(e.status_code, f"第 {idx + 1} 个分镜视频错误: {e.detail}") from e
+        elif req.shot_video_urls and len(req.shot_video_urls) >= 2:
+            for idx, u in enumerate(req.shot_video_urls):
+                try:
+                    rp = resolve_media_url_to_path(u)
+                    resolved_specs.append(ShotSpec(path=rp, order=idx))
+                except HTTPException as e:
+                    raise HTTPException(e.status_code, f"第 {idx + 1} 个分镜视频错误: {e.detail}") from e
+        else:
+            raise HTTPException(400, "时间线合成至少需要 2 个有效镜头视频")
+
+        out_stem = f"assembled_{uuid.uuid4().hex[:12]}"
+        if req.output_filename:
+            clean_name = re.sub(r"[^\w\-.]", "_", req.output_filename).strip("_")
+            if clean_name.lower().endswith(".mp4"):
+                clean_name = clean_name[:-4]
+            if clean_name:
+                out_stem = f"{out_stem}_{clean_name}"
+        out_file = OUTPUTS_DIR / f"{out_stem}.mp4"
+
+        is_vertical = str(req.aspect_ratio).strip() in ("9:16", "vertical")
+        target_w = 1080 if is_vertical else 1280
+        target_h = 1920 if is_vertical else 720
+        target_fps = int(req.fps) if req.fps else (30 if is_vertical else 24)
+        aspect_mode = "crop" if req.aspect_mode == "crop" else "fit"
+
+        result = await asyncio.to_thread(
+            assemble_timeline,
             resolved_specs,
             out_file,
-            target_width=1280,
-            target_height=720,
-            target_fps=24,
+            target_width=target_w,
+            target_height=target_h,
+            target_fps=target_fps,
+            aspect_mode=aspect_mode,
             max_threads=2,
             timeout_sec=180
         )
     except TimelineAssemblyError as e:
         raise HTTPException(e.code, e.message) from e
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(500, f"时间线合成异常: {e}") from e
+    finally:
+        with _ACTIVE_PROJECT_ASSEMBLIES_LOCK:
+            _ACTIVE_PROJECT_ASSEMBLIES.discard(req.project_id)
 
     now_iso = datetime.now().astimezone().isoformat()
     task_id = f"t_{uuid.uuid4().hex[:12]}"

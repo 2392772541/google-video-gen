@@ -75,12 +75,24 @@ def test_assemble_two_clips(monkeypatch):
     def mock_run(cmd, *args, **kwargs):
         if cmd[0] == "ffprobe":
             return subprocess.CompletedProcess(cmd, 0, stdout=dummy_probe_json, stderr="")
-        elif cmd[0] == "ffmpeg":
-            out_p = Path(cmd[-1])
-            out_p.write_bytes(b"dummy_assembled_mp4_bytes")
-            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
         raise ValueError(f"Unexpected command: {cmd}")
     monkeypatch.setattr(subprocess, "run", mock_run)
+
+    class MockPopen:
+        def __init__(self, cmd, *args, **kwargs):
+            self.cmd = cmd
+            self.returncode = 0
+            if cmd[0] == "ffmpeg":
+                out_p = Path(cmd[-1])
+                out_p.write_bytes(b"dummy_assembled_mp4_bytes")
+        def communicate(self, timeout=None):
+            return ("", "")
+        def poll(self):
+            return 0
+        def kill(self):
+            pass
+
+    monkeypatch.setattr(subprocess, "Popen", MockPopen)
 
     with tempfile.TemporaryDirectory() as tmpdir:
         td = Path(tmpdir)

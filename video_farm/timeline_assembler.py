@@ -15,6 +15,7 @@ import json
 import hashlib
 import shutil
 import subprocess
+import signal
 import tempfile
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Union
@@ -146,6 +147,7 @@ def assemble_timeline(
     target_width: int = 1280,
     target_height: int = 720,
     target_fps: int = 24,
+    aspect_mode: str = "fit",
     max_threads: int = 2,
     timeout_sec: int = 180,
 ) -> Dict[str, Any]:
@@ -218,18 +220,28 @@ def assemble_timeline(
 
         # 视频滤镜：若有裁剪则先 trim 并重置 PTS，再保持比例居中缩放并加黑边
         v_label = f"v{i}"
+        if aspect_mode == "crop":
+            # 居中裁切填充满屏
+            scale_filter = (
+                f"scale={target_width}:{target_height}:force_original_aspect_ratio=increase,"
+                f"crop={target_width}:{target_height},setsar=1,fps={target_fps}"
+            )
+        else:
+            # 默认保持比例居中加黑边，确保画面主体完整不被切除
+            scale_filter = (
+                f"scale={target_width}:{target_height}:force_original_aspect_ratio=decrease,"
+                f"pad={target_width}:{target_height}:(ow-iw)/2:(oh-ih)/2,"
+                f"setsar=1,fps={target_fps}"
+            )
+
         if is_trimmed:
             filter_parts.append(
                 f"[{i}:v]trim=start={t_start:.3f}:end={t_end:.3f},setpts=PTS-STARTPTS,"
-                f"scale={target_width}:{target_height}:force_original_aspect_ratio=decrease,"
-                f"pad={target_width}:{target_height}:(ow-iw)/2:(oh-ih)/2,"
-                f"setsar=1,fps={target_fps}[{v_label}]"
+                f"{scale_filter}[{v_label}]"
             )
         else:
             filter_parts.append(
-                f"[{i}:v]scale={target_width}:{target_height}:force_original_aspect_ratio=decrease,"
-                f"pad={target_width}:{target_height}:(ow-iw)/2:(oh-ih)/2,"
-                f"setsar=1,fps={target_fps}[{v_label}]"
+                f"[{i}:v]{scale_filter}[{v_label}]"
             )
         concat_in_v.append(f"[{v_label}]")
 
@@ -272,16 +284,24 @@ def assemble_timeline(
     ])
 
     # 3. 执行合成
+    proc = None
     try:
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_sec)
-        if res.returncode != 0:
-            err_msg = res.stderr.strip() or "FFmpeg 转码异常退出"
-            raise TimelineAssemblyError(f"多镜头视频合成失败 (exit {res.returncode}): {err_msg}", code=500)
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        stdout, stderr = proc.communicate(timeout=timeout_sec)
+        if proc.returncode != 0:
+            err_msg = stderr.strip() or "FFmpeg 转码异常退出"
+            raise TimelineAssemblyError(f"多镜头视频合成失败 (exit {proc.returncode}): {err_msg}", code=500)
     except subprocess.TimeoutExpired as e:
+        if proc:
+            proc.kill()
+            proc.communicate()
         if output_path.exists():
             output_path.unlink()
         raise TimelineAssemblyError(f"多镜头视频合成超时 (超过 {timeout_sec} 秒)", code=504) from e
     except Exception as e:
+        if proc and proc.poll() is None:
+            proc.kill()
+            proc.communicate()
         if output_path.exists():
             output_path.unlink()
         if isinstance(e, TimelineAssemblyError):
