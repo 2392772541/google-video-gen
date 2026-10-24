@@ -1,0 +1,37 @@
+{
+  "project": "PROJECT_B_YOUGEN_PRODUCT_PROMO",
+  "qcRunId": "TECH_QC_PROJECT_B_B3_40S",
+  "timestamp": "2026-10-25T15:52:00+08:00",
+  "technicalVerdict": "B3_TECH_COMPLETE",
+  "commercialHumanReviewVerdict": "B3_REVIEW_PENDING",
+  "assembledFilmQc": {
+    "targetResolution": "1080x1920",
+    "actualResolution": "1080x1920",
+    "resolutionPassed": true,
+    "targetFps": 30.0,
+    "actualFps": 30.0,
+    "fpsPassed": true,
+    "targetFrames": 1200,
+    "actualFrames": 1200,
+    "frameDrift": 0,
+    "frameCountPassed": true,
+    "targetDurationSeconds": 40.0,
+    "actualDurationSeconds": 40.0,
+    "durationDrift": 0.0,
+    "durationPassed": true,
+    "nullDecodeExitCode": 0,
+    "decodePassed": true,
+    "audioCodec": "aac",
+    "videoCodec": "h264",
+    "sha256": "910be95fdc8fcb504956476e66682013fd94dbdea1336508f8ae711307a62c45"
+  },
+  "shotLevelQc": [
+    {"shotId": "shot_b_1", "duration": 5.0, "decodePassed": true, "blackFrames": 0, "freezeFrames": 0, "status": "PASS"},
+    {"shotId": "shot_b_2", "duration": 6.0, "decodePassed": true, "blackFrames": 0, "freezeFrames": 0, "status": "PASS"},
+    {"shotId": "shot_b_3", "duration": 6.0, "decodePassed": true, "blackFrames": 0, "freezeFrames": 0, "status": "PASS"},
+    {"shotId": "shot_b_4", "duration": 6.0, "decodePassed": true, "blackFrames": 0, "freezeFrames": 0, "status": "PASS"},
+    {"shotId": "shot_b_5", "duration": 6.0, "decodePassed": true, "blackFrames": 0, "freezeFrames": 0, "status": "PASS"},
+    {"shotId": "shot_b_6", "duration": 6.0, "decodePassed": true, "blackFrames": 0, "freezeFrames": 0, "status": "PASS"},
+    {"shotId": "shot_b_7", "duration": 5.0, "decodePassed": true, "blackFrames": 0, "freezeFrames": 0, "status": "PASS"}
+  ]
+}

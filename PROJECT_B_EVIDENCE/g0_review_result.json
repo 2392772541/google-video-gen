@@ -1,0 +1,58 @@
+{
+  "g0_verdict": "G0_PASSED",
+  "media_categories": {
+    "shot_b_2": {
+      "originType": "REUSED_MEDIA",
+      "sourceFile": "video_farm_data/outputs/0e0c3bdd-0dce-4bc6-98b3-74cd7cc85363.mp4",
+      "notes": "复用已通过科学真实性校验的 Veo 高清根系微距视频 (720x1280)"
+    },
+    "shot_b_4": {
+      "originType": "COMPOSITED_MEDIA",
+      "sourceFile": "video_farm_data/deliveries/10_products_cinematic_16x9/12_添添向上_优根优苗_16x9.mp4",
+      "packagingAsset": "video_farm_data/deliveries/10_products_cinematic_16x9/12_添添向上_优根优苗_16x9_首帧.png",
+      "notes": "官方权威高清实拍摄像底板 + 正品包装首帧 Alpha 图层贴片融合"
+    },
+    "shot_b_7": {
+      "originType": "DERIVED_MEDIA",
+      "sourceFile": "video_farm_data/outputs/project_b_shot7_freeze.mp4",
+      "parentMaster": "video_farm_data/deliveries/10_products_cinematic_16x9/12_添添向上_优根优苗_16x9.mp4",
+      "notes": "由官方高清视频 3.0s~8.0s 精确抽取定格生成的 5.0 秒品牌尾幅"
+    }
+  },
+  "packagingFidelity": {
+    "path": "video_farm_data\\deliveries\\10_products_cinematic_16x9\\12_添添向上_优根优苗_16x9_首帧.png",
+    "sha256": "84ceb1ff2546a317346e77baf15de9d7ee4dbb5fd219aaf1e6d157746f0270b3",
+    "brand": "添添向上",
+    "product": "优根优苗",
+    "verification": "VERIFIED_OFFICIAL"
+  },
+  "aspectRatioAdaptation": {
+    "mode": "fit (force_original_aspect_ratio=decrease, pad=1080:1920)",
+    "pixelAspect": "1:1",
+    "safeAreaPreserved": true,
+    "distortion": "ZERO_DISTORTION",
+    "sampledFrames": [
+      "shot4_start_6_0s.png",
+      "shot4_quarter_7_5s.png",
+      "shot4_mid_9_0s.png",
+      "shot4_threequarter_10_5s.png",
+      "shot4_end_12_0s.png",
+      "shot7_start_12_0s.png",
+      "shot7_mid_14_5s.png",
+      "shot7_end_17_0s.png"
+    ]
+  },
+  "claimsVerification": {
+    "approvedClaims": [
+      "调理根际微环境",
+      "促进毛细根健壮萌发",
+      "改善养分吸收与活化"
+    ],
+    "prohibitedClaims": [
+      "保证生根",
+      "替代激素",
+      "包治病害"
+    ],
+    "complianceStatus": "FULLY_COMPLIANT"
+  }
+}

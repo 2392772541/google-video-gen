@@ -1,0 +1,40 @@
+{
+  "project": "PROJECT_B_YOUGEN_PRODUCT_PROMO",
+  "title": "添添向上 · 优根优苗 商业宣传片 (40s 7镜头) 终极交付清单",
+  "deliveryVersion": "B3_FINAL_1.0",
+  "deliveredAt": "2026-10-25T15:55:00+08:00",
+  "primaryOutput": {
+    "type": "BROADCAST_FINAL_FILM",
+    "filePath": "video_farm_data/outputs/assembled_project_b_7_shots_40s_exact.mp4",
+    "fileSize": 13626258,
+    "sha256": "910be95fdc8fcb504956476e66682013fd94dbdea1336508f8ae711307a62c45",
+    "resolution": "1080x1920",
+    "aspectRatio": "9:16",
+    "fps": 30.0,
+    "duration": 40.0,
+    "frames": 1200
+  },
+  "trialOutput": {
+    "type": "TRIAL_VALIDATION_CLIP",
+    "filePath": "video_farm_data/outputs/assembled_project_b_3_shots_17s_exact.mp4",
+    "fileSize": 5670157,
+    "sha256": "a9becfb8c7d92c1adcb67b611852492476ed28f3cdf31e2470e46b5437624cc0",
+    "duration": 17.0,
+    "frames": 510
+  },
+  "officialPackagingAsset": {
+    "filePath": "video_farm_data/deliveries/10_products_cinematic_16x9/12_添添向上_优根优苗_16x9_首帧.png",
+    "fileSize": 1547563,
+    "sha256": "84ceb1ff2546a317346e77baf15de9d7ee4dbb5fd219aaf1e6d157746f0270b3"
+  },
+  "museflowProject": {
+    "filePath": "video_farm_data/museflow_projects/PROJECT_B_YOUGEN_PRODUCT_PROMO.json",
+    "status": "COMPLETED_PERSISTED",
+    "shotsCount": 7
+  },
+  "evidenceArchive": {
+    "evidenceDir": "PROJECT_B_EVIDENCE",
+    "browserScreenshot": "PROJECT_B_EVIDENCE/project_b_b3_browser_verified.png",
+    "keyframeDir": "PROJECT_B_EVIDENCE/keyframe_inspection"
+  }
+}

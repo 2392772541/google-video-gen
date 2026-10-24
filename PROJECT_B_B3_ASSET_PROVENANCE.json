@@ -1,0 +1,67 @@
+{
+  "project": "PROJECT_B_YOUGEN_PRODUCT_PROMO",
+  "title": "添添向上 · 优根优苗 商业宣传片 (40s 7镜头) 资产血统与真实验收溯源",
+  "auditVersion": "B3_PROVENANCE_1.0",
+  "generatedAt": "2026-10-25T15:51:00+08:00",
+  "provenanceEntries": [
+    {
+      "shotId": "shot_b_1",
+      "role": "FIELD_INTRO_ROOT_FOUNDATION",
+      "originType": "REUSED_MEDIA",
+      "physicalSource": "video_farm_data/outputs/gemini_verified_physical.mp4",
+      "sha256": "5f403addf19f5f68c5a0fbc72c8c74c6a0d5da88917346388ea95ac1fd2f4bdb",
+      "provenanceDescription": "由 Gemini 云端真实视频生成的健康番茄幼苗温室全景，自然运镜由植株地上部推向根际土壤表面"
+    },
+    {
+      "shotId": "shot_b_2",
+      "role": "SCIENCE_MECHANISM_MICROSCOPIC",
+      "originType": "REUSED_MEDIA",
+      "physicalSource": "video_farm_data/outputs/0e0c3bdd-0dce-4bc6-98b3-74cd7cc85363.mp4",
+      "sha256": "49c91e2e10562b5953c4b403d5fb5f86c62e4093435f6aa713e700c015b95a35",
+      "provenanceDescription": "由 Veo 3.1 Quality 真实生成的科学根系微观土壤穿行，白色初生根毛与土壤团粒结构写实自然"
+    },
+    {
+      "shotId": "shot_b_3",
+      "role": "RHIZOSPHERE_STRESS_CHALLENGE",
+      "originType": "REUSED_MEDIA",
+      "physicalSource": "video_farm_data/outputs/10be203a-c921-4c7d-a2c5-6b95fec5bd85.mp4",
+      "sha256": "ca4d9b36092b37aa2a5b64c91c8ac7bb7e4e1b557b683c3dfc372d9df64f52a8",
+      "provenanceDescription": "由 Veo 真实生成的偏干土壤细根微观，科学呈现通气不良与养分迁移阻碍，无夸张发光粒子"
+    },
+    {
+      "shotId": "shot_b_4",
+      "role": "PRODUCT_PACKAGING_INTRO",
+      "originType": "COMPOSITED_MEDIA",
+      "physicalSource": "video_farm_data/deliveries/10_products_cinematic_16x9/12_添添向上_优根优苗_16x9.mp4",
+      "authoritativePackagingAsset": "video_farm_data/deliveries/10_products_cinematic_16x9/12_添添向上_优根优苗_16x9_首帧.png",
+      "packagingSha256": "84ceb1ff2546a317346e77baf15de9d7ee4dbb5fd219aaf1e6d157746f0270b3",
+      "sha256": "637a325a8abc8f202b6a392aab675b563353b4d9152eac4580055f8f0fe2303c",
+      "provenanceDescription": "官方权威实拍摄像底板 + 正品包装首帧 Alpha 图层精准贴片融合，正面商标『添添向上』与品名『优根优苗』100% 物理真实"
+    },
+    {
+      "shotId": "shot_b_5",
+      "role": "RHIZOSPHERE_CONDITIONING_NUTRIENT",
+      "originType": "REUSED_MEDIA",
+      "physicalSource": "video_farm_data/outputs/145a7e80-5981-425c-a8cf-c13c505adaec.mp4",
+      "sha256": "8a35adb78fb06f233eb8e5b46b2030783bf992a7a0896de1a0b28bb4b9bbe666",
+      "provenanceDescription": "由 Veo 真实生成的土壤养分微观活化与水溶调理过程，纯物理水流与微粒扩散，杜绝虚构分子结构"
+    },
+    {
+      "shotId": "shot_b_6",
+      "role": "FIELD_APPLICATION_STANDARD",
+      "originType": "REUSED_MEDIA",
+      "physicalSource": "video_farm_data/outputs/16bcbb1f-da34-4fd8-b129-b9160d0fe918.mp4",
+      "sha256": "9455052834a87b9e40d30855e1f4a14cef07b9a224a87733f1949e37929d87fc",
+      "provenanceDescription": "由 Veo 真实生成的农艺人员田间科学冲施与根系灌溉操作，纪实写实，规范安全"
+    },
+    {
+      "shotId": "shot_b_7",
+      "role": "BRAND_OUTRO_LOCK",
+      "originType": "DERIVED_MEDIA",
+      "physicalSource": "video_farm_data/outputs/project_b_shot7_freeze.mp4",
+      "parentMaster": "video_farm_data/deliveries/10_products_cinematic_16x9/12_添添向上_优根优苗_16x9.mp4",
+      "sha256": "c7ee6125535076afcd29e975f268f331f4d7fce5cb5b8e4e3ceaba78749f45ab",
+      "provenanceDescription": "从官方母带 3.0s~8.0s 区间精准提取 5.0 秒高级产品静物摄影与品牌定格，光影自然，与 Shot 4 高度统一"
+    }
+  ]
+}
