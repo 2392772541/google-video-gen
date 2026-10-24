@@ -230,6 +230,8 @@
           fd.append('model', internalModel);
           fd.append('duration', String(req.duration || 6));
           fd.append('aspect_ratio', req.size || '16:9');
+          const reqId = req.requestId || `req_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+          fd.append('request_id', reqId);
 
           // 处理参考图与首尾帧
           if (Array.isArray(req.referenceImages) && req.referenceImages.length > 0) {
@@ -790,7 +792,7 @@
                   <select class="candidate-select" style="padding: 2px 6px; font-size: 11px; background: #0f172a; color: #fff; border: 1px solid #334155; border-radius: 4px;">
                     ${s.candidateResults.map(r => `
                       <option value="${r.resultId}" ${r.resultId === s.selectedResultId ? 'selected' : ''}>
-                        ${r.label} · ${r.duration ? r.duration.toFixed(1) + 's' : ''} · ${r.createdAt.slice(11, 19)}
+                        ${r.label} · ${r.duration ? r.duration.toFixed(1) + 's' : ''} · ${(r.createdAt || '').slice(11, 19)}
                       </option>
                     `).join('')}
                   </select>

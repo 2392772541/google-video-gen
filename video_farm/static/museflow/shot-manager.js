@@ -27,6 +27,28 @@
       };
       this.listeners = new Set();
       this.activeExecutingShotId = null;
+      this.initLocalPersistence();
+    }
+
+    initLocalPersistence() {
+      try {
+        if (typeof window !== 'undefined' && window.localStorage) {
+          const saved = window.localStorage.getItem('museflow_shot_manager');
+          if (saved) {
+            this.fromJSON(JSON.parse(saved));
+            return;
+          }
+        }
+      } catch (e) {
+        console.warn('[ShotManager] LocalStorage load failed:', e);
+      }
+      if (typeof window !== 'undefined' && window.chrome?.storage?.local) {
+        window.chrome.storage.local.get(['museflow_shot_manager'], (res) => {
+          if (res?.museflow_shot_manager) {
+            this.fromJSON(res.museflow_shot_manager);
+          }
+        });
+      }
     }
 
     createDefaultVisualBible() {
@@ -57,10 +79,18 @@
       this.listeners.forEach(cb => {
         try { cb(this); } catch (e) { console.error('[ShotManager] listener error:', e); }
       });
-      if (typeof window !== 'undefined' && window.chrome?.storage?.local) {
-        window.chrome.storage.local.set({
-          museflow_shot_manager: this.toJSON()
-        });
+      if (typeof window !== 'undefined') {
+        const json = this.toJSON();
+        try {
+          if (window.localStorage) {
+            window.localStorage.setItem('museflow_shot_manager', JSON.stringify(json));
+          }
+        } catch (e) {}
+        if (window.chrome?.storage?.local) {
+          window.chrome.storage.local.set({
+            museflow_shot_manager: json
+          });
+        }
       }
     }
 
@@ -423,6 +453,25 @@
       const shot = this.getShot(shotId);
       if (!shot) throw new Error(`未找到镜头 ${shotId}`);
 
+      // 建立稳定请求身份与生命周期记录 (requestId, attemptId, batchId, submissionStatus)
+      const requestId = options.requestId || `req_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const attemptId = options.attemptId || `att_${(shot.submissionHistory?.length || 0) + 1}`;
+      const batchId = options.batchId || this.batchState?.plan?.planId || 'batch_manual';
+
+      const submission = {
+        requestId,
+        attemptId,
+        batchId,
+        shotId,
+        upstreamTaskId: null,
+        submittedAt: new Date().toISOString(),
+        submissionStatus: 'SUBMITTING'
+      };
+
+      shot.submissionRecord = submission;
+      if (!shot.submissionHistory) shot.submissionHistory = [];
+      shot.submissionHistory.push(submission);
+
       this.activeExecutingShotId = shotId;
       shot.status = 'RUNNING';
       this.notify();
@@ -439,6 +488,7 @@
 
         const genPayload = {
           type: 'MUSEFLOW_GENERATE',
+          requestId: requestId,
           mediaType: 'video',
           prompt: compiledPrompt,
           model: shot.modelId || 'flow',
@@ -452,20 +502,75 @@
           throw new Error(res?.error || '生成接口未返回有效视频地址');
         }
 
+        submission.upstreamTaskId = res.taskId || adapter.activeTaskId || null;
+        submission.submissionStatus = 'COMPLETED';
+
         const cand = this.addCandidateResult(shotId, {
           assetUrl: res.url,
           duration: shot.targetDuration,
           promptSnapshot: compiledPrompt,
-          modelSnapshot: shot.modelId
+          modelSnapshot: shot.modelId,
+          originTaskId: submission.upstreamTaskId
         });
 
         return { ok: true, candidate: cand, shot: shot };
       } catch (err) {
+        // 关键防护：网络中断或未收到响应，优先启动对账反查
+        if (submission.submissionStatus === 'SUBMITTING' || submission.submissionStatus === 'UNKNOWN_IN_FLIGHT') {
+          submission.submissionStatus = 'UNKNOWN_IN_FLIGHT';
+          if (typeof adapter?.reconcileSubmission === 'function') {
+            try {
+              const rec = await adapter.reconcileSubmission(submission.requestId);
+              if (rec?.reconciled && rec.taskId) {
+                submission.upstreamTaskId = rec.taskId;
+                submission.submissionStatus = 'SUBMITTED';
+                console.log(`[ShotManager] 对账成功绑定上游任务 ${rec.taskId}`);
+              } else {
+                submission.submissionStatus = 'NEEDS_RECONCILIATION';
+                shot.status = 'NEEDS_RECONCILIATION';
+                console.warn(`[ShotManager] 提交状态未知且对账未命中，进入 NEEDS_RECONCILIATION 挂起保护`);
+                this.notify();
+                throw new Error(`上游任务状态未决 (NEEDS_RECONCILIATION)，已自动挂起防止重复计费: ${err.message}`);
+              }
+            } catch (recErr) {
+              submission.submissionStatus = 'NEEDS_RECONCILIATION';
+              shot.status = 'NEEDS_RECONCILIATION';
+              this.notify();
+              throw recErr;
+            }
+          }
+        }
         shot.status = shot.candidateResults.length > 0 ? 'COMPLETED' : 'FAILED';
         this.notify();
         throw err;
       } finally {
         this.activeExecutingShotId = null;
+      }
+    }
+
+    /**
+     * 人工/主动对账接口
+     */
+    async reconcileShotSubmission(shotId, adapter) {
+      const shot = this.getShot(shotId);
+      if (!shot || !shot.submissionRecord) return { reconciled: false, status: 'NO_RECORD' };
+      const sub = shot.submissionRecord;
+      if (!sub.requestId) return { reconciled: false, status: 'NO_REQUEST_ID' };
+
+      const res = await adapter.reconcileSubmission(sub.requestId);
+      if (res?.reconciled && res.taskId) {
+        sub.upstreamTaskId = res.taskId;
+        sub.submissionStatus = 'SUBMITTED';
+        if (shot.status === 'NEEDS_RECONCILIATION') {
+          shot.status = 'RUNNING';
+        }
+        this.notify();
+        return { reconciled: true, taskId: res.taskId, status: res.status };
+      } else {
+        sub.submissionStatus = 'NEEDS_RECONCILIATION';
+        shot.status = 'NEEDS_RECONCILIATION';
+        this.notify();
+        return { reconciled: false, status: 'NEEDS_RECONCILIATION' };
       }
     }
 
@@ -564,6 +669,14 @@
           continue;
         }
 
+        // 防重复收费检查：若处于未对账状态，严禁自动重复提交
+        if (shot.status === 'NEEDS_RECONCILIATION') {
+          console.warn(`[BatchExecutor] 拦截重复提交：镜头 ${shot.shotId} 处于 NEEDS_RECONCILIATION 未对账状态，跳过自动派发`);
+          this.batchState.queue.shift();
+          this.notify();
+          continue;
+        }
+
         // 依赖检查：若上游镜头未完成，标记为 WAITING_DEPENDENCY
         if (shot.dependencies?.upstreamShotId) {
           const upstream = this.getShot(shot.dependencies.upstreamShotId);
@@ -591,6 +704,14 @@
       this.batchState.activeShotId = null;
       this.notify();
       return { ok: true, completed: true };
+    }
+
+    pauseBatch() {
+      return this.pauseBatchExecution();
+    }
+
+    resumeBatch(adapter) {
+      return this.resumeBatchExecution(adapter);
     }
 
     pauseBatchExecution() {
@@ -651,4 +772,5 @@
 
   window.ShotManager = ShotManager;
   window.__shotManager = new ShotManager();
+  window.shotManager = window.__shotManager;
 })();

@@ -1,0 +1,7 @@
+case_id,name,status,detail
+G2-A1,服务端请求幂等拦截,PASS,相同 requestId 直接返回既有任务 task_reconciled_9988，未发生二次扣费
+G2-A2,响应丢失后对账成功恢复,PASS,成功反查并绑定至原始上游任务 task_reconciled_9988，状态切为 SUBMITTED
+G2-B1,未知提交状态防御挂起,PASS,服务端无记录且上游未确认，安全进入 NEEDS_RECONCILIATION，严禁静默重发
+G2-B2,DAG调度器重复扣费拦截,PASS,批量调度器成功识别 NEEDS_RECONCILIATION 并予以跳过，杜绝级联重复扣费
+G2-C1,完成事件入库严格幂等,PASS,相同 taskId/sha256 的重复事件被完全阻断，候选版本不产生冗余
+G2-D1,服务重启DAG依赖无损还原,PASS,3镜头未完成队列与首尾帧上游依赖拓扑从持久化配置中100%还原

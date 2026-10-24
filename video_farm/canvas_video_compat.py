@@ -40,6 +40,9 @@ router = APIRouter(tags=["Infinite Canvas Adapter"])
 _ACTIVE_PROJECT_ASSEMBLIES: set[str] = set()
 _ACTIVE_PROJECT_ASSEMBLIES_LOCK = threading.Lock()
 
+# 客户端请求幂等与对账缓存 (防止网络中断重试导致重复向上游付费)
+_IDEMPOTENT_REQUEST_CACHE: Dict[str, Dict[str, Any]] = {}
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "video_farm_data"
 UPLOADS_DIR = DATA_DIR / "uploads"
@@ -225,6 +228,20 @@ async def create_canvas_video_task(request: Request):
     路由至 8088 底层 Google Flow 或 Google Vids 引擎并创建真实调度任务。
     """
     form = await request.form()
+    request_id = str(form.get("request_id") or form.get("requestId") or "").strip()
+    if request_id and request_id in _IDEMPOTENT_REQUEST_CACHE:
+        cached = _IDEMPOTENT_REQUEST_CACHE[request_id]
+        logger.info(f"[Idempotency] 拦截到重复请求 {request_id}，复用既有任务 {cached['id']}")
+        return {
+            "id": cached["id"],
+            "object": "video",
+            "model": cached.get("model", "flow"),
+            "raw_model": cached.get("raw_model", "flow"),
+            "status": cached.get("status", "queued"),
+            "created_at": cached.get("created_at", int(time.time())),
+            "reused": True,
+            "requestId": request_id
+        }
     raw_model = str(form.get("model") or "flow").split("::")[-1].strip().lower()
     clean_prompt = (str(form.get("prompt") or "")).strip() or "根据输入参考生成高质量连贯动态视频"
     mode = str(form.get("mode") or "").strip().lower()
@@ -778,3 +795,36 @@ async def create_canvas_response_stream(request: Request):
             raise HTTPException(exc.code, f"模型网关返回异常: {err_body}") from exc
     except Exception as exc:
         raise HTTPException(502, f"连接模型网关失败: {exc}") from exc
+
+@router.get("/api/canvas/v1/reconcile-submission")
+@router.get("/reconcile-submission")
+async def reconcile_submission(request_id: str = ""):
+    """
+    任务提交对账接口：
+    用于客户端在发出创建请求但因网络抖动/响应丢失未收到 upstreamTaskId 时，
+    反查服务端是否已成功建单，绝对避免盲目重试二次扣费。
+    """
+    rid = request_id.strip()
+    if not rid:
+        return {"reconciled": False, "status": "NO_REQUEST_ID", "message": "缺少 request_id"}
+    
+    if rid in _IDEMPOTENT_REQUEST_CACHE:
+        cached = _IDEMPOTENT_REQUEST_CACHE[rid]
+        # 同步数据库最新状态
+        latest = db.get_task(cached["id"], DB_PATH)
+        status = latest.status if latest else cached.get("status", "queued")
+        return {
+            "reconciled": True,
+            "requestId": rid,
+            "taskId": cached["id"],
+            "status": status,
+            "model": cached.get("model"),
+            "createdAt": cached.get("created_at")
+        }
+    
+    return {
+        "reconciled": False,
+        "requestId": rid,
+        "status": "NEEDS_RECONCILIATION",
+        "message": "服务端未查询到该 request_id 的建单记录，需人工核对或安全重试"
+    }

@@ -224,14 +224,14 @@ def assemble_timeline(
             # 居中裁切填充满屏
             scale_filter = (
                 f"scale={target_width}:{target_height}:force_original_aspect_ratio=increase,"
-                f"crop={target_width}:{target_height},setsar=1,fps={target_fps}"
+                f"crop={target_width}:{target_height},setsar=1"
             )
         else:
             # 默认保持比例居中加黑边，确保画面主体完整不被切除
             scale_filter = (
                 f"scale={target_width}:{target_height}:force_original_aspect_ratio=decrease,"
                 f"pad={target_width}:{target_height}:(ow-iw)/2:(oh-ih)/2,"
-                f"setsar=1,fps={target_fps}"
+                f"setsar=1"
             )
 
         if is_trimmed:
@@ -265,7 +265,8 @@ def assemble_timeline(
 
     # 合并 concat
     concat_inputs = "".join(f"{v}{a}" for v, a in zip(concat_in_v, concat_in_a))
-    filter_parts.append(f"{concat_inputs}concat=n={len(shot_specs)}:v=1:a=1[outv][outa]")
+    filter_parts.append(f"{concat_inputs}concat=n={len(shot_specs)}:v=1:a=1[catv][outa]")
+    filter_parts.append(f"[catv]fps={target_fps}[outv]")
     complex_filter = ";".join(filter_parts)
 
     cmd.extend([
