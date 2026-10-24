@@ -1,0 +1,58 @@
+{
+  "project_name": "番茄成长四镜头 (The Growth of Tomato - 4 Shots Story)",
+  "description": "基于无限画布 × Video Farm 打造的四镜头生命周期真实连续创作交付包",
+  "total_shots": 4,
+  "total_video_duration_sec": 29,
+  "created_at": "2026-10-24",
+  "shots": [
+    {
+      "index": 1,
+      "title": "镜头 1：破土 (Sprout)",
+      "model": "Google Flow Omni Flash",
+      "mode": "first_frame",
+      "duration_sec": 8,
+      "prompt": "微距延时摄影：绿色番茄嫩芽从深色肥沃土壤中缓缓破土而出，露珠在阳光下闪烁，高清自然纪录片质感",
+      "input_image": "shot1_sprout.png",
+      "video_file": "shot1_sprout_video.mp4",
+      "video_bytes": 4457429,
+      "sha256": "b1960a75893f11267adcca6e524fc72dce4c1e9c58416471061af9451b54351d"
+    },
+    {
+      "index": 2,
+      "title": "镜头 2：生长 (Growth)",
+      "model": "Google Flow Omni Flash",
+      "mode": "frames (first + last)",
+      "duration_sec": 8,
+      "prompt": "时间流逝延时效果：番茄幼苗快速生长为健壮的绿色植株，茎叶舒展繁茂，光影流转，自然纪录片画质",
+      "first_frame": "shot1_sprout.png",
+      "last_frame": "shot2_growing.png",
+      "video_file": "shot2_growing_video.mp4",
+      "video_bytes": 5999742,
+      "sha256": "4319ee41aea4b250098c8d9adc63410448b294abc8a82a783039f0e3a6bbbd31"
+    },
+    {
+      "index": 3,
+      "title": "镜头 3：开花 (Blossom)",
+      "model": "Google Vids (Omni)",
+      "mode": "reference_frame",
+      "duration_sec": 5,
+      "prompt": "温室中番茄黄色小花微风摇曳，花粉轻舞，温润阳光漫射，写实纪录片镜头",
+      "input_image": "shot3_flower.png",
+      "video_file": "shot3_flower_video.mp4",
+      "video_bytes": 3244743,
+      "sha256": "78b7a7d00e62ebc6cd8f8cb3882bbbb069f877b2fd23b0b92ec920fed53e1653"
+    },
+    {
+      "index": 4,
+      "title": "镜头 4：成熟 (Harvest)",
+      "model": "Google Flow Omni Flash",
+      "mode": "first_frame",
+      "duration_sec": 8,
+      "prompt": "电影级微距慢动作：饱满鲜红的熟透番茄在微风中轻轻摇曳，晶莹水珠顺着光滑表皮缓缓滑落，阳光折射出璀璨光芒，极致写实",
+      "input_image": "shot4_ripe.png",
+      "video_file": "shot4_ripe_video.mp4",
+      "video_bytes": 3255352,
+      "sha256": "92b52e0c263e3ce9a139b07a37477112df647acdb3385225a9b75ff00b548c5b"
+    }
+  ]
+}

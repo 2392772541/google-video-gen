@@ -189,12 +189,16 @@ def test_video_model_parameters_and_flow():
     assert d8.get("model") == "veo-quality", f"型号未保持: {d8}"
     record_result("TC-VID-03", "Veo Quality 8s 映射保持", "视频模型参数", "veo-quality", "PASS", f"创建任务 {d8.get('id')}，严格保持 veo-quality 8s")
 
-    # 10s 独占收敛至 omni-flash
-    r10 = client.post("/v1/videos", data={"prompt": "test 10s", "model": "video-farm-8088::veo-quality", "duration": "10"})
-    assert r10.status_code == 200, f"10s 创建失败: {r10.text}"
-    d10 = r10.json()
-    assert d10.get("model") == "omni-flash", f"10s 未收敛至 omni-flash: {d10}"
-    record_result("TC-VID-04", "10s 独占时长自适应收敛", "视频模型参数", "omni-flash", "PASS", f"创建任务 {d10.get('id')}，超出 Veo 上限时正确收敛至 omni-flash")
+    # 10s 硬门禁与防静默替模 (BUG-08)
+    r10_veo = client.post("/v1/videos", data={"prompt": "test 10s", "model": "video-farm-8088::veo-quality", "duration": "10"})
+    assert r10_veo.status_code == 422, f"Veo 10s 未被 422 拦截: {r10_veo.text}"
+    assert "Veo 系列模型 (veo-quality) 仅支持 4s、6s、8s 时长" in r10_veo.json()["detail"]
+    
+    r10_omni = client.post("/v1/videos", data={"prompt": "test 10s", "model": "video-farm-8088::omni-flash", "duration": "10"})
+    assert r10_omni.status_code == 200, f"Omni 10s 创建失败: {r10_omni.text}"
+    d10 = r10_omni.json()
+    assert d10.get("model") == "omni-flash", f"Omni 10s 模型不符: {d10}"
+    record_result("TC-VID-04", "防静默替模与10s独占硬门禁", "视频模型参数", "veo-quality / omni-flash", "PASS", f"Veo 10s 精准 422 拦截拒绝替模，Omni 10s 正常放行任务 {d10.get('id')}")
 
     # 3. 多图参考分号拆分验证
     dummy_1 = EVIDENCE_DIR / "dummy_ref1.png"
