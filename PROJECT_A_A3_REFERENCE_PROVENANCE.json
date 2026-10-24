@@ -1,0 +1,62 @@
+{
+  "audit_type": "Project A · A3 阶段 9 镜头连续性与双尾帧完整溯源矩阵",
+  "run_id": "A3_FULL_PRODUCTION_9_SHOTS_54S",
+  "timestamp": "2026-10-25T14:45:00+08:00",
+  "globalSubject": {
+    "entityId": "subject_tomato_seedling_01",
+    "name": "温室番茄幼苗 (Lycopersicon esculentum)",
+    "features": "4-5片真叶，健康深绿茎秆，细微白色茸毛，真实分枝主根与侧根，土壤颗粒依附自然",
+    "referenceAsset": "/media/outputs/gemini_verified_physical.mp4",
+    "boundShots": ["shot_a_1", "shot_a_2", "shot_a_3", "shot_a_8", "shot_a_9"]
+  },
+  "provenanceLinks": [
+    {
+      "linkId": "LINK_01_GLOBAL_TO_SHOT1",
+      "sourceShot": null,
+      "targetShot": "shot_a_1",
+      "type": "GLOBAL_SUBJECT_BINDING",
+      "evidence": "Shot 1 全景建立温室番茄幼苗形态与晨光基准"
+    },
+    {
+      "linkId": "LINK_02_SHOT1_TO_SHOT2",
+      "sourceShot": "shot_a_1",
+      "targetShot": "shot_a_2",
+      "type": "SUBJECT_TRANSITION",
+      "evidence": "Shot 2 继承 Shot 1 植物基部，摄像机平缓下沉转入地下根区剖面"
+    },
+    {
+      "linkId": "LINK_03_SHOT2_TO_SHOT3_TAIL_FRAME",
+      "sourceShot": "shot_a_2",
+      "targetShot": "shot_a_3",
+      "type": "PHYSICAL_TAIL_FRAME_INJECTION",
+      "tailFrameAsset": "video_farm_data/uploads/project_a_shot2_tail_frame.png",
+      "tailFrameSha256": "d0a1c66272ad2f4185d6b464a631bf373516590bc66890d23a7bb4ff15bc8215",
+      "timestamp": 5.95,
+      "evidence": "Shot 2 尾帧抽取并注入 Shot 3，实现微观细根向偏干土壤的连贯推入"
+    },
+    {
+      "linkId": "LINK_04_05_06_07_INDEPENDENT_PRINCIPLES",
+      "sourceShot": null,
+      "targetShots": ["shot_a_4", "shot_a_5", "shot_a_6", "shot_a_7"],
+      "type": "STYLE_BIBLE_ONLY",
+      "evidence": "四个独立科学原理镜头（积水缺氧、板结限制、取样检测、根系健康），解耦物理场景，统一自然纪实风格"
+    },
+    {
+      "linkId": "LINK_08_SUBJECT_RETURN_SHOT8",
+      "sourceShot": "shot_a_1",
+      "targetShot": "shot_a_8",
+      "type": "GLOBAL_SUBJECT_RETURN",
+      "evidence": "Shot 8 回归同一温室番茄幼苗，工作人员检查根区土壤，田间真实操作"
+    },
+    {
+      "linkId": "LINK_09_SHOT8_TO_SHOT9_TAIL_FRAME",
+      "sourceShot": "shot_a_8",
+      "targetShot": "shot_a_9",
+      "type": "PHYSICAL_TAIL_FRAME_INJECTION",
+      "tailFrameAsset": "video_farm_data/uploads/project_a_shot8_tail_frame.png",
+      "tailFrameSha256": "8625f8862854e37e96b34b9dcceb1130dcf9937a858ff8a5d3f256033480026e",
+      "timestamp": 5.95,
+      "evidence": "Shot 8 尾部稳定画面抽取尾帧（1,230,525字节），注入 Shot 9 平缓拉远展示健壮幼苗全貌并首尾呼应"
+    }
+  ]
+}

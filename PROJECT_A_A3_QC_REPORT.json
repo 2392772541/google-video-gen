@@ -1,0 +1,34 @@
+{
+  "project_id": "PROJECT_A_ROOT_ABSORPTION",
+  "audit_version": "A3_FINAL_54S_FULL_DELIVERY_QC",
+  "audit_date": "2026-10-25T14:50:00+08:00",
+  "overall_verdict": "FULL_DELIVERY_APPROVED",
+  "shots_qc": [
+    {"shot_id": "shot_a_1", "duration": 5.0, "tech_pass": true, "reference_pass": true, "visual_approved": true, "timeline_pass": true},
+    {"shot_id": "shot_a_2", "duration": 6.0, "tech_pass": true, "reference_pass": true, "visual_approved": true, "timeline_pass": true},
+    {"shot_id": "shot_a_3", "duration": 5.0, "tech_pass": true, "reference_pass": true, "visual_approved": true, "timeline_pass": true},
+    {"shot_id": "shot_a_4", "duration": 6.0, "tech_pass": true, "reference_pass": true, "visual_approved": true, "timeline_pass": true},
+    {"shot_id": "shot_a_5", "duration": 6.0, "tech_pass": true, "reference_pass": true, "visual_approved": true, "timeline_pass": true},
+    {"shot_id": "shot_a_6", "duration": 5.0, "tech_pass": true, "reference_pass": true, "visual_approved": true, "timeline_pass": true},
+    {"shot_id": "shot_a_7", "duration": 7.0, "tech_pass": true, "reference_pass": true, "visual_approved": true, "timeline_pass": true},
+    {"shot_id": "shot_a_8", "duration": 6.0, "tech_pass": true, "reference_pass": true, "visual_approved": true, "timeline_pass": true},
+    {"shot_id": "shot_a_9", "duration": 8.0, "tech_pass": true, "reference_pass": true, "visual_approved": true, "timeline_pass": true}
+  ],
+  "full_movie_qc": {
+    "filename": "assembled_project_a_9_shots_54s_exact.mp4",
+    "sha256": "ca779702d5206d4416bc4ecf1a6e2f62380ca254811904b481049b05a7db6149",
+    "expected_duration": 54.0,
+    "actual_duration": 54.0,
+    "expected_frames": 1620,
+    "actual_frames": 1620,
+    "resolution": "1080x1920 (9:16)",
+    "fps": 30.0,
+    "vcodec": "h264",
+    "acodec": "aac",
+    "decode_pass": true,
+    "black_frames_detected": false,
+    "freeze_frames_detected": false,
+    "audio_normalized": true,
+    "zero_drift_confirmed": true
+  }
+}

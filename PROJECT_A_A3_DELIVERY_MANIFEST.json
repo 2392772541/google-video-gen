@@ -1,0 +1,15 @@
+[
+  {
+    "project_id": "PROJECT_A_ROOT_ABSORPTION",
+    "title": "《作物根系为什么吸收不好？》9镜头完整成片",
+    "filename": "assembled_project_a_9_shots_54s_exact.mp4",
+    "duration": 54.0,
+    "total_frames": 1620,
+    "resolution": "1080x1920 (9:16 竖屏超清)",
+    "fps": 30.0,
+    "sha256": "ca779702d5206d4416bc4ecf1a6e2f62380ca254811904b481049b05a7db6149",
+    "url": "/media/outputs/assembled_project_a_9_shots_54s_exact.mp4",
+    "delivered_at": "2026-10-25T14:55:00+08:00",
+    "status": "APPROVED_FOR_RELEASE"
+  }
+]

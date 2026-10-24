@@ -1,0 +1,13 @@
+{
+  "runId": "A3_FULL_PRODUCTION_9_SHOTS_54S",
+  "totalShots": 9,
+  "totalDurationExact": 54.0,
+  "totalFramesExact": 1620,
+  "assembledFile": "assembled_project_a_9_shots_54s_exact.mp4",
+  "assembledSha256": "ca779702d5206d4416bc4ecf1a6e2f62380ca254811904b481049b05a7db6149",
+  "shot8TailFrame": {
+    "path": "video_farm_data\\uploads\\project_a_shot8_tail_frame.png",
+    "sha256": "8625f8862854e37e51a2a68a1e5a2292cc90e34f32c074eb0524984810cc895c",
+    "timestamp": 5.95
+  }
+}
