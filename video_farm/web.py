@@ -1906,6 +1906,7 @@ from .vids_router import router as vids_router
 app.include_router(vids_router)
 
 from .canvas_video_compat import router as canvas_video_router
+app.include_router(canvas_video_router)
 app.include_router(canvas_video_router, prefix="/v1")
 app.include_router(canvas_video_router, prefix="/api/canvas")
 app.include_router(canvas_video_router, prefix="/api/canvas/v1")

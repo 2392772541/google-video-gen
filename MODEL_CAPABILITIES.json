@@ -113,7 +113,7 @@
       "upstream_model_id": "veo-3.1-lite",
       "displayName": "Google Veo 3.1 Lite (极速)",
       "platform": "Google Flow",
-      "badge": "极速 · 默认时长 · 1~4条 · 首尾帧/3图参考",
+      "badge": "极速 · 4/6/8s · 1~4条 · 首尾帧/3图参考",
       "category": "fast",
       "capability": "video",
       "modes": [
@@ -127,10 +127,12 @@
       "ingredient_reference_supported": true,
       "max_reference_images": 3,
       "supportedDurations": [
-        6
+        4,
+        6,
+        8
       ],
       "defaultDuration": 6,
-      "duration_control_mode": "upstream_default",
+      "duration_control_mode": "selectable",
       "supportsFrames": true,
       "supportsIngredients": true,
       "supportsExtend": true,
@@ -158,7 +160,7 @@
       "account_availability": "available",
       "validation_status": "verified",
       "verified_at": "2026-10-24T17:00:00+08:00",
-      "evidence_source": "网页端无时长选择控件，时长由上游决定；支持1~4条与首尾帧/3图参考"
+      "evidence_source": "Google Flow 网页端支持 4s、6s、8s 时长选择与首尾帧/三图参考，严禁选择 10s"
     },
     "veo-fast": {
       "provider": "google_flow",
@@ -167,7 +169,7 @@
       "upstream_model_id": "veo-3.1-fast",
       "displayName": "Google Veo 3.1 Fast (均衡)",
       "platform": "Google Flow",
-      "badge": "均衡 · 默认时长 · 1~4条 · 首尾帧/3图参考",
+      "badge": "均衡 · 4/6/8s · 1~4条 · 首尾帧/3图参考",
       "category": "standard",
       "capability": "video",
       "modes": [
@@ -181,10 +183,12 @@
       "ingredient_reference_supported": true,
       "max_reference_images": 3,
       "supportedDurations": [
-        6
+        4,
+        6,
+        8
       ],
       "defaultDuration": 6,
-      "duration_control_mode": "upstream_default",
+      "duration_control_mode": "selectable",
       "supportsFrames": true,
       "supportsIngredients": true,
       "supportsExtend": false,
@@ -212,7 +216,7 @@
       "account_availability": "available",
       "validation_status": "verified",
       "verified_at": "2026-10-24T17:00:00+08:00",
-      "evidence_source": "网页端无时长选择控件，时长由上游决定；支持1~4条与首尾帧/3图参考"
+      "evidence_source": "Google Flow 网页端支持 4s、6s、8s 时长选择与首尾帧/三图参考，严禁选择 10s"
     },
     "veo-quality": {
       "provider": "google_flow",
@@ -221,7 +225,7 @@
       "upstream_model_id": "veo-3.1-quality",
       "displayName": "Google Veo 3.1 Quality (高保真)",
       "platform": "Google Flow",
-      "badge": "高保真 · 默认时长 · 1~4条 · 仅首尾帧",
+      "badge": "高保真 · 4/6/8s · 1~4条 · 仅首尾帧",
       "category": "quality",
       "capability": "video",
       "modes": [
@@ -234,10 +238,12 @@
       "ingredient_reference_supported": false,
       "max_reference_images": 0,
       "supportedDurations": [
-        6
+        4,
+        6,
+        8
       ],
       "defaultDuration": 6,
-      "duration_control_mode": "upstream_default",
+      "duration_control_mode": "selectable",
       "supportsFrames": true,
       "supportsIngredients": false,
       "supportsExtend": false,
@@ -265,7 +271,7 @@
       "account_availability": "available",
       "validation_status": "verified",
       "verified_at": "2026-10-24T17:00:00+08:00",
-      "evidence_source": "不支持普通多图参考(Ingredients)；支持首尾帧关键帧插值与1~4条输出"
+      "evidence_source": "Google Flow 网页端支持 4s、6s、8s 时长选择与仅首尾帧，不支持 Ingredients 参考图，严禁选择 10s"
     },
     "vids": {
       "provider": "google_vids",

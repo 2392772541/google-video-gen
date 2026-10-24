@@ -113,9 +113,9 @@ def get_model_capabilities_endpoint():
 
 
 def _forward_image_generation_request(payload: dict) -> dict:
-    """向本地 CLIProxyAPI 发送生图请求，支持 120s 超时、自动重试与上游网络故障友好转译。"""
+    """向本地 CLIProxyAPI 发送生图请求，支持 120s 超时、3次退避重试与网络超时友好兜底。"""
     import time
-    max_attempts = 2
+    max_attempts = 3
     last_exc = None
     for attempt in range(max_attempts):
         try:
@@ -133,25 +133,31 @@ def _forward_image_generation_request(payload: dict) -> dict:
             err_body = exc.read().decode("utf-8", errors="ignore")
             # 若上游出现 502/503/504 或特定 DNS 超时，且还有重试次数，则短暂回退重试
             if exc.code in (502, 503, 504) and attempt < max_attempts - 1:
-                time.sleep(2)
+                time.sleep(1.5 * (attempt + 1))
                 continue
             try:
                 err_json = json.loads(err_body)
-                # 优化针对 chatgpt.com lookup timeout 的中文解释
                 msg = err_json.get("error", {}).get("message", "") if isinstance(err_json.get("error"), dict) else str(err_json)
-                if "lookup chatgpt.com" in msg or "i/o timeout" in msg:
-                    err_json["error"]["message"] = f"上游网络代理连接超时或 DNS 解析异常 (chatgpt.com i/o timeout)，请确认本机 Clash/Mihomo 代理端口 (7897) 正常连接，并可点击重新生成。原错误: {msg}"
+                if any(k in msg.lower() for k in ("lookup chatgpt.com", "i/o timeout", "dial tcp", "timed out")):
+                    friendly_msg = f"上游生图服务连接超时或网络解析波动 (chatgpt.com i/o timeout)，请确认本机 Clash 代理节点 (7897) 正常连接后点击重新生成。原错误: {msg}"
+                    if isinstance(err_json.get("error"), dict):
+                        err_json["error"]["message"] = friendly_msg
+                    else:
+                        err_json = {"error": {"message": friendly_msg}}
                 return JSONResponse(status_code=exc.code, content=err_json)
             except Exception:
                 raise HTTPException(exc.code, f"生图代理返回异常: {err_body}") from exc
         except Exception as exc:
             last_exc = exc
             if attempt < max_attempts - 1:
-                time.sleep(2)
+                time.sleep(1.5 * (attempt + 1))
                 continue
             err_str = str(last_exc)
-            if "lookup chatgpt.com" in err_str or "i/o timeout" in err_str or "timed out" in err_str:
-                raise HTTPException(504, f"生图网络超时或代理连接异常 (chatgpt.com i/o timeout)，请检查本机 Clash 代理是否畅通后重试。详情: {err_str}") from exc
+            if any(k in err_str.lower() for k in ("lookup chatgpt.com", "i/o timeout", "timed out", "dial tcp")):
+                return JSONResponse(
+                    status_code=504,
+                    content={"error": {"message": f"上游生图服务连接超时或网络波动 (chatgpt.com i/o timeout)，请检查本机 Clash 代理节点连通性后重试。详情: {err_str}"}}
+                )
             raise HTTPException(502, f"连接生图引擎失败: {last_exc}") from exc
 
 
