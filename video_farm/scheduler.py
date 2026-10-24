@@ -881,14 +881,19 @@ class VideoScheduler:
             with self.lock:
                 if task.id in self.active_tasks or sum(not owner.get("cleanup_failed") for owner in self.active_tasks.values()) >= self.max_workers:
                     continue
+                target_profile_id = task.assigned_profile_id or db.get_affinity_profile_id(task.project_id, self.db_path)
                 profile = db.acquire_idle_profile(
                     require_clean=task.require_clean_watermark,
-                    profile_id=task.assigned_profile_id, db_path=self.db_path)
-                if not profile and task.assigned_profile_id:
+                    profile_id=target_profile_id, db_path=self.db_path)
+                if not profile and target_profile_id:
                     profile = db.acquire_idle_profile(
                         require_clean=task.require_clean_watermark,
                         profile_id=None, db_path=self.db_path)
-                    if profile:
+                    if profile and target_profile_id != task.assigned_profile_id:
+                        db.log_task_event(task.id, "AFFINITY_FAILOVER",
+                            f"首选粘性账号 [{target_profile_id}] 正忙，由空闲账号 [{profile.name}] 安全接力",
+                            db_path=self.db_path)
+                    elif profile:
                         db.log_task_event(task.id, "FAILOVER_PROFILE",
                             f"原绑定账号 [{task.assigned_profile_id}] 暂不可用，由空闲账号 [{profile.name}] 接力",
                             db_path=self.db_path)

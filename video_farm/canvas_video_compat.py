@@ -254,6 +254,7 @@ async def create_canvas_video_task(request: Request):
     raw_model = str(form.get("model") or "flow").split("::")[-1].strip().lower()
     clean_prompt = (str(form.get("prompt") or "")).strip() or "根据输入参考生成高质量连贯动态视频"
     mode = str(form.get("mode") or "").strip().lower()
+    project_id = str(form.get("project_id") or form.get("projectId") or "").strip()
 
     vquality_str = str(form.get("vquality") or form.get("resolution_name") or "720").strip().lower()
     is_1080p = "1080" in vquality_str
@@ -301,6 +302,13 @@ async def create_canvas_video_task(request: Request):
     elif engine == "vids":
         # Vids 允许 3 到 10
         sec_int = max(3, min(10, sec_int))
+
+    # 2.1 延展 (Extend) 模式硬约束与校验：仅允许 Veo 3.1 Lite 8s
+    if mode == "extend":
+        if engine != "flow" or "quality" in raw_model or "fast" in raw_model:
+            raise HTTPException(422, "视频延展 (Extend) 功能仅开放给 Google Flow 的 Veo 3.1 Lite (8s) 模型，当前所选模型不支持延展操作")
+        sec_int = 8
+        internal_model = "veo-lite"
 
     # 3. 画面比例
     ratio = form.get("ratio")
@@ -372,6 +380,7 @@ async def create_canvas_video_task(request: Request):
             engine=engine,
             task_type="video",
             model=internal_model,
+            project_id=project_id,
             priority=10,
             submit_time=datetime.now().astimezone().isoformat()
         )

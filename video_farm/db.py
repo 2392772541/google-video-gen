@@ -428,6 +428,49 @@ def acquire_idle_profile(
     finally:
         conn.close()
 
+def get_affinity_profile_id(project_id: Optional[str] = None, db_path: Path = DEFAULT_DB_PATH) -> Optional[str]:
+    """
+    会话与项目粘性策略：
+    查询该项目或全局最近一次成功执行过视频生成、且当前未处于长冷却的活跃账号 ID，
+    实现同一工程尽量复用同一账号会话，规避频繁切号触发 Google 风控。
+    """
+    conn = get_db_connection(db_path)
+    now = datetime.now().astimezone().isoformat()
+    try:
+        with conn:
+            if project_id:
+                row = conn.execute("""
+                SELECT t.assigned_profile_id 
+                FROM tasks t
+                JOIN profiles p ON t.assigned_profile_id = p.id
+                WHERE t.project_id = ? 
+                  AND t.status = 'completed'
+                  AND t.output_video_path IS NOT NULL
+                  AND p.enabled = 1
+                  AND (p.cooldown_until IS NULL OR p.cooldown_until <= ?)
+                ORDER BY t.finish_time DESC
+                LIMIT 1
+                """, (project_id, now)).fetchone()
+                if row and row[0]:
+                    return row[0]
+            
+            row = conn.execute("""
+            SELECT id FROM profiles
+            WHERE enabled = 1
+              AND last_success_at IS NOT NULL
+              AND (cooldown_until IS NULL OR cooldown_until <= ?)
+            ORDER BY last_success_at DESC
+            LIMIT 1
+            """, (now,)).fetchone()
+            if row and row[0]:
+                return row[0]
+            return None
+    except Exception:
+        return None
+    finally:
+        conn.close()
+
+
 def pick_best_profile(
     require_clean: bool = False,
     db_path: Path = DEFAULT_DB_PATH

@@ -51,7 +51,7 @@ class LocalBrowserBoundary:
             await send({'type':'http.response.body','body':body})
         if not valid_host:
             return await reject(403, 'Only loopback Host is allowed')
-        protected = scope['path'].startswith(('/api/', '/media/'))
+        protected = scope['path'].startswith(('/api/', '/media/', '/v1/'))
         origin_header = headers.get('origin')
         is_cross_origin_loopback = False
         if protected:
@@ -121,7 +121,7 @@ class LocalBrowserBoundary:
             if message['type'] == 'http.response.start':
                 started = True
                 extra_headers = [(b'x-content-type-options', b'nosniff')]
-                is_media_path = scope['path'].startswith(('/media/', '/v1/videos/', '/api/vids/assets/'))
+                is_media_path = scope['path'].startswith(('/media/', '/v1/', '/api/vids/assets/'))
                 if is_cross_origin_loopback or is_media_path:
                     extra_headers.append((b'cross-origin-resource-policy', b'cross-origin'))
                     if origin_header:
