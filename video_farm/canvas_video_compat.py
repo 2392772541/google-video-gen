@@ -104,6 +104,34 @@ def list_canvas_models():
             "permission": []
         },
         {
+            "id": "veo-lite",
+            "object": "model",
+            "name": "Google Veo 3.1 Lite (极速 · 4~8s · 延展)",
+            "owned_by": "video-farm",
+            "permission": []
+        },
+        {
+            "id": "veo-fast",
+            "object": "model",
+            "name": "Google Veo 3.1 Fast (均衡 · 4~8s)",
+            "owned_by": "video-farm",
+            "permission": []
+        },
+        {
+            "id": "veo-quality",
+            "object": "model",
+            "name": "Google Veo 3.1 Quality (高保真 · 4~8s · 仅首尾帧)",
+            "owned_by": "video-farm",
+            "permission": []
+        },
+        {
+            "id": "omni-flash",
+            "object": "model",
+            "name": "Google Flow Omni Flash (全能旗舰 · 4~10s · 7图参考)",
+            "owned_by": "video-farm",
+            "permission": []
+        },
+        {
             "id": "vids",
             "object": "model",
             "name": "Google Vids",
