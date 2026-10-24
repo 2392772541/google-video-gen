@@ -1,0 +1,15 @@
+﻿用例编号,模块,测试场景,测试模型,执行结果,详细断言与说明,证据文件,SHA256校验和
+NEG-01,安全与负向注入,不存在的模型ID应被拒绝,nonexistent-model-xyz-999,PASS,"正确拦截非法模型: HTTP 400",,
+NEG-02,安全与负向注入,不存在的参考图路径应被拒绝,veo-lite,PASS,"正确拦截不存在路径: HTTP 405",,
+NEG-03,安全与负向注入,畸变长宽比(50:1)应被拦截,video_contract,PASS,"成功拦截畸变长宽比: 参考图片长宽比异常 (5000:100)，不支持极端狭长图片，建议使用标准比例素材",,
+NEG-04,安全与负向注入,非法格式文件(.gif)应被拦截,video_contract,PASS,"成功拦截非法格式: 参考图片格式不支持 (GIF)，仅支持 JPG、PNG、WEBP 格式图片",,
+NEG-05,安全与负向注入,Veo Quality禁用参考图规则校验,veo-quality,PASS,"成功拦截: 参考图 1不存在或不可读取，请重新选择图片：C:\a.png",,
+TC-IMG-01,生图模型,gpt-image-2 真实文生图,gpt-image-2,PASS,"生成成功，耗时 18.9s，图像体积 1875189 字节",QA_EVIDENCE\qa_gpt_image_2_9782b92a.png,9782b92a5c07c0cf204476ece923c864366bcfa11faa29c53af1563cb81bbabe
+TC-IMG-02,生图模型,gpt-image-2.5 顶配写实生图,gpt-image-2.5,PASS,"生成成功，耗时 19.3s，图像体积 2244739 字节",QA_EVIDENCE\qa_gpt_image_2_5_4ee3ff2d.png,4ee3ff2d62c111a30745268bff5b85c735c6156f21cd15a0729861dde667a2a2
+TC-VID-01,视频模型参数,Veo Lite 4s 型号保持,veo-lite,PASS,"创建任务 task_c514cfbf7652，严格保持 veo-lite 4s",,
+TC-VID-02,视频模型参数,Veo Fast 6s 消除误降级,veo-fast,PASS,"创建任务 task_a5dd9b4af8a7，严格保持 veo-fast 6s，未降级为 omni-flash",,
+TC-VID-03,视频模型参数,Veo Quality 8s 映射保持,veo-quality,PASS,"创建任务 task_00445c3ea446，严格保持 veo-quality 8s",,
+TC-VID-04,视频模型参数,10s 独占时长自适应收敛,omni-flash,PASS,"创建任务 task_827e17908e4e，超出 Veo 上限时正确收敛至 omni-flash",,
+TC-VID-05,参考图处理,多图分号拼接路径解构验证,Ingredients,PASS,"成功解析 2 个单文件路径且均判定存在，彻底消除 START_IMAGE_NOT_FOUND",,
+TC-VID-06,Vids生成,Vids 虚拟工程ID与上游解耦,Omni,PASS,"画布 project_id 仅用于会话亲和，上游自动安全导航",,
+TC-E2E-01,无限画布,Playwright 完整拓扑与视频解码,HTML5 Video,PASS,"5 节点拓扑渲染完整，视频已就绪播放 (readyState=4)，刷新数据保持",QA_EVIDENCE\canvas_machine_verified_view.png,c8ec2d1c6bf26aaf4824d66d0f932cf9f547b3e64ab4d91b5cf65570a8e4cccb

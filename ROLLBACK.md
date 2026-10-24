@@ -10,7 +10,8 @@
 ## 2. 改动模块与受影响文件清单
 
 ### 2.1 视频工坊后端 (`C:\Users\win10\Documents\ChatGPT\视频制作`)
-- `video_farm/canvas_video_compat.py`（工程 ID 解耦、模型权重、120s 超时、生图转发与重试）
+- `video_farm/canvas_video_compat.py`（工程 ID 解耦、模型权重、120s 超时、生图转发与重试、10s 严格收敛至 omni-flash）
+- `video_farm/vids_router.py`（补充 `total_workflows` 契约兼容字段）
 - `video_farm/worker.py`（多图分号拆分路径解析、Veo 模型 6s 保持）
 - `video_farm/vids_worker.py`（去除画布虚拟 project_id 强前缀校验，自动退回空工程）
 - `video_farm/gemini_worker.py`（去除 `--disable-blink-features=AutomationControlled` 报警告参数，跳过盲匹）
@@ -35,7 +36,7 @@
 ### 3.1 视频工坊代码回滚
 ```powershell
 cd "C:\Users\win10\Documents\ChatGPT\视频制作"
-git checkout -- video_farm/canvas_video_compat.py video_farm/worker.py video_farm/vids_worker.py video_farm/gemini_worker.py video_farm/scheduler.py video_farm/web.py
+git checkout -- video_farm/canvas_video_compat.py video_farm/vids_router.py video_farm/worker.py video_farm/vids_worker.py video_farm/gemini_worker.py video_farm/scheduler.py video_farm/web.py
 ```
 
 ### 3.2 无限画布代码回滚

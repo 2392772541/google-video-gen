@@ -331,7 +331,7 @@ async def create_canvas_video_task(request: Request):
 
     # 2. 时长参数对齐与校验
     try:
-        sec_int = int(str(form.get("seconds") or "6").strip())
+        sec_int = int(str(form.get("seconds") or form.get("duration") or form.get("duration_sec") or "6").strip())
     except (ValueError, TypeError):
         sec_int = 6
 
@@ -347,14 +347,8 @@ async def create_canvas_video_task(request: Request):
             else:
                 sec_int = 10
         if sec_int == 10:
-            if "quality" in raw_model:
-                sec_int = 8
-                internal_model = "veo-quality"
-            elif any(k in raw_model for k in ("fast", "lite")):
-                sec_int = 8
-                internal_model = "veo-lite" if "lite" in raw_model else "veo-fast"
-            else:
-                internal_model = "omni-flash"
+            # Flow 平台仅 omni-flash 支持 10s 独占时长；任何模型选择 10s 均自适应收敛至 omni-flash 并保留 10s
+            internal_model = "omni-flash"
         elif "quality" in raw_model:
             internal_model = "veo-quality"
         elif "fast" in raw_model:
@@ -465,7 +459,8 @@ async def create_canvas_video_task(request: Request):
         return {
             "id": task_id,
             "object": "video",
-            "model": raw_model,
+            "model": internal_model,
+            "raw_model": raw_model,
             "status": "queued",
             "created_at": int(time.time())
         }

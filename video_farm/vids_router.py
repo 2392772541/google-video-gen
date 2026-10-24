@@ -190,6 +190,7 @@ def get_vids_overview():
         completed_shots += wf.get("completed_shots", 0)
     return {
         "status": "online",
+        "total_workflows": len(wfs),
         "workflows_count": len(wfs),
         "total_shots": total_shots,
         "completed_shots": completed_shots,

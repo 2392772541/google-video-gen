@@ -141,3 +141,44 @@
   - 守护进程日志稳定，未再出现因生图耗时导致的异常误杀。
   - 前端与后端适配层均已装载重试与中文网络引导机制。
 - **剩余风险**：外部科学上网代理节点完全断网时需用户确认本地代理状态。
+
+---
+
+## BUG-07：`/api/vids/overview` 契约字段不一致导致只读烟雾测试失败
+
+- **严重程度**：P1（契约阻断）
+- **复现路径**：
+  1. 设置环境变量 `$env:VIDEO_FARM_LIVE_E2E="1"`。
+  2. 运行原跳过的只读烟雾检查 `python -m pytest video_farm/tests/test_live_e2e_sanity.py -q`。
+  3. 报错抛出：`AssertionError: Missing Vids overview`。
+- **预期行为**：
+  - 接口契约同时满足 `run_e2e_verification.py` 对 `total_workflows` 的断言以及前端对 `workflows_count` 的展示。
+- **实际行为**：
+  - `vids_router.py` 仅返回 `workflows_count`，缺少 `total_workflows` 字段，导致端到端烟雾检查在激活时必然失败。
+- **根因分析**：
+  - 后端早期重构时改名了字段，但只读烟雾检查保持了旧契约 `total_workflows`。
+- **修复涉及文件**：
+  - `video_farm/vids_router.py`
+- **复测结果**：**PASS**
+  - 启用 `$env:VIDEO_FARM_LIVE_E2E="1"` 后再次运行 `test_live_e2e_sanity.py`，1.5 秒通过。全量 442 项测试 100% 绿灯。
+- **剩余风险**：无。
+
+---
+
+## BUG-08：10s 独占时长未严格自适应收敛至 Omni 且创建接口返回非执行型号
+
+- **严重程度**：P1（参数与逻辑失真）
+- **复现路径**：
+  1. 用户在画布选择 `veo-quality` 并设置 10s 时长提交生成。
+  2. 任务返回值与调度记录仍显示 `veo-quality`，且实际被截断为 8s。
+- **预期行为**：
+  - 10s 为 Google Flow 平台唯一由 Omni 支持的独占时长；无论用户选何种 Veo 模型，选择 10s 时均应自适应收敛至 `omni-flash` 并保持 10s 时长；且任务返回体中的 `model` 字段应准确反映实际执行的型号。
+- **实际行为**：
+  - 代码中存在截断回 8s 并保留 `veo-quality` 的历史逻辑，且接口返回值硬写 `model: raw_model`。
+- **根因分析**：
+  - `canvas_video_compat.py` 在 `sec_int == 10` 时针对 quality/fast/lite 做了向下截断，且任务创建接口返回体未引用 `internal_model`。
+- **修复涉及文件**：
+  - `video_farm/canvas_video_compat.py`
+- **复测结果**：**PASS**
+  - 通过 `run_comprehensive_qa_harness.py` 机器断言验证，10s 时长自动收敛至 `omni-flash`，且返回体 `model: omni-flash`。
+- **剩余风险**：无。
