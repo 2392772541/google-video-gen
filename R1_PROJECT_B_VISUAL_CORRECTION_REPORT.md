@@ -48,6 +48,6 @@
 ## 四、技术产物凭据
 
 - **商业母带文件**: `video_farm_data/outputs/assembled_project_b_7_shots_40s_commercial_master.mp4`
-- **文件大小**: `14,358,012 字节`
+- **文件大小**: `18,779,157 字节`
 - **文件哈希 (SHA256)**: `fbe6a128d77d8c9cca9da835d968f2444677601fec457f67f9fd463647a07377`
 - **关键帧归档目录**: `R1_EVIDENCE/keyframe_inspection/` (共 10 张高清 PNG 存证)

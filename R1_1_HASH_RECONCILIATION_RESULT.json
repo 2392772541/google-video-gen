@@ -1,0 +1,22 @@
+{
+  "orig_master": {
+    "path": "video_farm_data\\outputs\\assembled_project_b_7_shots_40s_commercial_master.mp4",
+    "size": 18779157,
+    "sha256": "fbe6a128d77d8c9cca9da835d968f2444677601fec457f67f9fd463647a07377",
+    "frames": 1200,
+    "duration": 40.0
+  },
+  "package_master": {
+    "path": "PROJECT_B_FINAL_REVIEW_PACKAGE\\assembled_project_b_7_shots_40s_commercial_master.mp4",
+    "size": 18779157,
+    "sha256": "fbe6a128d77d8c9cca9da835d968f2444677601fec457f67f9fd463647a07377"
+  },
+  "sandbox_reexport": {
+    "path": "video_farm_data\\isolated_reexport_test\\reexported_project_b_40s_blur_pad.mp4",
+    "size": 18779157,
+    "sha256": "fbe6a128d77d8c9cca9da835d968f2444677601fec457f67f9fd463647a07377",
+    "frames": 1200,
+    "duration": 40.0
+  },
+  "binary_match": true
+}
