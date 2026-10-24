@@ -1,0 +1,93 @@
+{
+  "stage": "R1_RELEASE_READINESS_REVIEW",
+  "timestamp": "2026-10-25T16:05:00+08:00",
+  "projectA": {
+    "masterFilm": "assembled_project_a_9_shots_54s_exact.mp4",
+    "sha256": "ca779702d5206d4416bc4ecf1a6e2f62380ca254811904b481049b05a7db6149",
+    "duration": 54.0,
+    "frames": 1620,
+    "resolution": "1080x1920"
+  },
+  "projectB": {
+    "commercialMaster": "assembled_project_b_7_shots_40s_commercial_master.mp4",
+    "sha256": "fbe6a128d77d8c9cca9da835d968f2444677601fec457f67f9fd463647a07377",
+    "duration": 40.0,
+    "frames": 1200,
+    "resolution": "1080x1920",
+    "aspectMode": "blur_pad"
+  },
+  "sampledKeyframes": [
+    {
+      "file": "r1_shot4_17_2s.png",
+      "timestamp": "00:00:17.200",
+      "description": "Shot 4 前段 · 包装进入画面",
+      "size": 836325,
+      "sha256": "80760eb6a012e90d6174a8b8fe00fb14c9e6b6cabd235b590b1f6f7f2e93fc62"
+    },
+    {
+      "file": "r1_shot4_18_5s.png",
+      "timestamp": "00:00:18.500",
+      "description": "Shot 4 前中段 · 包装清晰居中",
+      "size": 934732,
+      "sha256": "31299b48a5cd2d5afdeafb182b8d9200acc67dfd26af74b9aa8d6f7d1a920e72"
+    },
+    {
+      "file": "r1_shot4_20_0s.png",
+      "timestamp": "00:00:20.000",
+      "description": "Shot 4 中段 · 正面商标品名展露",
+      "size": 914210,
+      "sha256": "63d245f772b31f9e697e79fc992485fa32e76afd99c5036d4114d1d78fe21e2f"
+    },
+    {
+      "file": "r1_shot4_21_5s.png",
+      "timestamp": "00:00:21.500",
+      "description": "Shot 4 后中段 · 光影自然流转",
+      "size": 929203,
+      "sha256": "c9a02bcaff5a23f6c1c4f2f49fdf224e2db835f317adbb63673db4449b93d377"
+    },
+    {
+      "file": "r1_shot4_22_8s.png",
+      "timestamp": "00:00:22.800",
+      "description": "Shot 4 尾段 · 准备切入产品机理",
+      "size": 937202,
+      "sha256": "96007205fa86fb23ad8dc984dafa5e039aafa7ab9a4895107599fb3124e27ec2"
+    },
+    {
+      "file": "r1_shot7_35_2s.png",
+      "timestamp": "00:00:35.200",
+      "description": "Shot 7 前段 · 品牌定格入幅",
+      "size": 823720,
+      "sha256": "94173a15393f9c1b69c0f46c0c616ca064922218c2d9469a3b5e10dc30e405a1"
+    },
+    {
+      "file": "r1_shot7_36_5s.png",
+      "timestamp": "00:00:36.500",
+      "description": "Shot 7 前中段 · 景深稳定",
+      "size": 915531,
+      "sha256": "d9442bd3cf1b554d0fe2bad88099ee154166f204328b38d14ed73d11b1e4f3ff"
+    },
+    {
+      "file": "r1_shot7_38_0s.png",
+      "timestamp": "00:00:38.000",
+      "description": "Shot 7 中段 · 静物高保真产品照",
+      "size": 945194,
+      "sha256": "5c5ccea9f1fd5c2a80a20c3361b76798418fcc761735afe2bb85af4fe1eca481"
+    },
+    {
+      "file": "r1_shot7_39_0s.png",
+      "timestamp": "00:00:39.000",
+      "description": "Shot 7 后段 · 品牌商标定格稳定",
+      "size": 954312,
+      "sha256": "d4492c8b3f2a312320de8a11f2da2200f0d2908a0a344e02f84044876162433d"
+    },
+    {
+      "file": "r1_shot7_39_8s.png",
+      "timestamp": "00:00:39.800",
+      "description": "Shot 7 尾帧 · 完美收束定格",
+      "size": 926680,
+      "sha256": "70c5abd5751e557b9b71123db658e490813ac7aee845c65c8aa1d071aa2eacfe"
+    }
+  ],
+  "releaseDecision": "RELEASE_CANDIDATE_PENDING",
+  "pendingGate": "HUMAN_COMMERCIAL_SIGN_OFF"
+}

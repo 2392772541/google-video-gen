@@ -1,0 +1,14 @@
+﻿metric,project_a,project_b,source_evidence
+成片定位,农业科学纪录片《作物根系为什么吸收不好？》,商业产品宣传片《添添向上 · 优根优苗》,PROJECT_A/B_SHOT_SCRIPT.md
+成片总时长,54.000 秒 (严格 54.0s),40.000 秒 (严格 40.0s),ffprobe 实测容器时长
+视频总帧数,1620 帧 (@30fps),1200 帧 (@30fps),ffprobe nb_frames
+画面分辨率与画幅,1080x1920 (9:16 竖屏),1080x1920 (9:16 竖屏商业母带),ffprobe width/height
+分镜总数量,9 镜头,7 镜头,工程 JSON 中的 shots 列表
+素材复用数量,7 条 (Veo/Gemini 历史库素材复用),5 条 (REUSED_MEDIA 根系与田间素材),MEDIA_MANIFEST.json / tasks.db
+实拍合成/衍生数量,0 条,"2 条 (Shot 4 包装实拍合成, Shot 7 静物定格)",ASSET_PROVENANCE.json
+新增付费生成任务数,"2 条 (Shot 1 Gemini, Shot 2 Veo)",0 条 (纯复用与实拍 Alpha 贴片合成),tasks.db 任务记录
+无效重生成次数,0 次 (一次性通过),0 次 (一次性通过),执行日志与 QC 报告
+流水线合成耗时,约 16.8 秒,约 13.5 秒 (blur_pad 商业级滤镜图),assemble_timeline 执行计时
+项目技术制作耗时,约 35 分钟 (含连续性 DAG 与尾帧提取),约 35 分钟 (含包装保真图层与审片),会话时间戳与 Git 留痕记录
+技术质检状态,"PASS (0 错误, 0 坏帧)","PASS (0 错误, 0 坏帧)",ffmpeg null decode 校验
+商业/合规审核状态,PREGEN_APPROVED / REVIEW_PENDING,REVIEW_PENDING (待真实人工终审签发),FINAL_BRAND_REVIEW.md

@@ -226,6 +226,25 @@ def assemble_timeline(
                 f"scale={target_width}:{target_height}:force_original_aspect_ratio=increase,"
                 f"crop={target_width}:{target_height},setsar=1"
             )
+            if is_trimmed:
+                filter_parts.append(
+                    f"[{i}:v]trim=start={t_start:.3f}:end={t_end:.3f},setpts=PTS-STARTPTS,"
+                    f"{scale_filter}[{v_label}]"
+                )
+            else:
+                filter_parts.append(
+                    f"[{i}:v]{scale_filter}[{v_label}]"
+                )
+        elif aspect_mode == "blur_pad":
+            # 商业级环境虚化背景填充 + 前景正像无损居中，彻底消除生硬大黑边
+            trim_str = f"trim=start={t_start:.3f}:end={t_end:.3f},setpts=PTS-STARTPTS," if is_trimmed else ""
+            filter_parts.append(
+                f"[{i}:v]{trim_str}split[bg_{i}][fg_{i}];"
+                f"[bg_{i}]scale={target_width}:{target_height}:force_original_aspect_ratio=increase,"
+                f"crop={target_width}:{target_height},boxblur=20:5[bgb_{i}];"
+                f"[fg_{i}]scale={target_width}:{target_height}:force_original_aspect_ratio=decrease,setsar=1[fgs_{i}];"
+                f"[bgb_{i}][fgs_{i}]overlay=(W-w)/2:(H-h)/2,setsar=1[{v_label}]"
+            )
         else:
             # 默认保持比例居中加黑边，确保画面主体完整不被切除
             scale_filter = (
@@ -233,16 +252,15 @@ def assemble_timeline(
                 f"pad={target_width}:{target_height}:(ow-iw)/2:(oh-ih)/2,"
                 f"setsar=1"
             )
-
-        if is_trimmed:
-            filter_parts.append(
-                f"[{i}:v]trim=start={t_start:.3f}:end={t_end:.3f},setpts=PTS-STARTPTS,"
-                f"{scale_filter}[{v_label}]"
-            )
-        else:
-            filter_parts.append(
-                f"[{i}:v]{scale_filter}[{v_label}]"
-            )
+            if is_trimmed:
+                filter_parts.append(
+                    f"[{i}:v]trim=start={t_start:.3f}:end={t_end:.3f},setpts=PTS-STARTPTS,"
+                    f"{scale_filter}[{v_label}]"
+                )
+            else:
+                filter_parts.append(
+                    f"[{i}:v]{scale_filter}[{v_label}]"
+                )
         concat_in_v.append(f"[{v_label}]")
 
         # 音频滤镜：若有音轨且裁剪则 atrim 并重采样为 44.1kHz 立体声；若无音轨则生成等长静音轨

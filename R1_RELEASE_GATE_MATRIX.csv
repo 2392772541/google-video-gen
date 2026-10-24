@@ -1,0 +1,11 @@
+gate_id,gate_name,requirement,status,evidence_reference,blocking_for_release
+G1,Project A 真实审核完成,真实人员观看 54 秒科普成片并签核植物结构与科学机理,REVIEW_PENDING,R1_HUMAN_REVIEW_RECORDS.md,YES
+G2,Project B 真实商业审核完成,真实业务人员审签包装真实性、商标品名、功效宣称与商业观感,REVIEW_PENDING,R1_HUMAN_REVIEW_RECORDS.md,YES
+G3,两条 MP4 技术完整性通过,54s (1620帧) 与 40s (1200帧) 物理零偏差且完整解码 code 0,VERIFIED,ffprobe + ffmpeg null decode 实测,NO
+G4,Project B 竖屏画面问题收口,升级 blur_pad 商业级虚化填充消除生硬黑边且包装 1:1 无拉伸,VERIFIED,R1_PROJECT_B_VISUAL_CORRECTION_REPORT.md,NO
+G5,产品名称与包装宣称核实,锁定正式商标『添添向上』并严格规避激素替代与绝对化用语,VERIFIED,PROJECT_B_PRODUCT_FACTS.md,NO
+G6,工程包独立恢复验证,脱离原目录依赖仅凭工程 JSON 与媒体在临时沙箱成功重导出,VERIFIED,execute_r1_full_workflow.py 执行日志,NO
+G7,批量调度与防重复收费,requestId 幂等缓存与未决状态对账机制持续健康未发生回归,VERIFIED,canvas_video_compat.py,NO
+G8,生产效率报告可追溯,A/B 耗时、复用率、流水线合成时间均有明确数据来源与对比,VERIFIED,R1_AB_METRICS.csv,NO
+G9,代码仓库与标签一致性,Git HEAD 与发布标签及远程分支同步，具备回滚点,VERIFIED,Git Release Tag museflow-studio-v0.11.0-rc1,NO
+G10,无关键生产阻断缺陷,全链路测试通过，服务 8088 / 3000 / 8317 稳健运行,VERIFIED,Playwright 端到端浏览器验证日志,NO
