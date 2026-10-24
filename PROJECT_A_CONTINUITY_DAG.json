@@ -1,0 +1,233 @@
+{
+  "dagVersion": "1.0.0",
+  "projectId": "PROJECT_A_ROOT_ABSORPTION",
+  "projectTitle": "《作物根系为什么吸收不好？》",
+  "totalDuration": 54.0,
+  "totalShots": 9,
+  "globalSubject": {
+    "entityId": "subject_tomato_seedling_01",
+    "name": "温室番茄幼苗 (Lycopersicon esculentum)",
+    "features": "4-5片真叶，健康深绿茎秆，细微白色茸毛，真实分枝主根与侧根，土壤颗粒依附自然",
+    "referenceAsset": "/media/outputs/gemini_verified_physical.mp4",
+    "boundShots": ["shot_a_1", "shot_a_2", "shot_a_3", "shot_a_8", "shot_a_9"]
+  },
+  "topologicalExecutionPhases": [
+    {
+      "phase": 1,
+      "phaseName": "主体建立与独立原理镜头并行准备",
+      "parallelShots": ["shot_a_1", "shot_a_4", "shot_a_5", "shot_a_6", "shot_a_7"],
+      "description": "Shot 1 建立全局主体，Shot 4~7 独立解剖原理镜头无前后依赖可并行编排"
+    },
+    {
+      "phase": 2,
+      "phaseName": "地上转地下与田间检查镜头",
+      "parallelShots": ["shot_a_2", "shot_a_8"],
+      "description": "Shot 2 继承 Shot 1 全局主体并转向根区剖面；Shot 8 继承全局主体展开田间检查"
+    },
+    {
+      "phase": 3,
+      "phaseName": "尾帧微距接续与收尾升华镜头",
+      "parallelShots": ["shot_a_3", "shot_a_9"],
+      "description": "Shot 3 接收 Shot 2 尾帧作为首帧参考；Shot 9 接收 Shot 8 尾帧与全局主体完成全貌拉远收尾"
+    }
+  ],
+  "nodes": [
+    {
+      "shotId": "shot_a_1",
+      "sceneNumber": 1,
+      "title": "肥料没少施，为什么长势还是不好？",
+      "duration": 5.0,
+      "timecode": "00:00 - 00:05",
+      "role": "GLOBAL_SUBJECT_ROOT",
+      "inDegree": 0,
+      "outDegree": 1,
+      "dependencies": {
+        "upstreamShotId": null,
+        "dependencyType": "NONE",
+        "referenceRole": "GLOBAL_SUBJECT",
+        "tailFrameAssetUrl": null
+      },
+      "downstreamShots": ["shot_a_2"],
+      "continuityRules": [
+        "确立温室光照与番茄幼苗外观基准",
+        "禁止出现荧光与文字水印"
+      ]
+    },
+    {
+      "shotId": "shot_a_2",
+      "sceneNumber": 2,
+      "title": "真正决定吸收的根区",
+      "duration": 6.0,
+      "timecode": "00:05 - 00:11",
+      "role": "SUBJECT_TRANSITION",
+      "inDegree": 1,
+      "outDegree": 1,
+      "dependencies": {
+        "upstreamShotId": "shot_a_1",
+        "dependencyType": "SUBJECT_CONTINUITY",
+        "referenceRole": "SUBJECT_CONTINUITY",
+        "tailFrameAssetUrl": null
+      },
+      "downstreamShots": ["shot_a_3"],
+      "continuityRules": [
+        "镜头由地上植株基部下沉推入土壤剖面",
+        "主体必须保持为 Shot 1 同一植株基部与根颈"
+      ]
+    },
+    {
+      "shotId": "shot_a_3",
+      "sceneNumber": 3,
+      "title": "缺水时，养分移动也会受限",
+      "duration": 5.0,
+      "timecode": "00:11 - 00:16",
+      "role": "TAIL_FRAME_EXTEND",
+      "inDegree": 1,
+      "outDegree": 0,
+      "dependencies": {
+        "upstreamShotId": "shot_a_2",
+        "dependencyType": "TAIL_FRAME_CONTINUITY",
+        "referenceRole": "TAIL_FRAME_CONTINUITY",
+        "tailFrameAssetUrl": null
+      },
+      "downstreamShots": [],
+      "continuityRules": [
+        "首帧强制对齐 Shot 2 的最后尾帧根系分布",
+        "微距推入偏干土壤细根，动作平滑延续"
+      ]
+    },
+    {
+      "shotId": "shot_a_4",
+      "sceneNumber": 4,
+      "title": "水太多，根区可能缺氧",
+      "duration": 6.0,
+      "timecode": "00:16 - 00:22",
+      "role": "INDEPENDENT_ILLUSTRATION",
+      "inDegree": 0,
+      "outDegree": 0,
+      "dependencies": {
+        "upstreamShotId": null,
+        "dependencyType": "STYLE_BIBLE_ONLY",
+        "referenceRole": "INDEPENDENT_ILLUSTRATION",
+        "tailFrameAssetUrl": null
+      },
+      "downstreamShots": [],
+      "continuityRules": [
+        "遵循全局视觉色调（写实科学纪录片、自然低饱和度）",
+        "独立积水剖面场景，不与 Shot 1~3 产生首尾帧强制物理锁死"
+      ]
+    },
+    {
+      "shotId": "shot_a_5",
+      "sceneNumber": 5,
+      "title": "土壤板结，限制根系伸展",
+      "duration": 6.0,
+      "timecode": "00:22 - 00:28",
+      "role": "INDEPENDENT_ILLUSTRATION",
+      "inDegree": 0,
+      "outDegree": 0,
+      "dependencies": {
+        "upstreamShotId": null,
+        "dependencyType": "STYLE_BIBLE_ONLY",
+        "referenceRole": "INDEPENDENT_ILLUSTRATION",
+        "tailFrameAssetUrl": null
+      },
+      "downstreamShots": [],
+      "continuityRules": [
+        "展现真实板结土层与细根转向生长",
+        "严禁机械钻头或夸张特效"
+      ]
+    },
+    {
+      "shotId": "shot_a_6",
+      "sceneNumber": 6,
+      "title": "土壤有养分，不代表都容易被吸收",
+      "duration": 5.0,
+      "timecode": "00:28 - 00:33",
+      "role": "INDEPENDENT_ILLUSTRATION",
+      "inDegree": 0,
+      "outDegree": 0,
+      "dependencies": {
+        "upstreamShotId": null,
+        "dependencyType": "STYLE_BIBLE_ONLY",
+        "referenceRole": "INDEPENDENT_ILLUSTRATION",
+        "tailFrameAssetUrl": null
+      },
+      "downstreamShots": [],
+      "continuityRules": [
+        "纪实实验室/温室取样工具，真实自然采光",
+        "严禁虚构读数或化学试剂发光变色"
+      ]
+    },
+    {
+      "shotId": "shot_a_7",
+      "sceneNumber": 7,
+      "title": "根系健康，也是关键因素",
+      "duration": 7.0,
+      "timecode": "00:33 - 00:40",
+      "role": "INDEPENDENT_ILLUSTRATION",
+      "inDegree": 0,
+      "outDegree": 0,
+      "dependencies": {
+        "upstreamShotId": null,
+        "dependencyType": "STYLE_BIBLE_ONLY",
+        "referenceRole": "INDEPENDENT_ILLUSTRATION",
+        "tailFrameAssetUrl": null
+      },
+      "downstreamShots": [],
+      "continuityRules": [
+        "对比正常细根与受损根系微观形态",
+        "保持客观解剖学纪实，不夸张病害"
+      ]
+    },
+    {
+      "shotId": "shot_a_8",
+      "sceneNumber": 8,
+      "title": "找到原因，比盲目追加肥料更重要",
+      "duration": 6.0,
+      "timecode": "00:40 - 00:46",
+      "role": "SUBJECT_RETURN",
+      "inDegree": 0,
+      "outDegree": 1,
+      "dependencies": {
+        "upstreamShotId": null,
+        "dependencyType": "GLOBAL_SUBJECT_BIND",
+        "referenceRole": "SUBJECT_CONTINUITY",
+        "tailFrameAssetUrl": null
+      },
+      "downstreamShots": ["shot_a_9"],
+      "continuityRules": [
+        "重新回到与 Shot 1 相同的温室场景与番茄幼苗",
+        "工作人员动作符合农业常规检查，自然真实"
+      ]
+    },
+    {
+      "shotId": "shot_a_9",
+      "sceneNumber": 9,
+      "title": "让根系处于适合工作的环境",
+      "duration": 8.0,
+      "timecode": "00:46 - 00:54",
+      "role": "TAIL_FRAME_EXTEND_OUTRO",
+      "inDegree": 1,
+      "outDegree": 0,
+      "dependencies": {
+        "upstreamShotId": "shot_a_8",
+        "dependencyType": "TAIL_FRAME_CONTINUITY",
+        "referenceRole": "TAIL_FRAME_CONTINUITY",
+        "tailFrameAssetUrl": null
+      },
+      "downstreamShots": [],
+      "continuityRules": [
+        "承接 Shot 8 根区检查尾帧，平缓向外拉远展现完整健壮幼苗",
+        "首尾呼应，为片尾字幕预留安全边界"
+      ]
+    }
+  ],
+  "dagValidation": {
+    "isAcyclic": true,
+    "isolatedDeadlocks": false,
+    "totalInDegree": 3,
+    "totalOutDegree": 3,
+    "maxDepth": 3,
+    "staleReferenceCount": 0
+  }
+}

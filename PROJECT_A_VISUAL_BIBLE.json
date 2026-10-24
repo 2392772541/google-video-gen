@@ -1,0 +1,33 @@
+{
+  "projectId": "PROJECT_A_ROOT_ABSORPTION",
+  "projectTitle": "《作物根系为什么吸收不好？》",
+  "aspectRatio": "9:16",
+  "resolution": "1080x1920",
+  "fps": 30,
+  "stylePreset": "自然纪录片科学写实",
+  "stylePrompt": "Cinematic 8k nature documentary realism, macro scientific photography, Hasselblad camera medium format, authentic plant anatomy, natural textures, shallow depth of field, high dynamic range, no text, no watermark",
+  "colorScheme": "自然植物绿、土壤深褐、温和低饱和度、晨光暖调",
+  "lighting": "清晨柔和侧逆光，微弱丁达尔光感，无刺眼高光",
+  "lensCamera": "85mm f/1.8 微距与特写镜头，平滑线性推拉横移",
+  "subjectSetting": {
+    "type": "custom",
+    "name": "番茄幼苗 (Lycopersicon esculentum)",
+    "features": "4-5片真叶，健康深绿茎秆，细微白色茸毛，真实分枝主根与侧根，土壤颗粒依附自然",
+    "referenceAssetUrl": "/media/outputs/gemini_verified_physical.mp4"
+  },
+  "forbiddenElements": [
+    "cyberpunk neon",
+    "glowing translucent roots",
+    "fictional plant anatomy",
+    "mechanical root drills",
+    "floating molecular ions",
+    "burned-in text or subtitles",
+    "commercial logos or watermarks"
+  ],
+  "audioSetting": {
+    "style": "自然环境纪实",
+    "elements": "温室晨风、土壤轻微摩擦质感、微弱鸟鸣",
+    "defaultMusic": false,
+    "defaultVoiceover": false
+  }
+}

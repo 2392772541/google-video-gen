@@ -1,0 +1,190 @@
+{
+  "projectId": "PROJECT_A_ROOT_ABSORPTION",
+  "projectTitle": "《作物根系为什么吸收不好？》",
+  "targetAspectRatio": "9:16",
+  "targetFps": 30,
+  "targetTotalDuration": 54.0,
+  "totalShots": 9,
+  "shots": [
+    {
+      "shotId": "shot_a_1",
+      "sceneNumber": 1,
+      "title": "肥料没少施，为什么长势还是不好？",
+      "targetDuration": 5.0,
+      "trimStart": 0.0,
+      "trimEnd": 5.0,
+      "recommendedEngine": "flow",
+      "recommendedModel": "veo-lite",
+      "status": "READY",
+      "reviewStatus": "PENDING_REVIEW",
+      "dependencies": {
+        "upstreamShotId": null,
+        "tailFrameAssetUrl": null,
+        "referenceRole": "GLOBAL_SUBJECT",
+        "stale": false
+      },
+      "imagePrompt": "清晨真实温室中的一株番茄幼苗，叶片自然舒展但局部叶色略淡，旁边有普通施肥操作痕迹。自然纪录片摄影，植物比例真实，土壤与叶片细节清晰，无文字。",
+      "videoPrompt": "镜头从温室环境缓慢推进番茄幼苗，停留在叶片和植株整体状态。植株表现轻微生长不佳，但不夸张、不暗示已经确诊缺肥，摄影机轻微推镜头，自然柔和。"
+    },
+    {
+      "shotId": "shot_a_2",
+      "sceneNumber": 2,
+      "title": "真正决定吸收的根区",
+      "targetDuration": 6.0,
+      "trimStart": 0.0,
+      "trimEnd": 6.0,
+      "recommendedEngine": "flow",
+      "recommendedModel": "veo-lite",
+      "status": "READY",
+      "reviewStatus": "PENDING_REVIEW",
+      "dependencies": {
+        "upstreamShotId": "shot_a_1",
+        "tailFrameAssetUrl": null,
+        "referenceRole": "SUBJECT_CONTINUITY",
+        "stale": false
+      },
+      "imagePrompt": "同一株番茄幼苗，写实科研观察式土壤剖面，展示真实主根、侧根、细根及周围土壤颗粒，解剖结构合理，色彩自然。",
+      "videoPrompt": "镜头由植物基部逐渐转向土壤内部剖面，平稳推进真实根系与土壤接触区域。使用与上一镜头一致的主体外观和环境参照。"
+    },
+    {
+      "shotId": "shot_a_3",
+      "sceneNumber": 3,
+      "title": "缺水时，养分移动也会受限",
+      "targetDuration": 5.0,
+      "trimStart": 0.0,
+      "trimEnd": 5.0,
+      "recommendedEngine": "flow",
+      "recommendedModel": "veo-lite",
+      "status": "READY",
+      "reviewStatus": "PENDING_REVIEW",
+      "dependencies": {
+        "upstreamShotId": "shot_a_2",
+        "tailFrameAssetUrl": null,
+        "referenceRole": "TAIL_FRAME_CONTINUITY",
+        "stale": false
+      },
+      "imagePrompt": "番茄根系与局部偏干的土壤微距剖面，土壤颗粒之间水分较少，细根自然延伸，结构真实，科学摄影风格。",
+      "videoPrompt": "镜头沿同一根系的细根区域缓慢移动，观察偏干土壤环境，表现根表接触水分减少。不使用大量发光离子或虚构运输管道。"
+    },
+    {
+      "shotId": "shot_a_4",
+      "sceneNumber": 4,
+      "title": "水太多，根区可能缺氧",
+      "targetDuration": 6.0,
+      "trimStart": 0.0,
+      "trimEnd": 6.0,
+      "recommendedEngine": "flow",
+      "recommendedModel": "veo-lite",
+      "status": "READY",
+      "reviewStatus": "PENDING_REVIEW",
+      "dependencies": {
+        "upstreamShotId": null,
+        "tailFrameAssetUrl": null,
+        "referenceRole": "INDEPENDENT_ILLUSTRATION",
+        "stale": false
+      },
+      "imagePrompt": "独立的积水土壤剖面示意，土壤孔隙被水占据，番茄根系浸润其中，视觉真实克制，科学教学纪录片风格。",
+      "videoPrompt": "观察水分过多的根区环境，局部土壤孔隙被水充满。镜头缓慢横移，突出土壤结构与水气分布。不能表现根系瞬间腐烂。"
+    },
+    {
+      "shotId": "shot_a_5",
+      "sceneNumber": 5,
+      "title": "土壤板结，限制根系伸展",
+      "targetDuration": 6.0,
+      "trimStart": 0.0,
+      "trimEnd": 6.0,
+      "recommendedEngine": "flow",
+      "recommendedModel": "veo-lite",
+      "status": "READY",
+      "reviewStatus": "PENDING_REVIEW",
+      "dependencies": {
+        "upstreamShotId": null,
+        "tailFrameAssetUrl": null,
+        "referenceRole": "INDEPENDENT_ILLUSTRATION",
+        "stale": false
+      },
+      "imagePrompt": "土壤压实剖面，一株番茄的根系在较密实土层附近出现生长方向改变，侧根沿孔隙延伸，真实土壤颗粒与植物结构。",
+      "videoPrompt": "镜头缓慢下移，观察根系遇到密实土层时的空间分布。自然科学演示，不使用钻头、机械根或夸张突破效果。"
+    },
+    {
+      "shotId": "shot_a_6",
+      "sceneNumber": 6,
+      "title": "土壤有养分，不代表都容易被吸收",
+      "targetDuration": 5.0,
+      "trimStart": 0.0,
+      "trimEnd": 5.0,
+      "recommendedEngine": "flow",
+      "recommendedModel": "veo-lite",
+      "status": "READY",
+      "reviewStatus": "PENDING_REVIEW",
+      "dependencies": {
+        "upstreamShotId": null,
+        "tailFrameAssetUrl": null,
+        "referenceRole": "INDEPENDENT_ILLUSTRATION",
+        "stale": false
+      },
+      "imagePrompt": "真实的温室土壤取样场景，样本容器、简单的土壤检测工具、旁边的番茄幼苗，自然光，科学实验记录摄影，无可读数字。",
+      "videoPrompt": "摄像机从土壤样本平稳移动到检测工具，表现需要评估土壤条件与养分有效性，不虚构快速显色结果或确定性诊断。"
+    },
+    {
+      "shotId": "shot_a_7",
+      "sceneNumber": 7,
+      "title": "根系健康，也是关键因素",
+      "targetDuration": 7.0,
+      "trimStart": 0.0,
+      "trimEnd": 7.0,
+      "recommendedEngine": "flow",
+      "recommendedModel": "veo-lite",
+      "status": "READY",
+      "reviewStatus": "PENDING_REVIEW",
+      "dependencies": {
+        "upstreamShotId": null,
+        "tailFrameAssetUrl": null,
+        "referenceRole": "INDEPENDENT_ILLUSTRATION",
+        "stale": false
+      },
+      "imagePrompt": "科研观察台上的真实番茄根样本，对比正常生长的细根与局部受损根段，植物解剖结构真实，光照柔和，不夸张病害特征。",
+      "videoPrompt": "镜头缓慢扫过根样本细节，呈现侧根、细根和局部根组织状态。不要将任何单一外观特征直接解释为某一种确定病害。"
+    },
+    {
+      "shotId": "shot_a_8",
+      "sceneNumber": 8,
+      "title": "找到原因，比盲目追加肥料更重要",
+      "targetDuration": 6.0,
+      "trimStart": 0.0,
+      "trimEnd": 6.0,
+      "recommendedEngine": "flow",
+      "recommendedModel": "veo-lite",
+      "status": "READY",
+      "reviewStatus": "PENDING_REVIEW",
+      "dependencies": {
+        "upstreamShotId": null,
+        "tailFrameAssetUrl": null,
+        "referenceRole": "SUBJECT_CONTINUITY",
+        "stale": false
+      },
+      "imagePrompt": "同一温室番茄幼苗旁，工作人员使用简单工具检查土壤湿度、排水状况与根系生长情况，真实农业操作，暖色清晨光线。",
+      "videoPrompt": "工作人员轻轻拨开植株附近表层土壤，观察土壤环境与根区状态。镜头稳定，人物动作符合真实农业检查过程。"
+    },
+    {
+      "shotId": "shot_a_9",
+      "sceneNumber": 9,
+      "title": "让根系处于适合工作的环境",
+      "targetDuration": 8.0,
+      "trimStart": 0.0,
+      "trimEnd": 8.0,
+      "recommendedEngine": "flow",
+      "recommendedModel": "veo-lite",
+      "status": "READY",
+      "reviewStatus": "PENDING_REVIEW",
+      "dependencies": {
+        "upstreamShotId": "shot_a_8",
+        "tailFrameAssetUrl": null,
+        "referenceRole": "TAIL_FRAME_CONTINUITY",
+        "stale": false
+      },
+      "imagePrompt": "回到同一温室、同一株番茄幼苗，真实叶片、茎秆、土壤与自然光，构图安静，植物形态与第一镜头保持一致，留出顶部字幕区域。",
+      "videoPrompt": "以与镜头 8 相同的环境和主体作为连续性基础，镜头由根区附近缓慢拉远至整株番茄幼苗，形成完整结束画面。不表现植株在数秒内突然恢复或快速生长。"
+    }
+  ]
+}

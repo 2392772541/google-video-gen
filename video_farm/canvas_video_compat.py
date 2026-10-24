@@ -15,7 +15,8 @@ import time
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
+import logging
 
 import json
 import urllib.error
@@ -35,19 +36,40 @@ from pydantic import BaseModel
 from .timeline_assembler import assemble_timeline, TimelineAssemblyError, calculate_sha256, ShotSpec
 from .model_capabilities import get_canvas_models_payload, get_capabilities_raw, get_model_spec
 
+logger = logging.getLogger(__name__)
 router = APIRouter(tags=["Infinite Canvas Adapter"])
 
 _ACTIVE_PROJECT_ASSEMBLIES: set[str] = set()
 _ACTIVE_PROJECT_ASSEMBLIES_LOCK = threading.Lock()
-
-# 客户端请求幂等与对账缓存 (防止网络中断重试导致重复向上游付费)
-_IDEMPOTENT_REQUEST_CACHE: Dict[str, Dict[str, Any]] = {}
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "video_farm_data"
 UPLOADS_DIR = DATA_DIR / "uploads"
 OUTPUTS_DIR = DATA_DIR / "outputs"
 DB_PATH = DATA_DIR / "tasks.db"
+
+# 客户端请求幂等与对账缓存 (持久化至磁盘，确保进程重启后仍可对账，防止重复扣费)
+IDEMPOTENT_CACHE_FILE = DATA_DIR / "idempotent_requests.json"
+_IDEMPOTENT_REQUEST_CACHE: Dict[str, Dict[str, Any]] = {}
+
+def _load_idempotent_cache():
+    if IDEMPOTENT_CACHE_FILE.exists():
+        try:
+            with open(IDEMPOTENT_CACHE_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, dict):
+                    _IDEMPOTENT_REQUEST_CACHE.update(data)
+        except Exception as e:
+            logger.warning(f"加载幂等缓存异常: {e}")
+
+def _save_idempotent_cache():
+    try:
+        with open(IDEMPOTENT_CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump(_IDEMPOTENT_REQUEST_CACHE, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logger.warning(f"保存幂等缓存异常: {e}")
+
+_load_idempotent_cache()
 
 CLI_PROXY_URL = "http://127.0.0.1:8317/v1"
 CLI_PROXY_KEY = "sk-local-23fa8d80e597d0c0d90c2e75d1c1430787ed13afe1175d70"
