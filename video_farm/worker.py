@@ -242,12 +242,10 @@ class VideoWorker:
             if int(task.duration_sec) == 10:
                 flow_model = "omni-flash"
             cmd.extend(["--model", flow_model])
-            # 官方 Google Flow 网页端仅针对 Omni 暴露了 4/6/8/10s 滑块；Veo 系列在网页端为服务端默认决定（约 6s/8s）
-            # 因此仅对 Omni 模型传递 --duration；Veo 系列严禁盲目传递 --duration，以规避 CLI 在无滑块页面崩溃报错
-            if flow_model in ("omni-flash", "flow", "omni") and task.duration_sec:
-                cmd.extend(["--duration", str(task.duration_sec)])
-            else:
-                logs.append(f"【时长适配】模型 [{flow_model}] 在 Flow 网页端无时长滑块，由服务端默认决定 (~6s/8s)，不透传 --duration 以免页面报错")
+            # Flow 时长适配：Veo Lite/Fast/Quality 支持 4s/6s/8s；Omni Flash 支持 4s/6s/8s/10s
+            # 正常向 CLI 传递用户请求的有效时长参数
+            if task.duration_sec and int(task.duration_sec) in (4, 6, 8, 10):
+                cmd.extend(["--duration", str(int(task.duration_sec))])
             # 生成条数参数支持 (1~4)
             count_val = getattr(task, "count", 1) or 1
             if count_val in (1, 2, 3, 4):
@@ -297,8 +295,12 @@ class VideoWorker:
             error_class = (receipt.get("error") or {}).get("class", "")
             if error_class == "ProfileLockedError" or any(k in content for k in ("profilelocked", "already in use", "singletonlock", "is locked")):
                 return failure("PROFILE_LOCKED", "Flow 账号目录已被其他窗口占用；未获得浏览器执行权")
-            if proc.returncode == 11:
-                return failure("CONFIG_ERROR", "Flow 页面不支持请求时长/模型；未更改参数，请核对可用选项后手动处理", submission_possible=False)
+            if proc.returncode == 11 or (proc.returncode == 23 and ("duration_tab" in content or "duration" in content)):
+                return failure(
+                    "DURATION_CONTROL_ABSENT",
+                    "当前 Google Flow 账号页面未渲染时长选择滑块（上游灰度策略导致），不支持指定精确秒数。建议在视频设置中勾选【使用平台默认时长 (~6s/8s)】或切换账号重试。",
+                    submission_possible=False
+                )
             if proc.returncode == 25:
                 return failure("AGENTIC_UI_BLOCKED", "Flow 被协议或界面遮挡；系统未同意协议、未再次提交")
             if proc.returncode == 7 and ("wireformaterror" in content or "wire-format" in content):
