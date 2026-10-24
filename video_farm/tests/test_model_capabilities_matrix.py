@@ -37,23 +37,23 @@ def test_model_capabilities_registry_coverage():
 
     # Group B: Veo Lite
     spec_lite = get_model_spec("veo-lite")
-    assert spec_lite["duration_control_mode"] == "selectable"
-    assert spec_lite["supportedDurations"] == [4, 6, 8]
+    assert spec_lite["duration_control_mode"] == "upstream_default"
+    assert spec_lite["supportedDurations"] == [6]
     assert spec_lite["supportsExtend"] is True
     assert spec_lite["supportsIngredients"] is True
     assert spec_lite["max_reference_images"] == 3
 
     # Group C: Veo Fast
     spec_fast = get_model_spec("veo-fast")
-    assert spec_fast["duration_control_mode"] == "selectable"
-    assert spec_fast["supportedDurations"] == [4, 6, 8]
+    assert spec_fast["duration_control_mode"] == "upstream_default"
+    assert spec_fast["supportedDurations"] == [6]
     assert spec_fast["supportsExtend"] is False
     assert spec_fast["supportsIngredients"] is True
 
     # Group D: Veo Quality
     spec_qual = get_model_spec("veo-quality")
-    assert spec_qual["duration_control_mode"] == "selectable"
-    assert spec_qual["supportedDurations"] == [4, 6, 8]
+    assert spec_qual["duration_control_mode"] == "upstream_default"
+    assert spec_qual["supportedDurations"] == [6]
     assert spec_qual["supportsIngredients"] is False
     assert spec_qual["supportsFrames"] is True
 
@@ -221,7 +221,7 @@ def test_group_f_gemini_strict_upload_and_limit(test_images):
             "mode": "reference"
         }, files=files)
         assert resp.status_code == 422
-        assert "Google Gemini 网页通道仅支持单张参考图驱动" in resp.json()["detail"]
+        assert "Google Gemini 网页通道最多支持 1 张参考图" in resp.json()["detail"]
     finally:
         for _, ftuple in files:
             ftuple[1].close()

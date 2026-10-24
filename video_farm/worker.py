@@ -242,9 +242,12 @@ class VideoWorker:
             if int(task.duration_sec) == 10:
                 flow_model = "omni-flash"
             cmd.extend(["--model", flow_model])
-            # 传递 --duration 参数（支持所有 Flow 视频模型：Veo 4/6/8s，Omni 4/6/8/10s）
-            if task.duration_sec:
+            # 官方 Google Flow 网页端仅针对 Omni 暴露了 4/6/8/10s 滑块；Veo 系列在网页端为服务端默认决定（约 6s/8s）
+            # 因此仅对 Omni 模型传递 --duration；Veo 系列严禁盲目传递 --duration，以规避 CLI 在无滑块页面崩溃报错
+            if flow_model in ("omni-flash", "flow", "omni") and task.duration_sec:
                 cmd.extend(["--duration", str(task.duration_sec)])
+            else:
+                logs.append(f"【时长适配】模型 [{flow_model}] 在 Flow 网页端无时长滑块，由服务端默认决定 (~6s/8s)，不透传 --duration 以免页面报错")
             # 生成条数参数支持 (1~4)
             count_val = getattr(task, "count", 1) or 1
             if count_val in (1, 2, 3, 4):
