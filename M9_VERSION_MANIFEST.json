@@ -1,0 +1,19 @@
+[
+  {
+    "shotId": "shot_2",
+    "versions": [
+      "s2_res_v1",
+      "s2_res_v2"
+    ],
+    "active": "s2_res_v2",
+    "s1_hash_stable": true,
+    "s3_hash_stable": true
+  },
+  {
+    "final_assembled": true,
+    "filename": "assembled_c2b4c92a6af8_assembled_m9_tomato_exact_18s.mp4",
+    "duration": 18.0,
+    "sha256": "bf2fa0757d2fb5ea6394f127f9eecd55a9ee04fe7fc7226522fa1f5f881de263",
+    "resolution": "1280x720"
+  }
+]

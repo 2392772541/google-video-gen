@@ -25,6 +25,8 @@
       <button data-add="preview">+ 预览</button>
     </div>
     <div class="toolbar-actions">
+      <button id="shotBibleBtn" type="button" title="设定工程视觉规范与主体锁定">🎨 视觉规范</button>
+      <button id="shotDeckBtn" type="button" title="查看分镜镜头表与独立版本控制">🎬 镜头表</button>
       <button id="saveBtn">保存</button>
       <button id="workflowExportBtn" type="button" title="将工作流保存为可复用的 JSON 文件">导出工作流</button>
       <button id="workflowImportBtn" type="button" title="导入已保存的 MuseFlow 工作流">导入工作流</button>
@@ -119,6 +121,11 @@
       <p>粘贴包含“场景”“图片提示词”“视频提示词”和可选“音频”的分镜脚本；也兼容原版越南语格式。MuseFlow 会创建并连接各场景，然后按顺序将视频片段加入时间线。</p>
       <label for="scriptInput">分镜脚本</label>
       <textarea id="scriptInput" placeholder="场景 1（0:00–0:07）：场景标题&#10;&#10;图片提示词：...&#10;&#10;视频提示词：...&#10;音频：..."></textarea>
+      <div class="script-options" style="margin: 8px 0; display: flex; gap: 15px; align-items: center; font-size: 13px;">
+        <label><input type="checkbox" id="scriptClearCanvas" checked /> 导入前清空当前画布草稿</label>
+        <label><input type="checkbox" id="scriptApplyBible" checked /> 批量套用工程视觉规范 (Visual Bible)</label>
+      </div>
+      <div id="scriptPreviewContainer" class="script-preview-container hidden" style="margin: 8px 0; max-height: 160px; overflow-y: auto;"></div>
       <div id="scriptImportStatus" role="status"></div>
       <div class="modal-actions">
         <button id="cancelScriptImport" type="button">取消</button>
@@ -127,6 +134,85 @@
     </section>
   </div>
 
+  <!-- 工程全局视觉规范 (Project Visual Bible) 弹窗 -->
+  <div id="shotBibleModal" class="modal-backdrop hidden">
+    <section class="modal bible-modal" role="dialog" style="max-width: 640px;">
+      <h2>🎨 工程全局视觉规范 (Project Visual Bible)</h2>
+      <p>为整部作品统一视觉调性、主体外观特征与摄影语言，单镜头仍可局部覆写。</p>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 10px;">
+        <div>
+          <label for="bibleStyleName">风格名称</label>
+          <input id="bibleStyleName" type="text" value="电影级写实摄影" />
+        </div>
+        <div>
+          <label for="bibleAspectRatio">标准画幅</label>
+          <select id="bibleAspectRatio">
+            <option value="16:9">16:9 (横版超清)</option>
+            <option value="9:16">9:16 (竖版短视频)</option>
+            <option value="1:1">1:1 (方形)</option>
+          </select>
+        </div>
+      </div>
+      <div style="margin-top: 10px;">
+        <label for="bibleStylePrompt">全局风格提示词</label>
+        <textarea id="bibleStylePrompt" rows="2" style="width: 100%; box-sizing: border-box;">8k cinematic realism, Hasselblad medium format photography, natural morning lighting, shallow depth of field, photorealistic textures</textarea>
+      </div>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 10px;">
+        <div>
+          <label for="bibleColorScheme">配色倾向</label>
+          <input id="bibleColorScheme" type="text" value="自然晨光微冷青调" />
+        </div>
+        <div>
+          <label for="bibleLighting">光照设定</label>
+          <input id="bibleLighting" type="text" value="侧逆晨光，柔和丁达尔散射" />
+        </div>
+      </div>
+      <div style="margin-top: 10px;">
+        <label for="bibleLensCamera">默认运镜/焦段</label>
+        <input id="bibleLensCamera" type="text" value="85mm f/1.4 写实人像与特写镜头" style="width: 100%; box-sizing: border-box;" />
+      </div>
+      <div style="margin-top: 10px; border-top: 1px solid var(--border-color, #333); padding-top: 10px;">
+        <h3>固定主体/人物外观锁定</h3>
+        <label for="bibleSubjectName">主体名称/角色</label>
+        <input id="bibleSubjectName" type="text" value="番茄幼苗 (Solanum lycopersicum)" style="width: 100%; box-sizing: border-box;" />
+        <label for="bibleSubjectFeatures" style="margin-top: 6px; display: block;">主体关键外观特征</label>
+        <textarea id="bibleSubjectFeatures" rows="2" style="width: 100%; box-sizing: border-box;">真实番茄双子叶舒展，茎秆微细绒毛，叶脉清晰，湿润黑褐色培养土</textarea>
+        <label for="bibleSubjectRefUrl" style="margin-top: 6px; display: block;">主体参考图 URL (可选)</label>
+        <input id="bibleSubjectRefUrl" type="text" placeholder="/media/outputs/..." style="width: 100%; box-sizing: border-box;" />
+      </div>
+      <div class="modal-actions" style="margin-top: 15px;">
+        <button id="closeBibleModal" type="button">关闭</button>
+        <button id="saveBibleBtn" type="button" class="primary">保存视觉规范</button>
+      </div>
+    </section>
+  </div>
+
+  <!-- 镜头清单表与独立控制 (Shot Deck) 弹窗 -->
+  <div id="shotDeckModal" class="modal-backdrop hidden">
+    <section class="modal shot-deck-modal" role="dialog" style="max-width: 900px; width: 92%;">
+      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; padding-bottom: 8px;">
+        <h2 style="margin: 0;">🎬 分镜镜头表与独立版本控制 (Shot Deck)</h2>
+        <div style="display: flex; gap: 8px;">
+          <button id="batchRegenFailedBtn" type="button">仅重生成失败镜头</button>
+          <button id="closeShotDeckBtn" type="button">关闭</button>
+        </div>
+      </div>
+      <p style="font-size: 13px; color: #888; margin: 8px 0;">
+        支持单镜头独立执行、候选版本回退与尾帧失效告警。重生成单个镜头不会影响其他镜头。
+      </p>
+      <div id="shotDeckList" style="max-height: 480px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; margin-top: 10px;">
+        <!-- 动态渲染镜头卡片 -->
+      </div>
+      <div class="modal-actions" style="margin-top: 15px; justify-content: space-between;">
+        <span id="shotDeckSummary" style="font-size: 13px; color: #aaa;">共 0 个分镜</span>
+        <div>
+          <button id="shotDeckAssembleBtn" type="button" class="primary">一键带裁切导出 MP4</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script src="shot-manager.js"></script>
   <script src="runtime-adapter.js"></script>
   <script src="app.js"></script>
 </body>

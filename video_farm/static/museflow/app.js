@@ -2,6 +2,7 @@
   'use strict';
 
   const $ = (s) => document.querySelector(s);
+  const escapeHtml = (str) => String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   const canvas = $('#canvas');
   const edgesSvg = $('#edges');
   const runStatus = $('#runStatus');
@@ -282,6 +283,14 @@
   function buildSceneNodesFromScript(){
     const status=$('#scriptImportStatus'),scenes=parseSceneScript($('#scriptInput').value);
     if(!scenes.length){status.className='error';status.textContent="未识别到场景。请使用“场景 1（0:00–0:07）：标题”，并填写“图片提示词”或“视频提示词”；也兼容原版 CẢNH 格式。";return;}
+    const clearCanvas = $('#scriptClearCanvas')?.checked ?? true;
+    if (clearCanvas) {
+      state.nodes = state.nodes.filter(n => n.data?.dockOnly);
+      state.edges = [];
+    }
+    if (window.__shotManager) {
+      window.__shotManager.initFromParsedScenes(scenes, clearCanvas);
+    }
     const baseY=Math.max(40,...state.nodes.filter(node=>!node.data?.dockOnly).map(node=>node.y+360)),createdVideos=[];let made=0;
     scenes.forEach((scene,index)=>{
       const column=index%4,row=Math.floor(index/4),x=80+column*650,y=baseY+row*1100,label=`场景 ${scene.number}${scene.title?`: ${scene.title}`:''}`;
@@ -1282,7 +1291,43 @@
   $('#cancelScriptImport').onclick=()=>$('#scriptModal').classList.add('hidden');
   $('#buildScriptNodes').onclick=buildSceneNodesFromScript;
   $('#scriptModal').onclick=event=>{if(event.target.id==='scriptModal')$('#scriptModal').classList.add('hidden');};
-  $('#scriptInput').addEventListener('input',()=>{const count=parseSceneScript($('#scriptInput').value).length;$('#scriptImportStatus').className='';$('#scriptImportStatus').textContent=count?`${count} 个场景已识别。`:'';});
+  $('#scriptInput').addEventListener('input',()=>{
+    const scenes=parseSceneScript($('#scriptInput').value);
+    const count=scenes.length;
+    $('#scriptImportStatus').className='';
+    $('#scriptImportStatus').textContent=count?`${count} 个场景已识别。`:'';
+    const previewContainer = $('#scriptPreviewContainer');
+    if (previewContainer) {
+      if (count > 0) {
+        previewContainer.classList.remove('hidden');
+        previewContainer.innerHTML = `
+          <table style="width:100%; border-collapse:collapse; font-size:11px; background:#0f172a; border:1px solid #334155; border-radius:4px;">
+            <thead>
+              <tr style="border-bottom:1px solid #334155; color:#94a3b8; text-align:left; background:#1e293b;">
+                <th style="padding:4px 6px;">#</th>
+                <th style="padding:4px 6px;">场景标题</th>
+                <th style="padding:4px 6px;">目标时长</th>
+                <th style="padding:4px 6px;">分镜提示词概览</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${scenes.map(s => `
+                <tr style="border-bottom:1px solid #1e293b;">
+                  <td style="padding:4px 6px; color:#38bdf8; font-weight:600;">${s.number}</td>
+                  <td style="padding:4px 6px; font-weight:600;">${escapeHtml(s.title)}</td>
+                  <td style="padding:4px 6px; color:#a3e635;">${s.seconds}s</td>
+                  <td style="padding:4px 6px; color:#cbd5e1; max-width:240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(s.videoPrompt || s.imagePrompt)}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        `;
+      } else {
+        previewContainer.classList.add('hidden');
+        previewContainer.innerHTML = '';
+      }
+    }
+  });
   $('#timelineToggleBtn').onclick=toggleTimeline;
   $('#timelineExportBtn').onclick=exportTimelineVideo;
   $('#timelineImportAllBtn').onclick=importAllVideosToTimeline;

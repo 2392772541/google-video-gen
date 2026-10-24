@@ -256,3 +256,80 @@ body{grid-template-rows:58px auto minmax(0,1fr) auto}
 .btn-action-add:hover {
   background: #1d4ed8;
 }
+
+/* M9 镜头表与视觉规范样式 */
+.shot-deck-card {
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: border-color 0.2s;
+}
+.shot-deck-card:hover {
+  border-color: #475569;
+}
+.shot-deck-card.stale {
+  border-color: #f59e0b;
+  background: #1e1b12;
+}
+.shot-deck-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.shot-deck-title {
+  font-weight: 600;
+  color: #f8fafc;
+  font-size: 14px;
+}
+.shot-status-badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-weight: 600;
+}
+.shot-status-badge.COMPLETED { background: #065f46; color: #34d399; }
+.shot-status-badge.RUNNING { background: #1e3a8a; color: #60a5fa; }
+.shot-status-badge.FAILED { background: #7f1d1d; color: #f87171; }
+.shot-status-badge.READY { background: #334155; color: #94a3b8; }
+.shot-status-badge.STALE_REFERENCE { background: #78350f; color: #fbbf24; }
+.shot-deck-body {
+  display: grid;
+  grid-template-columns: 140px 1fr 180px;
+  gap: 12px;
+  align-items: center;
+}
+.shot-preview-box {
+  width: 140px;
+  height: 80px;
+  background: #0f172a;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.shot-preview-box video, .shot-preview-box img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.shot-deck-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.stale-alert-banner {
+  background: rgba(245, 158, 11, 0.15);
+  border: 1px dashed #f59e0b;
+  color: #fcd34d;
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}

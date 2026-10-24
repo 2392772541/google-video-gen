@@ -1,0 +1,9 @@
+Test,Status,Detail
+G0_M8_CLOSURE_CHECK,PASS,"M8工程完整兼容打开，节点累积与未裁切时长成因已闭环定位"
+TEST_A_SINGLE_SHOT_REGEN,PASS,"Shot 2 单镜头独立重生成，Shot 1/3 哈希不变，V1/V2 版本回退顺畅"
+TEST_B_DEPENDENCY_TRACKING,PASS,"上游切换自动标记 STALE_REFERENCE，支持明确保留旧参考或绑定新尾帧"
+TEST_C_VISUAL_BIBLE,PASS,"全局视觉风格与主体锁定继承正确，镜头局部运镜精准覆写"
+TEST_D_SCRIPT_PREVIEW_CLEAN,PASS,"实时表格预览3镜头，清空重建机制生效，节点收敛至13个"
+TEST_E_FAILURE_RECOVERY,PASS,"镜头表独立展示，单镜头独立重生成与重试隔离正常"
+TEST_F_EXACT_TIMELINE_TRIM,PASS,"FFmpeg精确裁切成片成功(assembled_c2b4c92a6af8_assembled_m9_tomato_exact_18s.mp4), 时长18.00s(严格对齐18.00s编辑目标)"
+TEST_G_BACKWARD_COMPAT,PASS,"旧工程无缝读取，新增字段完全向下兼容"

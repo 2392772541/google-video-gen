@@ -1,0 +1,47 @@
+[
+  {
+    "shot": 1,
+    "scene": "清晨温室",
+    "type": "video",
+    "path": "C:\\Users\\win10\\Documents\\ChatGPT\\视频制作\\video_farm_data\\outputs\\gemini_verified_physical.mp4",
+    "sha256": "5f403addf19f5f68c5a0fbc72c8c74c6a0d5da88917346388ea95ac1fd2f4bdb",
+    "duration": 10.005,
+    "resolution": "1280x720",
+    "codec": "h264"
+  },
+  {
+    "shot": 1,
+    "type": "tail_frame",
+    "path": "C:\\Users\\win10\\Documents\\ChatGPT\\视频制作\\M8_EVIDENCE\\m8_shot1_tail_frame.png",
+    "sha256": "e39a8b2be53d00f9d478a90167a05eef2ab6476e1ce0ab8b5fc5b5dbb5cf6cff"
+  },
+  {
+    "shot": 2,
+    "scene": "叶片微距",
+    "type": "video",
+    "path": "C:\\Users\\win10\\Documents\\ChatGPT\\视频制作\\video_farm_data\\outputs\\0e0c3bdd-0dce-4bc6-98b3-74cd7cc85363.mp4",
+    "sha256": "49c91e2e10562b5953c4b403d5fb5f86c62e4093435f6aa713e700c015b95a35",
+    "duration": 8.0,
+    "resolution": "720x1280",
+    "codec": "h264"
+  },
+  {
+    "shot": 3,
+    "scene": "根系观察",
+    "type": "video",
+    "path": "C:\\Users\\win10\\Documents\\ChatGPT\\视频制作\\video_farm_data\\outputs\\0efe8d6e-48a0-456d-999b-244bce0445fb.mp4",
+    "sha256": "d2a7ee22484989256ce7c6cd3cdcda5254375de62c0b2e1b46bbf1b92596f660",
+    "duration": 8.0,
+    "resolution": "720x1280",
+    "codec": "h264"
+  },
+  {
+    "final_assembled": true,
+    "project_id": "M8_TOMATO_STORY",
+    "path": "C:\\Users\\win10\\Documents\\ChatGPT\\视频制作\\video_farm_data\\outputs\\assembled_6a3990fe0177_assembled_m8_tomato_story.mp4",
+    "sha256": "6e6aa4f527a910f9ff7a8ff761724ef44c12e4fec39228a4922406d35c488f85",
+    "duration": 26.005011,
+    "resolution": "1280x720",
+    "codec": "h264"
+  }
+]

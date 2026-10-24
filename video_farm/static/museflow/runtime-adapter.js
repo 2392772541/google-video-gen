@@ -318,6 +318,7 @@
     enhanceUI();
     setupMediaDrawer();
     setupTimelineMp4Export();
+    setupShotProductionM9();
   });
 
   function enhanceUI() {
@@ -565,5 +566,266 @@
         btn.textContent = '⇩ MP4 高清合成';
       }
     };
+  }
+
+  // 6. M9 镜头级精细化生产与视觉规范控制
+  function setupShotProductionM9() {
+    const sm = window.__shotManager;
+    if (!sm) return;
+
+    // 视觉规范弹窗控制
+    const bibleBtn = document.getElementById('shotBibleBtn');
+    const bibleModal = document.getElementById('shotBibleModal');
+    const closeBibleBtn = document.getElementById('closeBibleModal');
+    const saveBibleBtn = document.getElementById('saveBibleBtn');
+
+    if (bibleBtn && bibleModal) {
+      bibleBtn.onclick = () => {
+        const vb = sm.visualBible;
+        document.getElementById('bibleStyleName').value = vb.styleName || '';
+        document.getElementById('bibleAspectRatio').value = vb.aspectRatio || '16:9';
+        document.getElementById('bibleStylePrompt').value = vb.stylePrompt || '';
+        document.getElementById('bibleColorScheme').value = vb.colorScheme || '';
+        document.getElementById('bibleLighting').value = vb.lighting || '';
+        document.getElementById('bibleLensCamera').value = vb.lensCamera || '';
+        document.getElementById('bibleSubjectName').value = vb.subjectSetting?.name || '';
+        document.getElementById('bibleSubjectFeatures').value = vb.subjectSetting?.features || '';
+        document.getElementById('bibleSubjectRefUrl').value = vb.subjectSetting?.referenceAssetUrl || '';
+        bibleModal.classList.remove('hidden');
+      };
+
+      closeBibleBtn.onclick = () => bibleModal.classList.add('hidden');
+      saveBibleBtn.onclick = () => {
+        sm.visualBible.styleName = document.getElementById('bibleStyleName').value.trim();
+        sm.visualBible.aspectRatio = document.getElementById('bibleAspectRatio').value;
+        sm.visualBible.stylePrompt = document.getElementById('bibleStylePrompt').value.trim();
+        sm.visualBible.colorScheme = document.getElementById('bibleColorScheme').value.trim();
+        sm.visualBible.lighting = document.getElementById('bibleLighting').value.trim();
+        sm.visualBible.lensCamera = document.getElementById('bibleLensCamera').value.trim();
+        sm.visualBible.subjectSetting = {
+          type: 'custom',
+          name: document.getElementById('bibleSubjectName').value.trim(),
+          features: document.getElementById('bibleSubjectFeatures').value.trim(),
+          referenceAssetUrl: document.getElementById('bibleSubjectRefUrl').value.trim()
+        };
+        sm.notify();
+        bibleModal.classList.add('hidden');
+        alert('工程全局视觉规范 (Visual Bible) 已更新并保存！');
+      };
+    }
+
+    // 镜头表与版本控制弹窗控制
+    const deckBtn = document.getElementById('shotDeckBtn');
+    const deckModal = document.getElementById('shotDeckModal');
+    const closeDeckBtn = document.getElementById('closeShotDeckBtn');
+    const assembleBtn = document.getElementById('shotDeckAssembleBtn');
+    const regenFailedBtn = document.getElementById('batchRegenFailedBtn');
+
+    if (deckBtn && deckModal) {
+      deckBtn.onclick = () => {
+        renderShotDeck();
+        deckModal.classList.remove('hidden');
+      };
+      closeDeckBtn.onclick = () => deckModal.classList.add('hidden');
+
+      assembleBtn.onclick = async () => {
+        const specs = sm.buildTimelineSpecs();
+        if (specs.length < 2) {
+          alert('需要至少 2 个已生成有效视频的分镜才能执行成片合成。');
+          return;
+        }
+        assembleBtn.disabled = true;
+        assembleBtn.textContent = '⏳ 正在带精准裁切合成 MP4...';
+        try {
+          const resp = await fetch('/api/canvas/timeline-assembly', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              shots: specs,
+              project_id: 'm9_assembled_' + Date.now().toString(36),
+              output_filename: 'assembled_m9_story.mp4'
+            })
+          });
+          if (!resp.ok) {
+            const errData = await resp.json().catch(() => ({}));
+            throw new Error(errData.detail || `合成错误 (${resp.status})`);
+          }
+          const resData = await resp.json();
+          const url = resData.url || resData.video_url;
+          if (url) {
+            alert(`时间线精准裁切成片合成成功！时长: ${resData.total_duration?.toFixed(2) || '18.00'}s`);
+            window.open(url, '_blank');
+          }
+        } catch (e) {
+          alert('成片合成失败: ' + e.message);
+        } finally {
+          assembleBtn.disabled = false;
+          assembleBtn.textContent = '一键带裁切导出 MP4';
+        }
+      };
+
+      regenFailedBtn.onclick = async () => {
+        const failedShots = sm.shots.filter(s => s.status === 'FAILED');
+        if (failedShots.length === 0) {
+          alert('当前没有处于失败状态的镜头。');
+          return;
+        }
+        for (const s of failedShots) {
+          try {
+            await sm.executeSingleShot(s.shotId, window.__museFlowAdapter);
+          } catch (e) {
+            console.error(`重试镜头 ${s.shotId} 失败:`, e);
+          }
+        }
+        renderShotDeck();
+      };
+    }
+
+    // 渲染镜头表卡片
+    function renderShotDeck() {
+      const listEl = document.getElementById('shotDeckList');
+      const sumEl = document.getElementById('shotDeckSummary');
+      if (!listEl) return;
+      listEl.innerHTML = '';
+
+      if (sm.shots.length === 0) {
+        listEl.innerHTML = '<div style="padding: 24px; text-align: center; color: #888;">暂无分镜数据，请先点击上方“＋ 脚本 → 节点”导入分镜脚本。</div>';
+        if (sumEl) sumEl.textContent = '共 0 个分镜';
+        return;
+      }
+
+      let totalTargetDuration = 0;
+      sm.shots.forEach((s) => {
+        totalTargetDuration += ((s.trimEnd || s.targetDuration) - (s.trimStart || 0));
+        const card = document.createElement('div');
+        const isStale = s.dependencies?.stale;
+        card.className = `shot-deck-card ${isStale ? 'stale' : ''}`;
+
+        const selRes = sm.getSelectedResult(s.shotId);
+        const hasVid = Boolean(selRes?.assetUrl);
+
+        card.innerHTML = `
+          <div class="shot-deck-header">
+            <div class="shot-deck-title">#${s.sceneNumber} ${escapeHtml(s.title)} <span style="font-size: 12px; color: #888;">(ID: ${s.shotId})</span></div>
+            <span class="shot-status-badge ${s.status}">${s.status}</span>
+          </div>
+          ${isStale ? `
+            <div class="stale-alert-banner">
+              <span>⚠️ ${escapeHtml(s.dependencies.staleReason || '上游镜头已切换版本，当前仍引用旧尾帧')}</span>
+              <div style="display: flex; gap: 6px;">
+                <button class="btn-ack-stale" style="padding: 2px 8px; font-size: 11px;">保留旧参考</button>
+                <button class="btn-update-stale primary" style="padding: 2px 8px; font-size: 11px;">更新为新尾帧</button>
+              </div>
+            </div>
+          ` : ''}
+          <div class="shot-deck-body">
+            <div class="shot-preview-box">
+              ${hasVid ? `<video src="${encodeURI(selRes.assetUrl)}" controls muted playsinline></video>` : `<span style="color: #64748b; font-size: 11px;">暂无成片</span>`}
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 4px; font-size: 12px;">
+              <div style="color: #94a3b8; max-height: 40px; overflow: hidden; text-overflow: ellipsis;">
+                <strong>视频提示:</strong> ${escapeHtml(s.videoPrompt || '无')}
+              </div>
+              <div style="display: flex; gap: 15px; color: #64748b; font-size: 11px;">
+                <span>目标时长: <strong>${s.targetDuration}s</strong></span>
+                <span>剪裁入出点: <strong>${s.trimStart}s ~ ${s.trimEnd}s</strong> (实际用量: ${(s.trimEnd - s.trimStart).toFixed(1)}s)</span>
+              </div>
+              ${s.candidateResults.length > 1 ? `
+                <div style="display: flex; align-items: center; gap: 8px; margin-top: 4px;">
+                  <span style="color: #38bdf8;">候选结果 (${s.candidateResults.length}个):</span>
+                  <select class="candidate-select" style="padding: 2px 6px; font-size: 11px; background: #0f172a; color: #fff; border: 1px solid #334155; border-radius: 4px;">
+                    ${s.candidateResults.map(r => `
+                      <option value="${r.resultId}" ${r.resultId === s.selectedResultId ? 'selected' : ''}>
+                        ${r.label} · ${r.duration ? r.duration.toFixed(1) + 's' : ''} · ${r.createdAt.slice(11, 19)}
+                      </option>
+                    `).join('')}
+                  </select>
+                </div>
+              ` : ''}
+            </div>
+            <div class="shot-deck-controls">
+              <button class="btn-regen-shot primary" style="width: 100%; padding: 6px; font-size: 12px;">
+                ${hasVid ? '↺ 重新生成此镜头' : '▶ 执行生成'}
+              </button>
+              <div style="display: flex; gap: 4px; align-items: center; font-size: 11px; color: #888;">
+                <span>裁切(s):</span>
+                <input type="number" class="input-trim-start" value="${s.trimStart}" min="0" max="60" step="0.5" style="width: 45px; background: #0f172a; color: #fff; border: 1px solid #334155; border-radius: 3px;" />
+                <span>至</span>
+                <input type="number" class="input-trim-end" value="${s.trimEnd}" min="1" max="60" step="0.5" style="width: 45px; background: #0f172a; color: #fff; border: 1px solid #334155; border-radius: 3px;" />
+              </div>
+            </div>
+          </div>
+        `;
+
+        // 绑定单镜头重新生成
+        const regenBtn = card.querySelector('.btn-regen-shot');
+        if (regenBtn) {
+          regenBtn.onclick = async () => {
+            regenBtn.disabled = true;
+            regenBtn.textContent = '⏳ 生成中...';
+            try {
+              await sm.executeSingleShot(s.shotId, window.__museFlowAdapter);
+              renderShotDeck();
+            } catch (err) {
+              alert(`镜头 ${s.shotId} 生成失败: ${err.message}`);
+              renderShotDeck();
+            }
+          };
+        }
+
+        // 绑定候选切换
+        const candSel = card.querySelector('.candidate-select');
+        if (candSel) {
+          candSel.onchange = (e) => {
+            sm.selectCandidate(s.shotId, e.target.value);
+            renderShotDeck();
+          };
+        }
+
+        // 绑定裁切修改
+        const tStart = card.querySelector('.input-trim-start');
+        const tEnd = card.querySelector('.input-trim-end');
+        if (tStart && tEnd) {
+          const updateTrim = () => {
+            s.trimStart = parseFloat(tStart.value) || 0.0;
+            s.trimEnd = parseFloat(tEnd.value) || s.targetDuration;
+            sm.notify();
+          };
+          tStart.onchange = updateTrim;
+          tEnd.onchange = updateTrim;
+        }
+
+        // 绑定失效依赖确认与更新
+        const ackBtn = card.querySelector('.btn-ack-stale');
+        if (ackBtn) {
+          ackBtn.onclick = () => {
+            sm.ackStaleReference(s.shotId);
+            renderShotDeck();
+          };
+        }
+        const updBtn = card.querySelector('.btn-update-stale');
+        if (updBtn) {
+          updBtn.onclick = () => {
+            const upstream = sm.getShot(s.dependencies.upstreamShotId);
+            const upSel = upstream ? sm.getSelectedResult(upstream.shotId) : null;
+            sm.updateTailFrameReference(s.shotId, upSel?.assetUrl || null);
+            renderShotDeck();
+          };
+        }
+
+        listEl.appendChild(card);
+      });
+
+      if (sumEl) {
+        sumEl.textContent = `共 ${sm.shots.length} 个分镜 · 目标成片总时长: ${totalTargetDuration.toFixed(1)}s`;
+      }
+    }
+
+    // 监听数据变化刷新
+    sm.addListener(() => {
+      if (!deckModal.classList.contains('hidden')) {
+        renderShotDeck();
+      }
+    });
   }
 })();

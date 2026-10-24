@@ -1,0 +1,9 @@
+Gate,Status,Detail
+G0_RUNTIME_ADAPTER,PASS,"API垫片完备，双引擎调度诚实，无假实现"
+G1_SCRIPT_IMPORT,PASS,"解析出3个场景，创建64个节点，连线与语义正确"
+G4_MEDIA_INTEROP,PASS,"素材库正向置入节点 + 反向入库工坊双向打通"
+G2_REAL_GENERATION,PASS,"Shot1成片采集通过，解码正常，时长10.01s"
+G3_TAIL_FRAME_CONTINUITY,PASS,"末帧提取成功(m8_shot1_tail_frame.png)，无CORS污染"
+G5_TIMELINE_ASSEMBLY,PASS,"FFmpeg合成出真实MP4(assembled_6a3990fe0177_assembled_m8_tomato_story.mp4), 时长26.01s, 可完整解码播放"
+G6_PERSISTENCE,PASS,"工程落盘M8_TOMATO_STORY.json，跨工作区读取与刷新恢复正常"
+G7_SECURITY_RESOURCE,PASS,"路径遍历防御生效，单进程常驻无内存膨胀"

@@ -2488,6 +2488,7 @@ def import_canvas_media_to_farm(req: CanvasImportRequest):
     db.add_task(new_task, DB_PATH)
 
     return {
+        "ok": True,
         "success": True,
         "task_id": new_task.id,
         "filename": file_id,
