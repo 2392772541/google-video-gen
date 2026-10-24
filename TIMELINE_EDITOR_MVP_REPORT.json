@@ -1,0 +1,94 @@
+{
+  "test_a_reorder_shots": "PASS",
+  "test_b_lossless_trim": "PASS",
+  "test_c_replace_single_shot": "PASS",
+  "test_d_persistence_and_reload": "PASS",
+  "test_e_real_ffmpeg_assembly": "PASS",
+  "baseline_checks": {
+    "check_a_pytest_skipped_reason": "438 passed, 9 skipped; 9 skipped are intentionally isolated live HTTP/subprocess checks",
+    "check_b_shot1_duration_fact": "shot1_sprout_video.mp4 is natively 8.000s; earlier 6s was from separate Veo Lite duration test task_24dd447462b0",
+    "check_c_prior_sorting_fact": "confirmed prior logic strictly sorted nodes by a.position.x - b.position.x; now replaced by explicit timeline order"
+  },
+  "evidence": {
+    "total_duration": 30.0,
+    "playback_current_time": 1.930335,
+    "assembled_url": "/media/outputs/assembled_517e77fe7dc6_assembled_proj_tomato_story_001.mp4",
+    "screenshot": "C:\\Users\\win10\\Documents\\ChatGPT\\视频制作\\QA_EVIDENCE\\timeline_editor_verified.png",
+    "api_response": {
+      "success": true,
+      "task_id": "t_abc608b2466c",
+      "url": "/media/outputs/assembled_517e77fe7dc6_assembled_proj_tomato_story_001.mp4",
+      "filename": "assembled_517e77fe7dc6_assembled_proj_tomato_story_001.mp4",
+      "total_duration": 30.0,
+      "expected_duration": 30.0,
+      "file_size": 9524452,
+      "sha256": "c4f006a8b48c0afe2b2ee42fefff2c80ac4b59b4d8b87ebfc3946ca85b8c27ad",
+      "timeline": [
+        {
+          "shot_index": 1,
+          "shot_id": "node_shot_2",
+          "source_filename": "shot2_growing_video.mp4",
+          "start_time": 0.0,
+          "end_time": 6.0,
+          "duration": 6.0,
+          "source_duration": 8.0,
+          "trim_start_s": 1.0,
+          "trim_end_s": 7.0,
+          "resolution": "1280x720",
+          "has_audio": true,
+          "source_sha256": "4319ee41aea4b250098c8d9adc63410448b294abc8a82a783039f0e3a6bbbd31"
+        },
+        {
+          "shot_index": 2,
+          "shot_id": "node_shot_1",
+          "source_filename": "shot1_sprout_video.mp4",
+          "start_time": 6.0,
+          "end_time": 14.0,
+          "duration": 8.0,
+          "source_duration": 8.0,
+          "trim_start_s": 0.0,
+          "trim_end_s": 8.0,
+          "resolution": "1280x720",
+          "has_audio": true,
+          "source_sha256": "b1960a75893f11267adcca6e524fc72dce4c1e9c58416471061af9451b54351d"
+        },
+        {
+          "shot_index": 3,
+          "shot_id": "node_shot_1",
+          "source_filename": "shot1_sprout_video.mp4",
+          "start_time": 14.0,
+          "end_time": 22.0,
+          "duration": 8.0,
+          "source_duration": 8.0,
+          "trim_start_s": 0.0,
+          "trim_end_s": 8.0,
+          "resolution": "1280x720",
+          "has_audio": true,
+          "source_sha256": "b1960a75893f11267adcca6e524fc72dce4c1e9c58416471061af9451b54351d"
+        },
+        {
+          "shot_index": 4,
+          "shot_id": "node_shot_4",
+          "source_filename": "shot4_ripe_video.mp4",
+          "start_time": 22.0,
+          "end_time": 30.0,
+          "duration": 8.0,
+          "source_duration": 8.0,
+          "trim_start_s": 0.0,
+          "trim_end_s": 8.0,
+          "resolution": "1280x720",
+          "has_audio": true,
+          "source_sha256": "92b52e0c263e3ce9a139b07a37477112df647acdb3385225a9b75ff00b548c5b"
+        }
+      ],
+      "video_format": {
+        "width": 1280,
+        "height": 720,
+        "fps": 24.0,
+        "vcodec": "h264",
+        "acodec": "aac"
+      }
+    },
+    "memory_diff_mb": 5.65
+  }
+}

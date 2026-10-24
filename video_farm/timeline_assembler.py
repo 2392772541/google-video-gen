@@ -17,7 +17,7 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Union
 
 
 class TimelineAssemblyError(Exception):
@@ -26,6 +26,26 @@ class TimelineAssemblyError(Exception):
         super().__init__(message)
         self.message = message
         self.code = code
+
+
+class ShotSpec:
+    """单个分镜的装配规格（支持无损裁剪与自定义元数据）"""
+    def __init__(
+        self,
+        path: Path,
+        trim_start_s: float = 0.0,
+        trim_end_s: Optional[float] = None,
+        shot_id: Optional[str] = None,
+        order: int = 0
+    ):
+        self.path = Path(path).resolve()
+        self.trim_start_s = max(0.0, float(trim_start_s or 0.0))
+        self.trim_end_s = float(trim_end_s) if trim_end_s is not None else None
+        self.shot_id = str(shot_id) if shot_id else None
+        self.order = int(order)
+
+    def __repr__(self) -> str:
+        return f"ShotSpec(path={self.path.name}, trim={self.trim_start_s:.2f}-{self.trim_end_s}, order={self.order})"
 
 
 def calculate_sha256(file_path: Path) -> str:
@@ -121,7 +141,7 @@ def probe_video(video_path: Path) -> Dict[str, Any]:
 
 
 def assemble_timeline(
-    video_paths: List[Path],
+    video_paths: List[Union[Path, ShotSpec]],
     output_path: Path,
     target_width: int = 1280,
     target_height: int = 720,
@@ -136,50 +156,104 @@ def assemble_timeline(
     if not video_paths or len(video_paths) < 2:
         raise TimelineAssemblyError("时间线合成至少需要 2 个有效镜头视频", code=400)
 
+    # 规范化为 ShotSpec 规格对象
+    shot_specs: List[ShotSpec] = []
+    for idx, item in enumerate(video_paths):
+        if isinstance(item, ShotSpec):
+            shot_specs.append(item)
+        else:
+            shot_specs.append(ShotSpec(path=Path(item), order=idx))
+
     output_path = output_path.resolve()
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # 1. 探测所有输入流
+    # 1. 探测所有输入流并校验裁剪范围
     probed_list: List[Dict[str, Any]] = []
-    for p in video_paths:
-        info = probe_video(p)
+    for spec in shot_specs:
+        info = probe_video(spec.path)
+        src_dur = info["duration"]
+        trim_start = round(spec.trim_start_s, 3)
+        trim_end = round(spec.trim_end_s if spec.trim_end_s is not None else src_dur, 3)
+
+        if trim_start < 0:
+            raise TimelineAssemblyError(f"分镜 [{spec.path.name}] 起始裁剪时间不能为负数 ({trim_start}s)", code=400)
+        if trim_end > src_dur + 0.05:
+            raise TimelineAssemblyError(
+                f"分镜 [{spec.path.name}] 结束裁剪时间 ({trim_end:.2f}s) 超过了源视频物理时长 ({src_dur:.2f}s)",
+                code=400
+            )
+        if trim_end <= trim_start:
+            raise TimelineAssemblyError(
+                f"分镜 [{spec.path.name}] 裁剪参数无效: 结束时间 ({trim_end:.2f}s) 必须大于起始时间 ({trim_start:.2f}s)",
+                code=400
+            )
+        eff_dur = round(trim_end - trim_start, 3)
+        if eff_dur < 0.1:
+            raise TimelineAssemblyError(
+                f"分镜 [{spec.path.name}] 裁剪后有效时长必须大于 0.1s (当前为 {eff_dur}s)",
+                code=400
+            )
+
+        info["trim_start_s"] = trim_start
+        info["trim_end_s"] = trim_end
+        info["effective_duration"] = eff_dur
+        info["shot_id"] = spec.shot_id
+        info["order"] = spec.order
         probed_list.append(info)
 
     # 2. 构建 FFmpeg 命令行参数与滤波图
     cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y"]
-    for p in video_paths:
-        cmd.extend(["-i", str(p.resolve())])
+    for spec in shot_specs:
+        cmd.extend(["-i", str(spec.path.resolve())])
 
     filter_parts: List[str] = []
     concat_in_v: List[str] = []
     concat_in_a: List[str] = []
 
     for i, info in enumerate(probed_list):
-        dur = info["duration"]
-        # 视频滤镜：保持比例居中缩放并加黑边，强制指定帧率与 SAR
-        v_label = f"v{i}"
-        filter_parts.append(
-            f"[{i}:v]scale={target_width}:{target_height}:force_original_aspect_ratio=decrease,"
-            f"pad={target_width}:{target_height}:(ow-iw)/2:(oh-ih)/2,"
-            f"setsar=1,fps={target_fps}[{v_label}]"
-        )
-        concat_in_v.append(f"[{v_label}]")
+        eff_dur = info["effective_duration"]
+        t_start = info["trim_start_s"]
+        t_end = info["trim_end_s"]
+        is_trimmed = (t_start > 0.001) or (t_end < info["duration"] - 0.001)
 
-        # 音频滤镜：若有音轨则重采样为 44.1kHz 立体声；若无音轨则生成等长静音轨
-        a_label = f"a{i}"
-        if info["has_audio"]:
+        # 视频滤镜：若有裁剪则先 trim 并重置 PTS，再保持比例居中缩放并加黑边
+        v_label = f"v{i}"
+        if is_trimmed:
             filter_parts.append(
-                f"[{i}:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo[{a_label}]"
+                f"[{i}:v]trim=start={t_start:.3f}:end={t_end:.3f},setpts=PTS-STARTPTS,"
+                f"scale={target_width}:{target_height}:force_original_aspect_ratio=decrease,"
+                f"pad={target_width}:{target_height}:(ow-iw)/2:(oh-ih)/2,"
+                f"setsar=1,fps={target_fps}[{v_label}]"
             )
         else:
             filter_parts.append(
-                f"anullsrc=r=44100:cl=stereo,atrim=duration={dur:.3f}[{a_label}]"
+                f"[{i}:v]scale={target_width}:{target_height}:force_original_aspect_ratio=decrease,"
+                f"pad={target_width}:{target_height}:(ow-iw)/2:(oh-ih)/2,"
+                f"setsar=1,fps={target_fps}[{v_label}]"
+            )
+        concat_in_v.append(f"[{v_label}]")
+
+        # 音频滤镜：若有音轨且裁剪则 atrim 并重采样为 44.1kHz 立体声；若无音轨则生成等长静音轨
+        a_label = f"a{i}"
+        if info["has_audio"]:
+            if is_trimmed:
+                filter_parts.append(
+                    f"[{i}:a]atrim=start={t_start:.3f}:end={t_end:.3f},asetpts=PTS-STARTPTS,"
+                    f"aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo[{a_label}]"
+                )
+            else:
+                filter_parts.append(
+                    f"[{i}:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo[{a_label}]"
+                )
+        else:
+            filter_parts.append(
+                f"anullsrc=r=44100:cl=stereo,atrim=duration={eff_dur:.3f}[{a_label}]"
             )
         concat_in_a.append(f"[{a_label}]")
 
     # 合并 concat
     concat_inputs = "".join(f"{v}{a}" for v, a in zip(concat_in_v, concat_in_a))
-    filter_parts.append(f"{concat_inputs}concat=n={len(video_paths)}:v=1:a=1[outv][outa]")
+    filter_parts.append(f"{concat_inputs}concat=n={len(shot_specs)}:v=1:a=1[outv][outa]")
     complex_filter = ";".join(filter_parts)
 
     cmd.extend([
@@ -227,15 +301,19 @@ def assemble_timeline(
     timeline_cues = []
     acc_time = 0.0
     for i, info in enumerate(probed_list):
-        dur = round(info["duration"], 3)
+        dur = round(info["effective_duration"], 3)
         start_t = round(acc_time, 3)
         end_t = round(acc_time + dur, 3)
         timeline_cues.append({
             "shot_index": i + 1,
+            "shot_id": info.get("shot_id"),
             "source_filename": info["filename"],
             "start_time": start_t,
             "end_time": end_t,
             "duration": dur,
+            "source_duration": round(info["duration"], 3),
+            "trim_start_s": info["trim_start_s"],
+            "trim_end_s": info["trim_end_s"],
             "resolution": f"{info['width']}x{info['height']}",
             "has_audio": info["has_audio"],
             "source_sha256": calculate_sha256(Path(info["path"]))
