@@ -346,6 +346,12 @@ async def create_canvas_video_task(request: Request):
         first_frame = form.get("first_frame")
         last_frame = form.get("last_frame")
 
+        is_ref_mode = mode in ("reference", "ingredients", "ingredient") or (mode != "frames" and len(collected_files) > 0 and not (first_frame or last_frame))
+
+        # 引擎级硬约束前置防护：Gemini 绝对不支持超过 1 张参考图片
+        if engine == "gemini" and len(collected_files) > 1:
+            raise HTTPException(422, f"Google Gemini 网页通道最多支持 1 张参考图，当前上传了 {len(collected_files)} 张，请减少参考图数量 (最大 1 张)")
+
         if mode == "frames":
             if engine == "vids":
                 raise HTTPException(422, "Google Vids 暂不支持双关键帧首尾插值模式，请使用首帧单图或 1~3 张参考图模式，或切换为 Google Flow")
@@ -354,9 +360,7 @@ async def create_canvas_video_task(request: Request):
             if last_frame and not first_frame and len(collected_files) <= 1:
                 raise HTTPException(422, "首尾帧模式缺少起始帧；仅提供尾帧时无法生成，请补齐起始帧或切换为单图参考模式")
 
-        if mode == "reference":
-            if engine == "gemini" and len(collected_files) > 1:
-                raise HTTPException(422, "Google Gemini 网页通道仅支持单张参考图驱动，请减少参考图数量 (最大 1 张)")
+        if is_ref_mode:
             if engine == "flow":
                 if "quality" in raw_model and len(collected_files) > 0:
                     raise HTTPException(422, "Flow Veo Quality 模型不支持参考图 (Ingredients) 生成，请切换为 Veo Fast / Lite 或 Omni 模型，或改用首尾帧模式")

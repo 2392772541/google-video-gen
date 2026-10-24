@@ -341,11 +341,12 @@
       "capability": "video",
       "modes": [
         "text_to_video",
-        "first_frame"
+        "first_frame",
+        "ingredients"
       ],
       "first_frame_supported": true,
       "last_frame_supported": false,
-      "ingredient_reference_supported": false,
+      "ingredient_reference_supported": true,
       "max_reference_images": 1,
       "supportedDurations": [
         6
@@ -353,7 +354,7 @@
       "defaultDuration": 6,
       "duration_control_mode": "upstream_default",
       "supportsFrames": false,
-      "supportsIngredients": false,
+      "supportsIngredients": true,
       "supportsExtend": false,
       "supportedResolutions": [
         "720p"
@@ -376,7 +377,7 @@
       "account_availability": "available",
       "validation_status": "verified",
       "verified_at": "2026-10-24T17:00:00+08:00",
-      "evidence_source": "Gemini 网页端视频工作区，支持首帧驱动，严禁上传未确认提前提交"
+      "evidence_source": "Gemini 网页端视频工作区，支持单图参考驱动，时长由网页端默认决定 (约 6s)"
     },
     "gpt-image-1.5": {
       "provider": "local_proxy",

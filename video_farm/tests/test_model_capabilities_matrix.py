@@ -69,6 +69,7 @@ def test_model_capabilities_registry_coverage():
     spec_gemini = get_model_spec("gemini")
     assert spec_gemini["duration_control_mode"] == "upstream_default"
     assert spec_gemini["supportsFrames"] is False
+    assert spec_gemini["supportsIngredients"] is True
     assert spec_gemini["max_reference_images"] == 1
 
 
