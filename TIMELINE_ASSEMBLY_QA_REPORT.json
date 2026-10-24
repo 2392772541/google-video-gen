@@ -1,0 +1,87 @@
+{
+  "gate1_blank_canvas_creation": "PASS",
+  "gate2_timeline_assembly_core": "PASS",
+  "gate3_browser_playback_and_persistence": "PASS",
+  "gate4_edge_and_stability_cases": "PASS",
+  "gate5_machine_evidence_and_artifacts": "PASS",
+  "evidence": {
+    "blank_project_id": "vZGQVucvuRoBxLFwDud6O",
+    "assembly_api_response": {
+      "success": true,
+      "task_id": "t_f6d53e2078fc",
+      "url": "/media/outputs/assembled_af0e6501511f_assembled_proj_tomato_story_001.mp4",
+      "filename": "assembled_af0e6501511f_assembled_proj_tomato_story_001.mp4",
+      "total_duration": 29.013,
+      "expected_duration": 29.013,
+      "file_size": 9599030,
+      "sha256": "fa7689209d422e8161336cb65e845f9475640a97d5042e61c446474364fa7c52",
+      "timeline": [
+        {
+          "shot_index": 1,
+          "source_filename": "shot1_sprout_video.mp4",
+          "start_time": 0.0,
+          "end_time": 8.0,
+          "duration": 8.0,
+          "resolution": "1280x720",
+          "has_audio": true,
+          "source_sha256": "b1960a75893f11267adcca6e524fc72dce4c1e9c58416471061af9451b54351d"
+        },
+        {
+          "shot_index": 2,
+          "source_filename": "shot2_growing_video.mp4",
+          "start_time": 8.0,
+          "end_time": 16.0,
+          "duration": 8.0,
+          "resolution": "1280x720",
+          "has_audio": true,
+          "source_sha256": "4319ee41aea4b250098c8d9adc63410448b294abc8a82a783039f0e3a6bbbd31"
+        },
+        {
+          "shot_index": 3,
+          "source_filename": "shot3_flower_video.mp4",
+          "start_time": 16.0,
+          "end_time": 21.013,
+          "duration": 5.013,
+          "resolution": "1280x720",
+          "has_audio": true,
+          "source_sha256": "78b7a7d00e62ebc6cd8f8cb3882bbbb069f877b2fd23b0b92ec920fed53e1653"
+        },
+        {
+          "shot_index": 4,
+          "source_filename": "shot4_ripe_video.mp4",
+          "start_time": 21.013,
+          "end_time": 29.013,
+          "duration": 8.0,
+          "resolution": "1280x720",
+          "has_audio": true,
+          "source_sha256": "92b52e0c263e3ce9a139b07a37477112df647acdb3385225a9b75ff00b548c5b"
+        }
+      ],
+      "video_format": {
+        "width": 1280,
+        "height": 720,
+        "fps": 24.0,
+        "vcodec": "h264",
+        "acodec": "aac"
+      }
+    },
+    "screenshot": "C:\\Users\\win10\\Documents\\ChatGPT\\视频制作\\QA_EVIDENCE\\timeline_assembly_canvas_verified.png",
+    "playback_progress_seconds": 2.462518,
+    "artifacts": {
+      "assembled_file": "C:\\Users\\win10\\Documents\\ChatGPT\\视频制作\\QA_EVIDENCE\\tomato_story_full_assembled.mp4",
+      "filename": "tomato_story_full_assembled.mp4",
+      "file_size_bytes": 9599030,
+      "file_size_mb": 9.15,
+      "sha256": "fa7689209d422e8161336cb65e845f9475640a97d5042e61c446474364fa7c52",
+      "duration_seconds": 29.013,
+      "resolution": "1280x720",
+      "video_codec": "h264",
+      "audio_codec": "aac",
+      "audio_sample_rate": "44100",
+      "channels": 2,
+      "memory_initial_mb": 30.43,
+      "memory_final_mb": 34.5,
+      "memory_diff_mb": 4.07
+    }
+  }
+}

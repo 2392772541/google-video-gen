@@ -29,6 +29,8 @@ from . import db
 from .video_contract import validate_video_request, VideoRequestError
 from .image_modes import MAX_IMAGE_BYTES
 from .local_security import media_type
+from pydantic import BaseModel
+from .timeline_assembler import assemble_timeline, TimelineAssemblyError, calculate_sha256
 
 router = APIRouter(tags=["Infinite Canvas Adapter"])
 
@@ -606,6 +608,121 @@ async def create_canvas_chat_completion(request: Request):
             raise HTTPException(exc.code, f"模型网关返回异常: {err_body}") from exc
     except Exception as exc:
         raise HTTPException(502, f"连接模型网关失败: {exc}") from exc
+
+
+class TimelineAssemblyRequest(BaseModel):
+    project_id: str
+    shot_video_urls: List[str]
+    title: Optional[str] = "多镜头合成视频"
+    output_filename: Optional[str] = None
+
+
+def resolve_media_url_to_path(url_or_path: str) -> Path:
+    """安全将 URL 或文件名解析映射到本地物理视频文件"""
+    s = str(url_or_path).strip()
+    if not s:
+        raise HTTPException(400, "分镜视频路径不能为空")
+    p = Path(s)
+    if p.is_file():
+        return p.resolve()
+
+    if "media/outputs/" in s:
+        sub = s.split("media/outputs/")[-1].split("?")[0]
+        cand = (OUTPUTS_DIR / sub).resolve()
+        if cand.is_file():
+            return cand
+        cand_sub = (OUTPUTS_DIR / "tomato_story" / Path(sub).name).resolve()
+        if cand_sub.is_file():
+            return cand_sub
+        cand_qa = (BASE_DIR / "QA_EVIDENCE" / "tomato_story" / Path(sub).name).resolve()
+        if cand_qa.is_file():
+            return cand_qa
+
+    cand = (OUTPUTS_DIR / s).resolve()
+    if cand.is_file():
+        return cand
+    cand_tomato = (OUTPUTS_DIR / "tomato_story" / Path(s).name).resolve()
+    if cand_tomato.is_file():
+        return cand_tomato
+    cand_qa = (BASE_DIR / "QA_EVIDENCE" / "tomato_story" / Path(s).name).resolve()
+    if cand_qa.is_file():
+        return cand_qa
+
+    raise HTTPException(400, f"分镜视频文件未找到或不可读取: {url_or_path}")
+
+
+@router.post("/timeline-assembly")
+@router.post("/api/canvas/timeline-assembly")
+async def handle_timeline_assembly(req: TimelineAssemblyRequest):
+    """
+    多镜头时间线无缝成片合成接口：
+    接收有序分镜视频 URL 列表，调用底层 FFmpeg 滤波图合成标准化 MP4。
+    成片注册入库，返回精确时间线时刻清单、总时长及下载 URL。
+    """
+    if not req.shot_video_urls or len(req.shot_video_urls) < 2:
+        raise HTTPException(400, "时间线合成至少需要 2 个有效镜头视频")
+
+    resolved_paths: List[Path] = []
+    for idx, u in enumerate(req.shot_video_urls):
+        try:
+            rp = resolve_media_url_to_path(u)
+            resolved_paths.append(rp)
+        except HTTPException as e:
+            raise HTTPException(e.status_code, f"第 {idx + 1} 个分镜视频错误: {e.detail}") from e
+
+    out_stem = f"assembled_{uuid.uuid4().hex[:12]}"
+    if req.output_filename:
+        clean_name = re.sub(r"[^\w\-.]", "_", req.output_filename).strip("_")
+        if clean_name.lower().endswith(".mp4"):
+            clean_name = clean_name[:-4]
+        if clean_name:
+            out_stem = f"{out_stem}_{clean_name}"
+    out_file = OUTPUTS_DIR / f"{out_stem}.mp4"
+
+    try:
+        result = assemble_timeline(
+            resolved_paths,
+            out_file,
+            target_width=1280,
+            target_height=720,
+            target_fps=24,
+            max_threads=2,
+            timeout_sec=180
+        )
+    except TimelineAssemblyError as e:
+        raise HTTPException(e.code, e.message) from e
+    except Exception as e:
+        raise HTTPException(500, f"时间线合成异常: {e}") from e
+
+    now_iso = datetime.now().astimezone().isoformat()
+    task_id = f"t_{uuid.uuid4().hex[:12]}"
+    prompt_text = f"【多镜头时间线成片】{req.title} ({len(resolved_paths)}分镜, {result['total_duration']}s)"
+
+    new_task = Task(
+        id=task_id,
+        prompt=prompt_text,
+        engine="timeline_assembly",
+        task_type="video",
+        status="completed",
+        submit_time=now_iso,
+        start_time=now_iso,
+        finish_time=now_iso,
+        output_video_path=str(out_file.resolve())
+    )
+    db.add_task(new_task, DB_PATH)
+
+    return {
+        "success": True,
+        "task_id": task_id,
+        "url": f"/media/outputs/{out_file.name}",
+        "filename": out_file.name,
+        "total_duration": result["total_duration"],
+        "expected_duration": result["expected_duration"],
+        "file_size": result["file_size"],
+        "sha256": result["sha256"],
+        "timeline": result["timeline"],
+        "video_format": result["video_format"]
+    }
 
 
 @router.post("/responses")
