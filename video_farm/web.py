@@ -520,7 +520,8 @@ def _resolve_output_images(task: Task) -> tuple[List[str], List[str]]:
 def _resolve_image_url(path_str: str, task_id: str, kind: str) -> Optional[str]:
     if not path_str:
         return None
-    p = Path(path_str)
+    target_p = str(path_str).split(";")[0].strip()
+    p = Path(target_p)
     if not p.exists():
         # Maybe inside uploads?
         up_path = UPLOADS_DIR / task_id / f"{kind}.png"

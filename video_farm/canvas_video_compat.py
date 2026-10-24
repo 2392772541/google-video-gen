@@ -153,6 +153,20 @@ def list_canvas_models():
             "permission": []
         },
         {
+            "id": "gpt-image-2",
+            "object": "model",
+            "name": "GPT Image 2.0 (写实摄影)",
+            "owned_by": "video-farm",
+            "permission": []
+        },
+        {
+            "id": "gpt-image-2.5",
+            "object": "model",
+            "name": "GPT Image 2.5 (极致微距与质感)",
+            "owned_by": "video-farm",
+            "permission": []
+        },
+        {
             "id": "flow-image",
             "object": "model",
             "name": "Flow Local Image",
@@ -177,6 +191,49 @@ def list_canvas_models():
     return {"object": "list", "data": models}
 
 
+def _forward_image_generation_request(payload: dict) -> dict:
+    """向本地 CLIProxyAPI 发送生图请求，支持 120s 超时、自动重试与上游网络故障友好转译。"""
+    import time
+    max_attempts = 2
+    last_exc = None
+    for attempt in range(max_attempts):
+        try:
+            req = urllib.request.Request(
+                f"{CLI_PROXY_URL}/images/generations",
+                data=json.dumps(payload).encode("utf-8"),
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {CLI_PROXY_KEY}"
+                }
+            )
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            err_body = exc.read().decode("utf-8", errors="ignore")
+            # 若上游出现 502/503/504 或特定 DNS 超时，且还有重试次数，则短暂回退重试
+            if exc.code in (502, 503, 504) and attempt < max_attempts - 1:
+                time.sleep(2)
+                continue
+            try:
+                err_json = json.loads(err_body)
+                # 优化针对 chatgpt.com lookup timeout 的中文解释
+                msg = err_json.get("error", {}).get("message", "") if isinstance(err_json.get("error"), dict) else str(err_json)
+                if "lookup chatgpt.com" in msg or "i/o timeout" in msg:
+                    err_json["error"]["message"] = f"上游网络代理连接超时或 DNS 解析异常 (chatgpt.com i/o timeout)，请确认本机 Clash/Mihomo 代理端口 (7897) 正常连接，并可点击重新生成。原错误: {msg}"
+                return JSONResponse(status_code=exc.code, content=err_json)
+            except Exception:
+                raise HTTPException(exc.code, f"生图代理返回异常: {err_body}") from exc
+        except Exception as exc:
+            last_exc = exc
+            if attempt < max_attempts - 1:
+                time.sleep(2)
+                continue
+            err_str = str(last_exc)
+            if "lookup chatgpt.com" in err_str or "i/o timeout" in err_str or "timed out" in err_str:
+                raise HTTPException(504, f"生图网络超时或代理连接异常 (chatgpt.com i/o timeout)，请检查本机 Clash 代理是否畅通后重试。详情: {err_str}") from exc
+            raise HTTPException(502, f"连接生图引擎失败: {last_exc}") from exc
+
+
 @router.post("/images/generations")
 async def create_canvas_image_generation(request: Request):
     """
@@ -192,7 +249,8 @@ async def create_canvas_image_generation(request: Request):
     if not prompt:
         raise HTTPException(400, "生图提示词不能为空")
 
-    target_model = "gpt-image-1.5"
+    raw_model = (body.get("model") or "").strip()
+    target_model = raw_model if raw_model else "gpt-image-1.5"
 
     payload = {
         "model": target_model,
@@ -203,27 +261,7 @@ async def create_canvas_image_generation(request: Request):
         "response_format": "b64_json"
     }
 
-    try:
-        req = urllib.request.Request(
-            f"{CLI_PROXY_URL}/images/generations",
-            data=json.dumps(payload).encode("utf-8"),
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {CLI_PROXY_KEY}"
-            }
-        )
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            return data
-    except urllib.error.HTTPError as exc:
-        err_body = exc.read().decode("utf-8", errors="ignore")
-        try:
-            err_json = json.loads(err_body)
-            return JSONResponse(status_code=exc.code, content=err_json)
-        except Exception:
-            raise HTTPException(exc.code, f"生图代理返回异常: {err_body}") from exc
-    except Exception as exc:
-        raise HTTPException(502, f"连接生图引擎失败: {exc}") from exc
+    return _forward_image_generation_request(payload)
 
 
 @router.post("/images/edits")
@@ -237,7 +275,8 @@ async def create_canvas_image_edit(request: Request):
     if not prompt:
         prompt = "根据参考图片进行高质感创意重绘与渲染"
 
-    target_model = "gpt-image-1.5"
+    raw_model = str(form.get("model") or "").strip()
+    target_model = raw_model if raw_model else "gpt-image-1.5"
 
     payload = {
         "model": target_model,
@@ -248,27 +287,7 @@ async def create_canvas_image_edit(request: Request):
         "response_format": "b64_json"
     }
 
-    try:
-        req = urllib.request.Request(
-            f"{CLI_PROXY_URL}/images/generations",
-            data=json.dumps(payload).encode("utf-8"),
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {CLI_PROXY_KEY}"
-            }
-        )
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            return data
-    except urllib.error.HTTPError as exc:
-        err_body = exc.read().decode("utf-8", errors="ignore")
-        try:
-            err_json = json.loads(err_body)
-            return JSONResponse(status_code=exc.code, content=err_json)
-        except Exception:
-            raise HTTPException(exc.code, f"图生图代理返回异常: {err_body}") from exc
-    except Exception as exc:
-        raise HTTPException(502, f"连接图生图引擎失败: {exc}") from exc
+    return _forward_image_generation_request(payload)
 
 
 @router.post("/videos")
@@ -282,7 +301,8 @@ async def create_canvas_video_task(request: Request):
     raw_model = str(form.get("model") or "flow").split("::")[-1].strip().lower()
     clean_prompt = (str(form.get("prompt") or "")).strip() or "根据输入参考生成高质量连贯动态视频"
     mode = str(form.get("mode") or "").strip().lower()
-    project_id = str(form.get("project_id") or form.get("projectId") or "").strip()
+    raw_canvas_project = str(form.get("project_id") or form.get("projectId") or "").strip()
+    assigned_profile_id = db.get_affinity_profile_id(raw_canvas_project, DB_PATH) if raw_canvas_project else None
 
     vquality_str = str(form.get("vquality") or form.get("resolution_name") or "720").strip().lower()
     is_1080p = "1080" in vquality_str
@@ -297,6 +317,17 @@ async def create_canvas_video_task(request: Request):
     else:
         engine = "flow"
         internal_model = "flow"
+
+    # 1.1 上游工程 ID 与画布 Session Affinity 解耦
+    if engine == "flow":
+        # 仅当传入的是合法的 Flow UUID 时直接透传，否则置空以便 worker 自动复用该 Profile 已绑定的 Flow 工程
+        is_flow_uuid = bool(re.fullmatch(r"[0-9a-f-]{36}", raw_canvas_project.lower()))
+        upstream_project_id = raw_canvas_project if is_flow_uuid else ""
+    elif engine == "vids":
+        # 仅当传入的是实际 docs.google.com/videos URL 时透传，否则置空让 Vids 导航至 /create
+        upstream_project_id = raw_canvas_project if raw_canvas_project.startswith("https://docs.google.com/videos/") else ""
+    else:
+        upstream_project_id = ""
 
     # 2. 时长参数对齐与校验
     try:
@@ -417,7 +448,8 @@ async def create_canvas_video_task(request: Request):
             engine=engine,
             task_type="video",
             model=internal_model,
-            project_id=project_id,
+            project_id=upstream_project_id,
+            assigned_profile_id=assigned_profile_id,
             priority=10,
             submit_time=datetime.now().astimezone().isoformat()
         )

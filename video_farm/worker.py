@@ -184,24 +184,26 @@ class VideoWorker:
                 outcome.update(success=True, pid=os.getpid(), output_video_path=str(target), logs="Explicit mock sample", submission_possible=False)
                 return outcome
             self._ensure_profile_marker(profile.name)
-            start_img = Path(task.start_image_path).resolve() if task.start_image_path else None
+            ref_imgs = [Path(p.strip()).resolve() for p in (task.start_image_path or "").split(";") if p.strip()]
             end_img = Path(task.end_image_path).resolve() if task.end_image_path else None
-            for label, img in (("START", start_img), ("END", end_img)):
-                if img and not img.is_file():
-                    return failure(label + "_IMAGE_NOT_FOUND", f"图片不存在：{img}")
-            if end_img and not start_img:
+            for idx, r_img in enumerate(ref_imgs):
+                if not r_img.is_file():
+                    return failure("START_IMAGE_NOT_FOUND", f"图片不存在：{r_img}")
+            if end_img and not end_img.is_file():
+                return failure("END_IMAGE_NOT_FOUND", f"图片不存在：{end_img}")
+            if end_img and not ref_imgs:
                 return failure("INVALID_VIDEO_REQUEST", "尾帧必须与首帧一起提供")
+            
             project_id = task.project_id or ""
             if not project_id:
-                from .onboard import ensure_profile_onboarded
-                project_id = ensure_profile_onboarded(profile.name) or ""
+                from .onboard import get_profile_flow_project_id, ensure_profile_onboarded
+                project_id = get_profile_flow_project_id(profile.name) or ensure_profile_onboarded(profile.name) or ""
             if not project_id:
                 return failure("PROJECT_INIT_REQUIRED", "该账号没有已绑定的 Flow 工程；请手动绑定后再生成。未提交网页请求。")
             if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", str(project_id)):
                 return failure("INVALID_VIDEO_REQUEST", "Flow 工程 ID 不合法；未提交请求")
             directory = self.output_dir / task.id / ("attempt_" + uuid.uuid4().hex)
             directory.mkdir(parents=True, exist_ok=False)
-            ref_imgs = [p.strip() for p in (task.start_image_path or "").split(";") if p.strip()]
             start_img = ref_imgs[0] if ref_imgs else ""
             end_img = task.end_image_path or ""
             is_r2v = len(ref_imgs) > 1 and not end_img

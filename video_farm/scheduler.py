@@ -700,9 +700,10 @@ class VideoScheduler:
                 )
             else:
                 # Gemini 网页版：检验视频合法性并提取首末帧展示
+                s_path = (task.start_image_path or "").split(";")[0].strip()
                 v_res = verify_task_video(
                     video_path=video_path,
-                    start_image_path=task.start_image_path if task.start_image_path and Path(task.start_image_path).exists() else None,
+                    start_image_path=s_path if s_path and Path(s_path).exists() else None,
                     end_image_path=None,
                     qa_dir=task_qa_dir
                 )

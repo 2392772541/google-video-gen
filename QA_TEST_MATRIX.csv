@@ -1,0 +1,19 @@
+用例编号,模块,测试场景,测试模型,实际上游模型ID,时长/分辨率,首尾帧/参考图支持,测试结果,证据/任务ID,备注
+TC-IMG-01,生图,文生图摄影写实,gpt-image-1.5,gpt-image-1.5,1024x1024,支持单图参考,PASS,test_golden_star.png,成功生成1.24MB高清图片
+TC-IMG-02,生图,文生图旗舰质感,gpt-image-2,gpt-image-2,1024x1024,支持单图参考,PASS,b64_len:2502592,成功生成2.5MB写实摄影
+TC-IMG-03,生图,文生图顶配微距,gpt-image-2.5,gpt-image-2.5,1024x1024,支持单图参考,PASS,b64_len:2565624,成功生成2.56MB高精图像
+TC-TXT-01,提示词,双语分镜创意推演,gpt-6-astra,gpt-6-astra,流式推演,不涉及,PASS,cinematic_prompt,5秒双语分镜提示词
+TC-VID-01,Flow视频,文生视频(极速),veo-lite,veo-lite,4s / 720p,支持首尾帧/3图参考,PASS,task_dfce2411c9c0,时长与型号精准保留
+TC-VID-02,Flow视频,图生视频(均衡),veo-fast,veo-fast,6s / 720p,支持首尾帧/3图参考,PASS,task_6b425b82b718,消除6s强行降级Bug
+TC-VID-03,Flow视频,首尾帧运镜(高保真),veo-quality,veo-quality,8s / 720p,仅首尾帧(禁用Ingredients),PASS,task_49d6cd698761,首尾帧完整提取与绑定
+TC-VID-04,Flow视频,全能旗舰多图参考,omni-flash,omni-flash,10s / 720p,支持首尾帧/7图参考,PASS,task_44975c81f5ea,已生成真实3.59MB成片
+TC-VID-05,Vids视频,连续分镜运镜,vids,Omni,8s / 1080p,首尾帧平滑插值/锁定16:9,PASS,task_5d966f29521a,项目ID解耦消除报错
+TC-VID-06,Gemini视频,网页多模态驱动,gemini,auto/flash,6s / 720p,单图首帧或多模态视频,PASS,gemini_compat,消除菜单盲点与启动警告
+TC-E2E-01,无限画布,新建工程与工具栏,infinite-canvas,native,全画幅,27个交互工具,PASS,9ANYMJw-hvregD3l6PSHw,新建与跳转正常
+TC-E2E-02,无限画布,刷新状态恢复,infinite-canvas,native,本地持久化,LocalForage缓存恢复,PASS,refresh_check,刷新后工程数据不丢失
+TC-E2E-03,无限画布,视频节点解码播放,infinite-canvas,html5-video,1280x720 / 6s,readyState=4,PASS,canvas_live_view.png,完全解码就绪播放
+TC-BOUND-01,边界拦截,Veo Quality误用参考图,veo-quality,N/A,8s,禁用Ingredients,PASS(422拦截),HTTP_422_DETAIL,明确中文错误提示
+TC-BOUND-02,边界拦截,Veo Lite参考图超限(4张),veo-lite,N/A,6s,上限3张,PASS(422拦截),HTTP_422_DETAIL,明确中文错误提示
+TC-BOUND-03,边界拦截,Extend在不支持模型上调用,veo-quality,N/A,8s,仅支持Lite 8s,PASS(422拦截),HTTP_422_DETAIL,明确中文错误提示
+TC-BOUND-04,边界拦截,畸变长宽比(50:1极窄图),N/A,N/A,N/A,上限16:1,PASS(422拦截),HTTP_422_DETAIL,拦截畸形素材
+TC-BOUND-05,边界拦截,非法格式文件(.gif),N/A,N/A,N/A,仅限JPG/PNG/WEBP,PASS(422拦截),HTTP_422_DETAIL,拦截不支持图片

@@ -1,0 +1,153 @@
+{
+  "version": "1.0.0",
+  "updated_at": "2026-10-24T13:15:00+08:00",
+  "models": {
+    "flow": {
+      "displayName": "Google Flow (Veo 3.1 & Omni)",
+      "platform": "Google Flow",
+      "category": "omni",
+      "capability": "video",
+      "supportedDurations": [4, 6, 8, 10],
+      "defaultDuration": 6,
+      "maxReferences": 7,
+      "supportsFrames": true,
+      "supportsIngredients": true,
+      "supportsExtend": false,
+      "supportedResolutions": ["720p"],
+      "supportedRatios": ["16:9", "9:16"],
+      "status": "verified"
+    },
+    "veo-lite": {
+      "displayName": "Google Veo 3.1 Lite (极速)",
+      "platform": "Google Flow",
+      "category": "fast",
+      "capability": "video",
+      "supportedDurations": [4, 6, 8],
+      "defaultDuration": 6,
+      "maxReferences": 3,
+      "supportsFrames": true,
+      "supportsIngredients": true,
+      "supportsExtend": true,
+      "supportedResolutions": ["720p"],
+      "supportedRatios": ["16:9", "9:16"],
+      "status": "verified"
+    },
+    "veo-fast": {
+      "displayName": "Google Veo 3.1 Fast (均衡)",
+      "platform": "Google Flow",
+      "category": "standard",
+      "capability": "video",
+      "supportedDurations": [4, 6, 8],
+      "defaultDuration": 6,
+      "maxReferences": 3,
+      "supportsFrames": true,
+      "supportsIngredients": true,
+      "supportsExtend": false,
+      "supportedResolutions": ["720p"],
+      "supportedRatios": ["16:9", "9:16"],
+      "status": "verified"
+    },
+    "veo-quality": {
+      "displayName": "Google Veo 3.1 Quality (高保真)",
+      "platform": "Google Flow",
+      "category": "quality",
+      "capability": "video",
+      "supportedDurations": [4, 6, 8],
+      "defaultDuration": 6,
+      "maxReferences": 0,
+      "supportsFrames": true,
+      "supportsIngredients": false,
+      "supportsExtend": false,
+      "supportedResolutions": ["720p"],
+      "supportedRatios": ["16:9", "9:16"],
+      "status": "verified"
+    },
+    "omni-flash": {
+      "displayName": "Google Flow Omni Flash",
+      "platform": "Google Flow",
+      "category": "omni",
+      "capability": "video",
+      "supportedDurations": [4, 6, 8, 10],
+      "defaultDuration": 6,
+      "maxReferences": 7,
+      "supportsFrames": true,
+      "supportsIngredients": true,
+      "supportsExtend": false,
+      "supportedResolutions": ["720p"],
+      "supportedRatios": ["16:9", "9:16"],
+      "status": "verified"
+    },
+    "vids": {
+      "displayName": "Google Vids (Omni 连续分镜)",
+      "platform": "Google Vids",
+      "category": "quality",
+      "capability": "video",
+      "supportedDurations": [3, 4, 5, 6, 7, 8, 9, 10],
+      "defaultDuration": 8,
+      "maxReferences": 2,
+      "supportsFrames": true,
+      "supportsIngredients": false,
+      "supportsExtend": false,
+      "supportedResolutions": ["720p", "1080p"],
+      "supportedRatios": ["16:9"],
+      "status": "verified"
+    },
+    "gemini": {
+      "displayName": "Google Gemini (网页多模态)",
+      "platform": "Google Gemini",
+      "category": "standard",
+      "capability": "video",
+      "supportedDurations": [4, 6, 8],
+      "defaultDuration": 6,
+      "maxReferences": 1,
+      "supportsFrames": false,
+      "supportsIngredients": false,
+      "supportedResolutions": ["720p"],
+      "supportedRatios": ["16:9", "9:16"],
+      "status": "verified"
+    },
+    "gpt-image-1.5": {
+      "displayName": "GPT Image 1.5 高精摄影",
+      "platform": "Local Proxy API",
+      "category": "quality",
+      "capability": "image",
+      "supportedResolutions": ["1024x1024", "1280x720", "720x1280"],
+      "supportedRatios": ["1:1", "16:9", "9:16", "4:3", "3:4"],
+      "status": "verified"
+    },
+    "gpt-image-2": {
+      "displayName": "GPT Image 2.0 写实影像",
+      "platform": "Local Proxy API",
+      "category": "quality",
+      "capability": "image",
+      "supportedResolutions": ["1024x1024", "1280x720", "720x1280"],
+      "supportedRatios": ["1:1", "16:9", "9:16", "4:3", "3:4"],
+      "status": "verified"
+    },
+    "gpt-image-2.5": {
+      "displayName": "GPT Image 2.5 极致渲染",
+      "platform": "Local Proxy API",
+      "category": "quality",
+      "capability": "image",
+      "supportedResolutions": ["1024x1024", "1280x720", "720x1280"],
+      "supportedRatios": ["1:1", "16:9", "9:16", "4:3", "3:4"],
+      "status": "verified"
+    },
+    "gpt-6-astra": {
+      "displayName": "GPT-6 Astra 创意分镜大脑",
+      "platform": "Local Proxy API",
+      "category": "omni",
+      "capability": "text",
+      "supportsStreaming": true,
+      "status": "verified"
+    },
+    "gpt-5.6-sol": {
+      "displayName": "GPT-5.6 Sol 逻辑推理引擎",
+      "platform": "Local Proxy API",
+      "category": "quality",
+      "capability": "text",
+      "supportsStreaming": true,
+      "status": "verified"
+    }
+  }
+}

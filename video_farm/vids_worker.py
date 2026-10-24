@@ -106,8 +106,9 @@ class VidsWorker:
         validate_video_request(task)
         if task.engine != "vids":
             raise VideoRequestError("VidsWorker 只接受显式 Google Vids 请求")
-        if task.project_id and not task.project_id.startswith("https://docs.google.com/videos/"):
-            raise VideoRequestError("Vids 工程必须为 docs.google.com/videos 的 HTTPS 地址")
+        if task.project_id and not str(task.project_id).startswith("https://docs.google.com/videos/"):
+            # task.project_id is an external canvas affinity ID; clear it for Vids worker so navigation creates a new doc
+            task.project_id = ""
 
     def _runner_command(self, request_path):
         return [self.python_bin, "-m", "video_farm.vids_web_runner", str(request_path)]
@@ -645,7 +646,7 @@ class VidsWorker:
             page = browser.pages[0] if browser.pages else browser.new_page()
             page.set_default_timeout(5000)
             stage = "navigation"
-            target = task.project_id or "https://docs.google.com/videos/create"
+            target = task.project_id if (task.project_id and str(task.project_id).startswith("https://docs.google.com/videos/")) else "https://docs.google.com/videos/create"
             if not target.startswith("https://docs.google.com/videos/"):
                 raise VideoRequestError("Vids 工程必须为 docs.google.com/videos 的 HTTPS 地址")
             page.goto(target, timeout=control.timeout_ms(30000), wait_until="domcontentloaded")

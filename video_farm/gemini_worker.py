@@ -532,7 +532,8 @@ class GeminiWebWorker(VidsWorker):
 
                     # 5. 原生模型选择 (Flash vs 3.8 Flash vs 3.1 Pro 等)
                     model_info = getattr(task, "model", "auto") or "auto"
-                    if model_info and model_info != "auto":
+                    raw_m = str(model_info).strip().lower()
+                    if raw_m not in ("auto", "gemini", "default", ""):
                         try:
                             model_btn = page.query_selector('button:has-text("Flash"), button:has-text("Pro"), button[aria-label*="model"], [data-test-id="model-selector-button"]')
                             if model_btn and model_btn.is_visible():
@@ -563,10 +564,13 @@ class GeminiWebWorker(VidsWorker):
                         media_files.append(str(ref_video))
                         logs.append(f"正在准备附加多模态参考视频素材: {ref_video.name}")
 
-                    if task.start_image_path and Path(task.start_image_path).exists():
-                        ref_img = Path(task.start_image_path).resolve()
-                        media_files.append(str(ref_img))
-                        logs.append(f"正在准备附加参考图素材: {ref_img.name}")
+                    if task.start_image_path:
+                        for p_str in str(task.start_image_path).split(";"):
+                            p_clean = p_str.strip()
+                            if p_clean and Path(p_clean).exists():
+                                ref_img = Path(p_clean).resolve()
+                                media_files.append(str(ref_img))
+                                logs.append(f"正在准备附加参考图素材: {ref_img.name}")
 
                     if media_files:
                         file_input = page.query_selector('input[type="file"]')
@@ -941,7 +945,7 @@ class GeminiWebWorker(VidsWorker):
             from playwright.sync_api import sync_playwright
 
             with sync_playwright() as p:
-                launch_args = ["--no-sandbox", "--disable-dev-shm-usage", "--disable-blink-features=AutomationControlled"]
+                launch_args = ["--no-sandbox", "--disable-dev-shm-usage"]
                 logs.append("正在拉起独立 Chrome 容器 (Profile 隔离模式)...")
                 try:
                     browser = p.chromium.launch_persistent_context(
