@@ -1,0 +1,39 @@
+{
+  "projectId": "PROJECT_B_YOUGEN_PRODUCT_PROMO",
+  "projectTitle": "《优根优苗 · 从关注根系开始》",
+  "aspectRatio": "9:16",
+  "resolution": "1080x1920",
+  "fps": 30,
+  "targetTotalDuration": 40.0,
+  "totalShots": 7,
+  "stylePreset": "自然田间纪实与高端农业产品摄影",
+  "stylePrompt": "Cinematic commercial product photography, 8k resolution, Hasselblad medium format, authentic greenhouse and field agricultural environment, authentic plant anatomy, natural soft morning lighting, clean product presentation, shallow depth of field, HDR, no distorted text, no watermark",
+  "colorScheme": "生机农作物翠绿、深褐色肥沃土壤、清晨暖白天光、包装经典蓝绿白",
+  "lighting": "柔和侧逆光与自然天光漫射，产品包装受光均匀无眩光",
+  "lensCamera": "85mm f/1.8 特写镜头与 35mm 田间全景镜头，平滑线性推拉运镜",
+  "productSetting": {
+    "productName": "添添向上 · 优根优苗",
+    "referenceAsset": "/media/deliveries/10_products_cinematic_16x9/12_添添向上_优根优苗_16x9_首帧.png",
+    "physicalAssetPath": "video_farm_data/deliveries/10_products_cinematic_16x9/12_添添向上_优根优苗_16x9_首帧.png",
+    "compositingStrategy": "ALPHA_OVERLAY_PRESERVE_LABEL",
+    "boundShots": [
+      "shot_b_4",
+      "shot_b_5",
+      "shot_b_7"
+    ]
+  },
+  "forbiddenElements": [
+    "cyberpunk neon glowing roots",
+    "fictional chemical molecular tubes",
+    "ai distorted Chinese characters",
+    "instant explosive root growth animation",
+    "exaggerated yield claims",
+    "random watermark logos"
+  ],
+  "audioSetting": {
+    "style": "温和自然与现代农业科技感",
+    "elements": "清晨田间微风、水滴润泽水溶声、轻柔环境底噪",
+    "defaultMusic": false,
+    "defaultVoiceover": false
+  }
+}

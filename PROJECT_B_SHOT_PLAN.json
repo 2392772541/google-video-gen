@@ -1,0 +1,145 @@
+{
+  "projectId": "PROJECT_B_YOUGEN_PRODUCT_PROMO",
+  "projectTitle": "《优根优苗 · 从关注根系开始》",
+  "targetAspectRatio": "9:16",
+  "targetFps": 30,
+  "targetTotalDuration": 40.0,
+  "totalShots": 7,
+  "shots": [
+    {
+      "shotId": "shot_b_1",
+      "sceneNumber": 1,
+      "title": "田间引题 · 作物长势从根看起",
+      "targetDuration": 5.0,
+      "trimStart": 0.0,
+      "trimEnd": 5.0,
+      "recommendedEngine": "flow",
+      "recommendedModel": "veo-lite",
+      "status": "READY",
+      "reviewStatus": "PENDING_REVIEW",
+      "dependencies": {
+        "upstreamShotId": null,
+        "referenceRole": "FIELD_ESTABLISH",
+        "stale": false
+      },
+      "imagePrompt": "清晨自然阳光下的健康农作物田块，幼苗绿叶舒展生机勃勃，微距观察土壤表层与幼苗基部，真实农业摄影，8k电影写实，无文字。",
+      "videoPrompt": "摄影机由田间整体平稳向斜下方推进，平缓停留在作物基部与根际土壤表面，晨光柔和自然，运镜平滑舒缓。"
+    },
+    {
+      "shotId": "shot_b_2",
+      "sceneNumber": 2,
+      "title": "科学机理 · 真实土壤根系微距",
+      "targetDuration": 6.0,
+      "trimStart": 0.0,
+      "trimEnd": 6.0,
+      "recommendedEngine": "flow",
+      "recommendedModel": "veo-lite",
+      "status": "READY",
+      "reviewStatus": "PENDING_REVIEW",
+      "dependencies": {
+        "upstreamShotId": "shot_b_1",
+        "referenceRole": "SUBJECT_CONTINUITY",
+        "stale": false
+      },
+      "imagePrompt": "真实农业科研视角的土壤剖面，作物主根与细嫩白色根毛在深褐色土壤颗粒间延伸，自然微距摄影，浅景深，低饱和度，植物解剖真实。",
+      "videoPrompt": "镜头沿根系主轴缓慢平移，展现细根与土壤孔隙的紧密接触与自然呼吸状态，不使用发光特效与虚构离子管道，真实纪录片运镜。"
+    },
+    {
+      "shotId": "shot_b_3",
+      "sceneNumber": 3,
+      "title": "痛点聚焦 · 根区逆境挑战",
+      "targetDuration": 6.0,
+      "trimStart": 0.0,
+      "trimEnd": 6.0,
+      "recommendedEngine": "flow",
+      "recommendedModel": "veo-lite",
+      "status": "READY",
+      "reviewStatus": "PENDING_REVIEW",
+      "dependencies": {
+        "upstreamShotId": null,
+        "referenceRole": "INDEPENDENT_ILLUSTRATION",
+        "stale": false
+      },
+      "imagePrompt": "土壤压实剖面与积水孔隙示意，植物根系受到轻微物理阻碍，写实克制，科学记录摄影，无机械钻头，无夸张病害。",
+      "videoPrompt": "镜头缓慢向下扫描板结土层与细根分布，表现根际环境需要疏松与活化，运镜稳健客观。"
+    },
+    {
+      "shotId": "shot_b_4",
+      "sceneNumber": 4,
+      "title": "产品亮相 · 添添向上 优根优苗",
+      "targetDuration": 6.0,
+      "trimStart": 0.0,
+      "trimEnd": 6.0,
+      "recommendedEngine": "flow",
+      "recommendedModel": "veo-lite",
+      "status": "READY",
+      "reviewStatus": "PENDING_REVIEW",
+      "dependencies": {
+        "upstreamShotId": null,
+        "referenceRole": "PRODUCT_PACKAGING_INTRO",
+        "productAssetUrl": "/media/deliveries/10_products_cinematic_16x9/12_添添向上_优根优苗_16x9_首帧.png",
+        "stale": false
+      },
+      "imagePrompt": "真实温室工作台上立放的农业冲施肥料包装，旁边衬托健康作物绿苗，晨光侧逆光打在包装上，质感优雅，高清晰度商业静物摄影。",
+      "videoPrompt": "摄影机由侧方向正前方平滑弧形运镜，突出添添向上优根优苗经典蓝绿白包装轮廓，光影流动自然，包装文字与商标清晰无畸变。"
+    },
+    {
+      "shotId": "shot_b_5",
+      "sceneNumber": 5,
+      "title": "核心特点 · 调理根际与养分活化",
+      "targetDuration": 6.0,
+      "trimStart": 0.0,
+      "trimEnd": 6.0,
+      "recommendedEngine": "flow",
+      "recommendedModel": "veo-lite",
+      "status": "READY",
+      "reviewStatus": "PENDING_REVIEW",
+      "dependencies": {
+        "upstreamShotId": null,
+        "referenceRole": "DISSOLUTION_DEMO",
+        "stale": false
+      },
+      "imagePrompt": "透明器皿中水溶肥料微粒快速溶解扩散，水质清澈均匀，科学农业演示，真实水流微距摄影，无化学发光特效。",
+      "videoPrompt": "微距镜头捕捉微粒落水后的溶解扩散与流动过程，画面纯净柔和，突出优异的溶解性与均匀渗透特性。"
+    },
+    {
+      "shotId": "shot_b_6",
+      "sceneNumber": 6,
+      "title": "田间应用 · 规范冲施与浇根操作",
+      "targetDuration": 6.0,
+      "trimStart": 0.0,
+      "trimEnd": 6.0,
+      "recommendedEngine": "flow",
+      "recommendedModel": "veo-lite",
+      "status": "READY",
+      "reviewStatus": "PENDING_REVIEW",
+      "dependencies": {
+        "upstreamShotId": null,
+        "referenceRole": "APPLICATION_SCENE",
+        "stale": false
+      },
+      "imagePrompt": "现代农业温室中农户规范进行滴灌或随水冲施操作，真实田间作业场景，动作熟练自然，晨光温暖写实。",
+      "videoPrompt": "镜头跟拍水肥液随灌溉管网平稳流向作物根际，并均匀渗入土壤的写实过程，生活纪实运镜。"
+    },
+    {
+      "shotId": "shot_b_7",
+      "sceneNumber": 7,
+      "title": "品牌定格 · 关注根系 守护丰收",
+      "targetDuration": 5.0,
+      "trimStart": 0.0,
+      "trimEnd": 5.0,
+      "recommendedEngine": "flow",
+      "recommendedModel": "veo-lite",
+      "status": "READY",
+      "reviewStatus": "PENDING_REVIEW",
+      "dependencies": {
+        "upstreamShotId": "shot_b_4",
+        "referenceRole": "BRAND_OUTRO_LOCK",
+        "productAssetUrl": "/media/deliveries/10_products_cinematic_16x9/12_添添向上_优根优苗_16x9_首帧.png",
+        "stale": false
+      },
+      "imagePrompt": "高端商业静物摄影，优根优苗产品包装居中微偏右，旁边为长势旺盛的作物幼苗，背景为虚化的大棚晨光，留出字幕空间。",
+      "videoPrompt": "摄影机由微距缓缓后拉并定格，光线在包装金色与绿色勾边上产生柔和反光，画面稳定大气，完美收尾。"
+    }
+  ]
+}

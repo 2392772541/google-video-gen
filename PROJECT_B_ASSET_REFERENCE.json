@@ -1,0 +1,51 @@
+{
+  "projectId": "PROJECT_B_YOUGEN_PRODUCT_PROMO",
+  "projectTitle": "《优根优苗 · 从关注根系开始》",
+  "verifiedAt": "2026-10-25T15:05:00+08:00",
+  "status": "ASSETS_VERIFIED_AND_BOUND",
+  "assets": [
+    {
+      "assetId": "asset_yougen_packaging_front_01",
+      "name": "添添向上 · 优根优苗 正面高清包装素材",
+      "assetType": "IMAGE_REFERENCE_AND_OVERLAY",
+      "filePath": "video_farm_data/deliveries/10_products_cinematic_16x9/12_添添向上_优根优苗_16x9_首帧.png",
+      "url": "/media/deliveries/10_products_cinematic_16x9/12_添添向上_优根优苗_16x9_首帧.png",
+      "fileSize": 1547563,
+      "sha256": "84ceb1ff2546a317346e77baf15de9d7ee4dbb5fd219aaf1e6d157746f0270b3",
+      "resolution": "1280x720",
+      "boundShots": [
+        "shot_b_4",
+        "shot_b_7"
+      ],
+      "compositingPolicy": "PRESERVE_REAL_PACKAGING_ALPHA",
+      "notes": "权威正品包装画面，蓝绿白底色，添添向上商标与优根优苗品名清晰无变形"
+    },
+    {
+      "assetId": "asset_yougen_reference_video_01",
+      "name": "优根优苗 官方展示样片视频",
+      "assetType": "VIDEO_MOTION_AND_TIMING_REFERENCE",
+      "filePath": "video_farm_data/deliveries/10_products_cinematic_16x9/12_添添向上_优根优苗_16x9.mp4",
+      "url": "/media/deliveries/10_products_cinematic_16x9/12_添添向上_优根优苗_16x9.mp4",
+      "fileSize": 3379955,
+      "duration": 8.0,
+      "resolution": "1280x720",
+      "boundShots": [
+        "shot_b_4",
+        "shot_b_7"
+      ],
+      "notes": "官方实拍参考视频，用于比对产品反光、质感与场景融入效果"
+    },
+    {
+      "assetId": "asset_field_crop_base_01",
+      "name": "田间作物与根际剖面自然基准",
+      "assetType": "FIELD_STYLE_REFERENCE",
+      "filePath": "video_farm_data/outputs/gemini_verified_physical.mp4",
+      "url": "/media/outputs/gemini_verified_physical.mp4",
+      "boundShots": [
+        "shot_b_1",
+        "shot_b_2"
+      ],
+      "notes": "用于维持田间自然作物与土壤微观的科学写实基准"
+    }
+  ]
+}
