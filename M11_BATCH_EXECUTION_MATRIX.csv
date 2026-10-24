@@ -1,0 +1,7 @@
+Phase,Status,Detail
+G0_AUDIT,PASS,"M10证据核实，M9/M10成片复用关系诚实标注，M11启动独立8镜头竖屏全新成片"
+P0_FAULT_RECOVERY,PASS,"A~F全故障注入通过，服务端权威对齐，杜绝二次收费与候选重复"
+P1_8_SHOT_PRODUCTION,PASS,"8镜头《从叶片到根系》装配就绪，含2条实测新成片与6条合规复用，失败隔离通过"
+P2_DEEP_QC_AND_REVIEW,PASS,"FFmpeg黑帧/冻结检测完备，8镜头人工审片全部闭环流转"
+P2_PORTABLE_ARCHIVE,PASS,"便携归档包(m11_tomato_portable_archive.zip)生成，隔离临时环境解压哈希100%校验一致"
+P3_FINAL_DELIVERY,PASS,"1080x1920竖屏18.00s成片(assembled_5637e12f0a78_assembled_m11_8_shots_vertical_18s.mp4)无损合成，SHA256独立新成片"

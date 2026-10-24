@@ -1,0 +1,74 @@
+[
+  {
+    "shotId": "shot_1",
+    "title": "温室番茄幼苗全景",
+    "duration": 10.005,
+    "decodePassed": true,
+    "hasBlackFrames": false,
+    "hasFreezeFrames": false,
+    "qcPassed": true
+  },
+  {
+    "shotId": "shot_2",
+    "title": "叶片微距观察",
+    "duration": 8.0,
+    "decodePassed": true,
+    "hasBlackFrames": false,
+    "hasFreezeFrames": false,
+    "qcPassed": true
+  },
+  {
+    "shotId": "shot_3",
+    "title": "叶脉与水分蒸腾",
+    "duration": 8.0,
+    "decodePassed": true,
+    "hasBlackFrames": false,
+    "hasFreezeFrames": false,
+    "qcPassed": true
+  },
+  {
+    "shotId": "shot_4",
+    "title": "茎部维管束养分输送",
+    "duration": 8.0,
+    "decodePassed": true,
+    "hasBlackFrames": false,
+    "hasFreezeFrames": false,
+    "qcPassed": true
+  },
+  {
+    "shotId": "shot_5",
+    "title": "地上茎与地下根衔接部",
+    "duration": 8.0,
+    "decodePassed": true,
+    "hasBlackFrames": false,
+    "hasFreezeFrames": false,
+    "qcPassed": true
+  },
+  {
+    "shotId": "shot_6",
+    "title": "主根与侧根展开结构",
+    "duration": 8.0,
+    "decodePassed": true,
+    "hasBlackFrames": false,
+    "hasFreezeFrames": false,
+    "qcPassed": true
+  },
+  {
+    "shotId": "shot_7",
+    "title": "根毛与土壤养分接触面",
+    "duration": 8.0,
+    "decodePassed": true,
+    "hasBlackFrames": false,
+    "hasFreezeFrames": false,
+    "qcPassed": true
+  },
+  {
+    "shotId": "shot_8",
+    "title": "健康番茄全株生命力总结",
+    "duration": 8.0,
+    "decodePassed": true,
+    "hasBlackFrames": false,
+    "hasFreezeFrames": false,
+    "qcPassed": true
+  }
+]
