@@ -1,0 +1,46 @@
+{
+  "audit_type": "Project A · A2 阶段参考图与尾帧溯源矩阵",
+  "run_id": "A2_TRIAL_3_SHOTS_16S",
+  "timestamp": "2026-10-25T14:18:00+08:00",
+  "globalSubject": {
+    "entityId": "subject_tomato_seedling_01",
+    "name": "温室番茄幼苗 (Lycopersicon esculentum)",
+    "features": "4-5片真叶，健康深绿茎秆，细微白色茸毛，真实分枝主根与侧根，土壤颗粒依附自然",
+    "referenceAsset": "/media/outputs/gemini_verified_physical.mp4",
+    "boundShots": ["shot_a_1", "shot_a_2", "shot_a_3"]
+  },
+  "referenceLinks": [
+    {
+      "linkId": "REF_A2_001_GLOBAL_TO_SHOT1",
+      "sourceType": "GLOBAL_BIBLE",
+      "targetShotId": "shot_a_1",
+      "referenceRole": "GLOBAL_SUBJECT",
+      "validationPassed": true,
+      "evidence": "Shot 1 全景建立温室番茄幼苗基准形态"
+    },
+    {
+      "linkId": "REF_A2_002_SHOT1_TO_SHOT2",
+      "sourceType": "SUBJECT_TRANSITION",
+      "sourceShotId": "shot_a_1",
+      "targetShotId": "shot_a_2",
+      "referenceRole": "SUBJECT_CONTINUITY",
+      "validationPassed": true,
+      "evidence": "Shot 2 继承 Shot 1 植物基部与主根解剖结构，由地上部平缓转入地下剖面"
+    },
+    {
+      "linkId": "REF_A2_003_SHOT2_TO_SHOT3_TAIL_FRAME",
+      "sourceType": "TAIL_FRAME_EXTRACTION",
+      "sourceShotId": "shot_a_2",
+      "sourceVideoAsset": "video_farm_data/outputs/0e0c3bdd-0dce-4bc6-98b3-74cd7cc85363.mp4",
+      "sourceVideoSha256": "49c91e2e10562b59ba5a05b22b270034a78c9fc40dca7ffb2a597a82fb8f3822",
+      "extractionTimestamp": 5.95,
+      "extractedFramePath": "video_farm_data/uploads/project_a_shot2_tail_frame.png",
+      "extractedFrameSha256": "d0a1c66272ad2f4185d6b464a631bf373516590bc66890d23a7bb4ff15bc8215",
+      "extractedFrameSize": 593598,
+      "targetShotId": "shot_a_3",
+      "referenceRole": "TAIL_FRAME_CONTINUITY",
+      "validationPassed": true,
+      "evidence": "物理抽取真实 PNG 图片，SHA256 与文件大小完全固化，成功注入 Shot 3 作为首帧连续性参考"
+    }
+  ]
+}

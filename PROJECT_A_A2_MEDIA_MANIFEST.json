@@ -1,0 +1,80 @@
+{
+  "project_id": "PROJECT_A_ROOT_ABSORPTION",
+  "project_title": "《作物根系为什么吸收不好？》",
+  "run_id": "A2_TRIAL_3_SHOTS_16S",
+  "generated_at": "2026-10-25T14:15:00+08:00",
+  "summary": {
+    "total_shots_in_plan": 9,
+    "executed_shots_in_a2": 3,
+    "isolated_shots_in_a2": 6,
+    "trial_clip_duration_exact": 16.0,
+    "trial_clip_frames_exact": 480,
+    "trial_clip_resolution": "1080x1920 (9:16)",
+    "trial_clip_fps": 30.0,
+    "all_physical_media_verified": true,
+    "all_decode_checks_passed": true
+  },
+  "media_items": [
+    {
+      "shot_id": "shot_a_1",
+      "scene_number": 1,
+      "title": "肥料没少施，为什么长势还是不好？",
+      "role": "GLOBAL_SUBJECT",
+      "raw_video_filename": "gemini_verified_physical.mp4",
+      "raw_video_path": "video_farm_data/outputs/gemini_verified_physical.mp4",
+      "raw_duration": 10.005,
+      "raw_resolution": "1280x720",
+      "timeline_trim_start": 0.0,
+      "timeline_trim_end": 5.0,
+      "timeline_duration": 5.0,
+      "sha256": "5f403addf19f5f68c5a0fbc72c8c74c6a0d5da88917346388ea95ac1fd2f4bdb",
+      "status": "APPROVED",
+      "notes": "真实温室番茄幼苗，4-5片真叶自然舒展，晨光写实自然纪录片"
+    },
+    {
+      "shot_id": "shot_a_2",
+      "scene_number": 2,
+      "title": "真正决定吸收的根区",
+      "role": "SUBJECT_TRANSITION",
+      "raw_video_filename": "0e0c3bdd-0dce-4bc6-98b3-74cd7cc85363.mp4",
+      "raw_video_path": "video_farm_data/outputs/0e0c3bdd-0dce-4bc6-98b3-74cd7cc85363.mp4",
+      "raw_duration": 8.0,
+      "raw_resolution": "720x1280",
+      "timeline_trim_start": 0.0,
+      "timeline_trim_end": 6.0,
+      "timeline_duration": 6.0,
+      "sha256": "49c91e2e10562b59ba5a05b22b270034a78c9fc40dca7ffb2a597a82fb8f3822",
+      "status": "APPROVED",
+      "notes": "真实土壤剖面微观视角，呈现主根与侧根分布，尾部 5.95s 抽取高清尾帧"
+    },
+    {
+      "shot_id": "shot_a_3",
+      "scene_number": 3,
+      "title": "缺水时，养分移动也会受限",
+      "role": "TAIL_FRAME_CONTINUITY",
+      "raw_video_filename": "10be203a-c921-4c7d-a2c5-6b95fec5bd85.mp4",
+      "raw_video_path": "video_farm_data/outputs/10be203a-c921-4c7d-a2c5-6b95fec5bd85.mp4",
+      "raw_duration": 8.0,
+      "raw_resolution": "1280x720",
+      "timeline_trim_start": 0.0,
+      "timeline_trim_end": 5.0,
+      "timeline_duration": 5.0,
+      "sha256": "ca4d9b36092b37aa395ff2ee30d95b5463f2d2ee648bbd25d1981fae620583b4",
+      "injected_tail_frame": "video_farm_data/uploads/project_a_shot2_tail_frame.png",
+      "status": "APPROVED",
+      "notes": "成功继承 Shot 2 尾帧参考，展现细根在偏干土壤微观环境，运镜平稳连贯"
+    }
+  ],
+  "trial_clip": {
+    "filename": "assembled_project_a_3_shots_16s_exact.mp4",
+    "path": "video_farm_data/outputs/assembled_project_a_3_shots_16s_exact.mp4",
+    "resolution": "1080x1920 (9:16)",
+    "duration": 16.0,
+    "total_frames": 480,
+    "fps": 30.0,
+    "sha256": "263f6c904765c0a79d28c167aff1e36f441d6288f4ea5f01a969427e62d0e8a2",
+    "vcodec": "h264",
+    "acodec": "aac",
+    "decode_pass": true
+  }
+}

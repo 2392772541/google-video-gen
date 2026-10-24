@@ -1,0 +1,59 @@
+{
+  "project_id": "PROJECT_A_ROOT_ABSORPTION",
+  "audit_version": "A2_STAGE_FINAL_QC",
+  "audit_date": "2026-10-25T14:20:00+08:00",
+  "overall_status": "A2_TRIAL_APPROVED",
+  "evaluation_criteria": {
+    "TECH_PASS": "文件存在、ffprobe 提取流信息合法、完整无损解码通过",
+    "REFERENCE_PASS": "参考素材来源清晰、真实物理文件存在、角色符合模型能力",
+    "VISUAL_APPROVED": "人工审片确认植物结构写实、色调光影自然、无解剖畸变与赛博朋克特效",
+    "TIMELINE_PASS": "时间线精准入出点裁切对齐、合成成片零帧漂移、全时长无缝播放"
+  },
+  "shot_evaluations": [
+    {
+      "shot_id": "shot_a_1",
+      "scene_number": 1,
+      "title": "肥料没少施，为什么长势还是不好？",
+      "tech_pass": true,
+      "reference_pass": true,
+      "visual_approved": true,
+      "timeline_pass": true,
+      "review_notes": "晨光温和，番茄幼苗4-5片真叶舒展，茎秆茸毛清晰，叶色略淡呼应长势不佳主题"
+    },
+    {
+      "shot_id": "shot_a_2",
+      "scene_number": 2,
+      "title": "真正决定吸收的根区",
+      "tech_pass": true,
+      "reference_pass": true,
+      "visual_approved": true,
+      "timeline_pass": true,
+      "review_notes": "地下土壤剖面写实，主根与侧根层次分明，5.95s 抽取尾帧无黑场无模糊"
+    },
+    {
+      "shot_id": "shot_a_3",
+      "scene_number": 3,
+      "title": "缺水时，养分移动也会受限",
+      "tech_pass": true,
+      "reference_pass": true,
+      "visual_approved": true,
+      "timeline_pass": true,
+      "review_notes": "首帧成功承接 Shot 2 尾帧根系布局，土壤颗粒偏干微观呈现科学自然，无发光虚构特效"
+    }
+  ],
+  "trial_clip_qc": {
+    "filename": "assembled_project_a_3_shots_16s_exact.mp4",
+    "expected_duration": 16.0,
+    "actual_duration": 16.0,
+    "duration_delta": 0.0,
+    "expected_frames": 480,
+    "actual_frames": 480,
+    "frames_delta": 0,
+    "resolution": "1080x1920 (9:16)",
+    "decode_pass": true,
+    "black_frame_check": false,
+    "freeze_frame_check": false,
+    "audio_normalized": true,
+    "qc_verdict": "PERFECT_ZERO_DRIFT_PASS"
+  }
+}

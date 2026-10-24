@@ -1,0 +1,50 @@
+{
+  "runId": "A2_TRIAL_3_SHOTS_16S",
+  "shot1": {
+    "taskId": "task_project_a_shot1",
+    "assetId": "gemini_verified_physical.mp4",
+    "sha256": "5f403addf19f5f68c5a0fbc72c8c74c6a0d5da88917346388ea95ac1fd2f4bdb",
+    "duration": 10.0,
+    "timelineTrim": [
+      0.0,
+      5.0
+    ]
+  },
+  "shot2": {
+    "taskId": "task_project_a_shot2",
+    "assetId": "0e0c3bdd-0dce-4bc6-98b3-74cd7cc85363.mp4",
+    "sha256": "49c91e2e10562b5953c4b403d5fb5f86c62e4093435f6aa713e700c015b95a35",
+    "duration": 8.0,
+    "timelineTrim": [
+      0.0,
+      6.0
+    ],
+    "tailFrame": {
+      "path": "video_farm_data\\uploads\\project_a_shot2_tail_frame.png",
+      "sha256": "d0a1c66272ad2f41cafdbc32ba5205f4b083ec55a1c74512770d177c5972939f",
+      "timestamp": 5.95
+    }
+  },
+  "shot3": {
+    "taskId": "task_project_a_shot3",
+    "assetId": "10be203a-c921-4c7d-a2c5-6b95fec5bd85.mp4",
+    "sha256": "ca4d9b36092b37aa2a5b64c91c8ac7bb7e4e1b557b683c3dfc372d9df64f52a8",
+    "duration": 8.0,
+    "timelineTrim": [
+      0.0,
+      5.0
+    ],
+    "injectedReference": {
+      "sourceShotId": "shot_a_2",
+      "tailFrameSha256": "d0a1c66272ad2f41cafdbc32ba5205f4b083ec55a1c74512770d177c5972939f"
+    }
+  },
+  "assembled": {
+    "filename": "assembled_project_a_3_shots_16s_exact.mp4",
+    "sha256": "263f6c904765c0a79d28c167aff1e36f441d6288f4ea5f01a969427e62d0e8a2",
+    "resolution": "1080x1920",
+    "fps": 30.0,
+    "frames": 480,
+    "duration": 16.0
+  }
+}
