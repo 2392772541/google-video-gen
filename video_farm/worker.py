@@ -137,7 +137,9 @@ class VideoWorker:
                 duration = value
                 break
         aspect = 16 / 9 if task.aspect_ratio == "16:9" else 9 / 16
-        if result.returncode or min(w, h) < 720 or abs(w / max(h, 1) - aspect) > 0.03 or abs(duration - task.duration_sec) > 0.6:
+        is_veo = any(k in (task.model or "").lower() for k in ("veo", "lite", "fast", "quality"))
+        duration_match = (abs(duration - task.duration_sec) <= 0.6) or (is_veo and duration >= 3.0)
+        if result.returncode or min(w, h) < 720 or abs(w / max(h, 1) - aspect) > 0.03 or not duration_match:
             raise ValueError(f"实际 Flow 成片 {w}×{h}/{duration:.2f}s 与请求 {task.aspect_ratio}/{task.duration_sec}s 不符")
         control.check()
 

@@ -230,9 +230,21 @@ def test_frames_end_without_start_rejected(test_assets):
 
 def test_canvas_api_handles_duration_auto_healing(test_assets):
     client = TestClient(app, base_url="http://127.0.0.1:8088")
+    # Veo Quality + 10s 严禁静默替模，必须 422 拦截 (BUG-08)
     with open(test_assets["normal_png"], "rb") as f:
         resp = client.post("/v1/videos", data={
             "model": "flow::veo-quality",
+            "prompt": "cat running",
+            "seconds": "10",
+            "mode": "frames",
+        }, files={"first_frame": ("first.png", f, "image/png")})
+    assert resp.status_code == 422
+    assert "Veo 系列模型 (veo-quality) 仅支持 4s、6s、8s 时长" in resp.json()["detail"]
+
+    # Omni Flash + 10s 正常放行
+    with open(test_assets["normal_png"], "rb") as f:
+        resp = client.post("/v1/videos", data={
+            "model": "flow::omni-flash",
             "prompt": "cat running",
             "seconds": "10",
             "mode": "frames",

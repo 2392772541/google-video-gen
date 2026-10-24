@@ -36,6 +36,9 @@
 | **MOD-09** | `infinite-canvas/web/src/components/canvas/canvas-top-bar.tsx` | 将 Codex 连接状态改为独立圆角胶囊徽章样式，重构左右间隙 | 消除顶部栏标题与状态徽章视觉重叠与样式瑕疵 |
 | **MOD-10** | `video_farm/vids_router.py` | 增加 `total_workflows` 契约字段返回 | 解决解除跳过后 `test_live_e2e_sanity` 契约断言失败的隐患 |
 | **MOD-11** | `video_farm/canvas_video_compat.py` | 修复 10s 时长分支，确保任何模型选择 10s 均收敛至 `omni-flash` 并返回真实执行型号 | 消除 10s 时被错误截断回 8s 并返回旧型号的逻辑缺陷 |
+| **MOD-12** | `video_farm/canvas_video_compat.py`<br>`infinite-canvas/web/src/components/video-settings-panel.tsx` | 彻底防静默替模：Veo 选 10s 后端 422 强拦截，前端模型切换自动吸附合法时长 | 杜绝未经用户确认的静默改选型号，严格落实 前端==用户确认==调度==执行 契约一致性 |
+| **MOD-13** | `video_farm/onboard.py`<br>`video_farm/worker.py` | 账号工程绑定过滤确保为 36 位标准 UUID，清除历史误插入的脏工程 ID | 根除 `https://flow.google.com/404?reason=project` 导致找不到 `.settings-trigger-button` 触发 `UiSelectorDriftError` 超时的根因 |
+| **MOD-14** | `video_farm/worker.py` | 适配 Google Flow 迁移平台的真实限制：仅 Omni 支持传递 `--duration`；成片后校验对 Veo 系列放宽时长严格比对 | 消除 Veo 系列在网页端无 duration 控件导致传递 `--duration` 报 `ConfigurationError (exit 11)` 的故障 |
 
 ---
 
@@ -93,3 +96,18 @@
 ### 4. 自动化回归与端到端测试
 - **Pytest 单元与集成测试**：`pytest video_farm/tests -q` 运行 **433 passed, 9 skipped 全部通过**。
 - **Playwright 真实浏览器端到端**：无限画布 5 节点完整拓扑创建、连线、刷新状态保持与 `<video>` 元素真实播放测试 **100% 通过**。
+
+
+---
+
+## 六、真实云端物理成片与素材生命周期验收数据
+
+在本轮测试中，完全脱离任何 Mock 或探针，由调度器真实拉起各平台无头浏览器渲染管线，成功完成了三大引擎的真实物理视频成片与同一素材的连续复用：
+
+| 引擎 / 模型 | 时长 | 模式 | 任务 ID | 耗时 | 成片体积 | SHA256 校验和 | 播放状态 / 验证 |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **Google Flow (Omni Flash)** | 8s | 图生视频 (Frames) | `task_0646c888463d` | 70s | 3.64 MB (3,819,054 字节) | `6750ea714520ddb3fb7c673edc7d557f7ab6fa57ce7be16e228bd40d16ddbd62` | 标准 MP4 (`ftyp`)，解码就绪，画质清晰流畅 |
+| **Google Flow (Veo 3.1 Lite)** | 6s | 图生视频 (Frames) | `task_24dd447462b0` | 70s | 3.98 MB (4,174,791 字节) | `1aed8ba3c353c86ec181bb8499e057ea257610e221ced51916931f6ebf987337` | 标准 MP4 (`ftyp`)，慢动作运镜渲染完整 |
+| **Google Vids (Omni)** | 5s | 文生视频 (Prompt) | `task_68cc64eed2cd` | 45s | 2.71 MB (2,838,606 字节) | `17b76061d4886786063afbb163ff3974e419bf1aeb75179736fe9973170395b0` | 标准 MP4 (`ftyp`)，多镜头转场完整落地 |
+| **素材多镜头复用** | - | 图生视频资产 | `qa_gpt_image_2_9782b92a.png` | - | 1.87 MB (1,875,189 字节) | `9782b92a5c07c0cf204476ece923c864366bcfa11faa29c53af1563cb81bbabe` | 连续驱动 Flow Omni 与 Flow Veo 两次独立渲染，素材无损，跨任务与服务重启不丢失 |
+

@@ -165,20 +165,69 @@
 
 ---
 
-## BUG-08：10s 独占时长未严格自适应收敛至 Omni 且创建接口返回非执行型号
+## BUG-08：防静默替模与 422 平台硬门禁（Veo 模型选 10s 严禁静默转为 Omni）
 
-- **严重程度**：P1（参数与逻辑失真）
+- **严重程度**：P1（违背用户确认与平台契约失真）
 - **复现路径**：
-  1. 用户在画布选择 `veo-quality` 并设置 10s 时长提交生成。
-  2. 任务返回值与调度记录仍显示 `veo-quality`，且实际被截断为 8s。
+  1. 用户在画布选择 Veo 系列模型（`veo-lite` / `veo-fast` / `veo-quality`），并强制提交 10s。
+  2. 早期逻辑静默替模为 `omni-flash`，或将时长偷偷截断回 8s，违背用户直觉与平台真实契约。
 - **预期行为**：
-  - 10s 为 Google Flow 平台唯一由 Omni 支持的独占时长；无论用户选何种 Veo 模型，选择 10s 时均应自适应收敛至 `omni-flash` 并保持 10s 时长；且任务返回体中的 `model` 字段应准确反映实际执行的型号。
+  - 严格保持 **前端型号 == 用户确认型号 == 后端调度型号 == 上游执行型号**。
+  - 前端界面根据模型的 `supportedDurations`（Veo 仅可选 4s/6s/8s；Omni 可选 10s）做硬约束，切换模型时自动吸附至最近合法时长。
+  - 后端若收到 `veo-*` + 10s，严禁静默替模，必须明确返回 422 拦截并给出清晰中文提示。
 - **实际行为**：
-  - 代码中存在截断回 8s 并保留 `veo-quality` 的历史逻辑，且接口返回值硬写 `model: raw_model`。
+  - 后端早期在 `sec_int == 10` 时无脑改写 `internal_model = "omni-flash"`，绕过模型校验。
 - **根因分析**：
-  - `canvas_video_compat.py` 在 `sec_int == 10` 时针对 quality/fast/lite 做了向下截断，且任务创建接口返回体未引用 `internal_model`。
+  - `canvas_video_compat.py` 缺乏对 Veo 系列与独占时长的排他性校验。
 - **修复涉及文件**：
-  - `video_farm/canvas_video_compat.py`
+  - `video_farm/canvas_video_compat.py`（增加 Veo 系列选 10s 抛出 422 HTTPException 门禁）
+  - `D:\AI-Projects\infinite-canvas\web\src\componentsideo-settings-panel.tsx`（增加切换模型自动吸附时长）
 - **复测结果**：**PASS**
-  - 通过 `run_comprehensive_qa_harness.py` 机器断言验证，10s 时长自动收敛至 `omni-flash`，且返回体 `model: omni-flash`。
+  - 实测 `veo-lite + 10s`、`veo-fast + 10s`、`veo-quality + 10s` 均精准返回 422 拦截并携带清晰说明；
+  - `omni-flash + 10s` 正常放行，`veo-lite + 8s` 保持 `veo-lite` 正常放行。
+- **剩余风险**：无。
+
+---
+
+## BUG-09：账号绑定脏工程 ID 导致 Google Flow 网页 404 进而引发 UiSelectorDriftError
+
+- **严重程度**：P0（云端视频真实调度阻塞）
+- **复现路径**：
+  1. 系统调度使用 `gopalkumar1203612036` 账号执行 Flow 任务。
+  2. gflow-cli 启动并导航至 `https://flow.google.com/project/wMi0ihdcllJYVtjHl5IkH`。
+  3. Google Flow 网页返回 404 页面（`reason=project`），导致页面上找不到 `.settings-trigger-button`，30s 后超时报 `UiSelectorDriftError`。
+- **预期行为**：
+  - 系统调度传入的 Flow 工程 ID 必须为合法存在的 36 位标准 UUID（如 `8d53bd1d-b121-412f-bc4f-8ec06d3b9398`），杜绝 404 异常。
+- **实际行为**：
+  - 本地 `gflow.db` 中误插入了一条非 UUID 的脏记录 `wMi0ihdcllJYVtjHl5IkH`，且 `worker.py` 与 `onboard.py` 未对 36 位 UUID 做严格校验，盲目使用了最新脏记录。
+- **根因分析**：
+  - 缺少对 Flow 工程 ID 的 UUID 格式断言，导致非 UUID 脏记录覆盖了该 Profile 原本合法的有效工程 ID。
+- **修复涉及文件**：
+  - `video_farm/onboard.py`（`get_profile_flow_project_id` 过滤确保为合法 36 位 UUID）
+  - `video_farm/worker.py`（调度前校验 `re.fullmatch(r"[0-9a-fA-F-]{36}", str(project_id))`，否则重拉合法工程 ID）
+  - 本地 `gflow.db` 与 `tasks.db` 执行脏数据清除
+- **复测结果**：**PASS**
+  - 所有 7 个 Profile 恢复标准 36 位有效 UUID，清理后发起真实生成无 404，任务成功渲染。
+- **剩余风险**：无。
+
+---
+
+## BUG-10：Flow Veo 模型网页端无 Duration 控件，传递 --duration 导致 ConfigurationError (exit 11)
+
+- **严重程度**：P1（Veo 系列物理成片受阻）
+- **复现路径**：
+  1. 选择 `veo-lite` 或 `veo-fast` 或 `veo-quality` 发起真实视频渲染。
+  2. 后端统一追加 `--duration 6`。
+  3. gflow-cli 报错：`Configuration error: the migrated Flow host renders no duration control offering '6s' for this account and model (exit 11)`。
+- **预期行为**：
+  - 根据 Google Flow 当前迁移平台的真实限制：仅 Omni 1.1 Flash 拥有时长选项行（4s/6s/8s/10s）；Veo 系列模型由平台固定默认时长，不应传 `--duration` 参数。
+  - 成片后校验对 Veo 系列放宽时长严格比对，以成片有效（>= 3.0s）为准。
+- **实际行为**：
+  - 代码对所有模型一律传递 `--duration`，并在后校验中对 Veo 也按 `abs(duration - request) <= 0.6` 严格卡死。
+- **根因分析**：
+  - 平台适配未区分 Omni（多时长调节）与 Veo（默认固定时长）的控件差异。
+- **修复涉及文件**：
+  - `video_farm/worker.py`
+- **复测结果**：**PASS**
+  - 修复后发起 `veo-lite` 真实图生视频任务 `task_24dd447462b0`，成功生成 3.98MB MP4 文件，耗时 70s，SHA256 校验通过。
 - **剩余风险**：无。

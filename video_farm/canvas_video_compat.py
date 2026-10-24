@@ -336,20 +336,8 @@ async def create_canvas_video_task(request: Request):
         sec_int = 6
 
     if engine == "flow":
-        # Flow 规范：4, 6, 8 秒使用 flow 内部模型；10秒必须对应 Omni 校验
-        if sec_int not in (4, 6, 8, 10):
-            if sec_int <= 4:
-                sec_int = 4
-            elif sec_int <= 6:
-                sec_int = 6
-            elif sec_int <= 8:
-                sec_int = 8
-            else:
-                sec_int = 10
-        if sec_int == 10:
-            # Flow 平台仅 omni-flash 支持 10s 独占时长；任何模型选择 10s 均自适应收敛至 omni-flash 并保留 10s
-            internal_model = "omni-flash"
-        elif "quality" in raw_model:
+        # 优先按用户明确选择的模型归一化
+        if "quality" in raw_model:
             internal_model = "veo-quality"
         elif "fast" in raw_model:
             internal_model = "veo-fast"
@@ -359,8 +347,38 @@ async def create_canvas_video_task(request: Request):
             internal_model = "veo-lite"
         elif raw_model in ("veo-quality", "veo-fast", "veo-lite", "veo-lite-lp"):
             internal_model = raw_model
-        else:
+        elif any(k in raw_model for k in ("omni-flash", "omni_flash", "omni")):
             internal_model = "omni-flash"
+        else:
+            internal_model = "flow"
+
+        # 时长硬校验与拦截：严格防止静默替模 (BUG-08)
+        is_veo_series = internal_model in ("veo-quality", "veo-fast", "veo-lite", "veo-lite-lp")
+        if is_veo_series:
+            if sec_int == 10:
+                raise HTTPException(
+                    422,
+                    f"Google Flow 平台限制：Veo 系列模型 ({internal_model}) 仅支持 4s、6s、8s 时长；10s 为 Omni 模型独占。请调整时长为 4s/6s/8s，或切换模型为 Omni (omni-flash)。"
+                )
+            if sec_int not in (4, 6, 8):
+                if sec_int <= 4:
+                    sec_int = 4
+                elif sec_int <= 6:
+                    sec_int = 6
+                else:
+                    sec_int = 8
+        else:
+            if sec_int not in (4, 6, 8, 10):
+                if sec_int <= 4:
+                    sec_int = 4
+                elif sec_int <= 6:
+                    sec_int = 6
+                elif sec_int <= 8:
+                    sec_int = 8
+                else:
+                    sec_int = 10
+            if sec_int == 10 and internal_model == "flow":
+                internal_model = "omni-flash"
     elif engine == "vids":
         # Vids 允许 3 到 10
         sec_int = max(3, min(10, sec_int))

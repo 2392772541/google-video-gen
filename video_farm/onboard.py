@@ -109,18 +109,21 @@ def auto_onboard_profile(profile_name: str, create_default_project: bool = True)
 
 
 def get_profile_flow_project_id(profile_name: str) -> Optional[str]:
-    """快速从 gflow.db 查询指定 profile 是否已绑定 flow_project_id"""
+    """快速从 gflow.db 查询指定 profile 是否已绑定 flow_project_id，严格过滤确保为 36 位标准 UUID"""
     try:
         appdata = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
         gflow_db = Path(appdata) / "ffroliva" / "gflow-cli" / "gflow.db"
         if gflow_db.exists():
             with sqlite3.connect(str(gflow_db)) as conn:
-                row = conn.execute(
-                    "SELECT flow_project_id FROM projects WHERE profile_name = ? ORDER BY rowid DESC LIMIT 1",
+                rows = conn.execute(
+                    "SELECT flow_project_id FROM projects WHERE profile_name = ? ORDER BY rowid DESC",
                     (profile_name,)
-                ).fetchone()
-                if row and row[0]:
-                    return str(row[0]).strip()
+                ).fetchall()
+                for row in rows:
+                    if row and row[0]:
+                        pid = str(row[0]).strip()
+                        if re.fullmatch(r"[0-9a-fA-F-]{36}", pid):
+                            return pid
     except Exception as e:
         print(f"[get_profile_flow_project_id] 查询 profile [{profile_name}] 工程异常: {e}")
     return None
