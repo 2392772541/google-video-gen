@@ -33,6 +33,7 @@ class Task:
     project_id: str = ""
     aspect_ratio: str = "9:16"
     duration_sec: int = 8
+    count: int = 1  # 批量生成条数 (1~4)
     status: str = "queued"  # queued, dispatching, running, verifying, completed, failed, retry_wait, cancelled
     assigned_profile_id: Optional[str] = None
     priority: int = 10
@@ -43,6 +44,7 @@ class Task:
     start_time: Optional[str] = None
     finish_time: Optional[str] = None
     output_video_path: Optional[str] = None
+    output_video_paths: Optional[str] = None  # JSON string of multiple video paths, e.g. [".../v1.mp4", ".../v2.mp4"]
     output_image_paths: Optional[str] = None  # JSON string of generated image paths, e.g. [".../img1.png"]
     output_audio_path: Optional[str] = None  # 生成的音频文件路径 (.mp3 等)
     first_frame_ncc: Optional[float] = None

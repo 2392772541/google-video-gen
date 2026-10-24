@@ -557,30 +557,73 @@ class GeminiWebWorker(VidsWorker):
                         except Exception as me:
                             raise GeminiVideoSettingsError(f"无法确认 Gemini 模型设置：{me}") from me
 
-                    # 6. 如果有多模态素材输入 (参考视频或参考图)，附加素材到 Gemini 输入框
-                    media_files = []
-                    if getattr(task, "input_video_path", None) and Path(task.input_video_path).exists():
-                        ref_video = Path(task.input_video_path).resolve()
-                        media_files.append(str(ref_video))
-                        logs.append(f"正在准备附加多模态参考视频素材: {ref_video.name}")
+                    # 6. 严格执行素材上传状态机: NOT_STARTED -> FILE_RESOLVED -> UPLOADING -> UPLOAD_CONFIRMED -> READY_TO_SUBMIT
+                    upload_state = "NOT_STARTED"
+                    media_files: list[str] = []
+                    expected_images: list[Path] = []
+
+                    if getattr(task, "input_video_path", None):
+                        vp = Path(task.input_video_path).resolve()
+                        if not vp.is_file():
+                            raise GeminiVideoSettingsError(f"参考视频文件不存在或不可读取: {task.input_video_path}", "INPUT_FILE_NOT_FOUND")
+                        media_files.append(str(vp))
+                        logs.append(f"正在准备附加多模态参考视频素材: {vp.name}")
 
                     if task.start_image_path:
                         for p_str in str(task.start_image_path).split(";"):
                             p_clean = p_str.strip()
-                            if p_clean and Path(p_clean).exists():
-                                ref_img = Path(p_clean).resolve()
-                                media_files.append(str(ref_img))
-                                logs.append(f"正在准备附加参考图素材: {ref_img.name}")
+                            if p_clean:
+                                ip = Path(p_clean).resolve()
+                                if not ip.is_file():
+                                    raise GeminiVideoSettingsError(f"参考图片素材文件不存在或不可读取: {p_clean}", "INPUT_FILE_NOT_FOUND")
+                                expected_images.append(ip)
+                                media_files.append(str(ip))
+                                logs.append(f"正在准备附加参考图素材: {ip.name}")
+
+                    if task.end_image_path:
+                        raise GeminiVideoSettingsError("Gemini 网页视频通道不支持尾帧绑定能力，请改用 Google Flow 或单图动画模式", "UNSUPPORTED_FEATURE")
 
                     if media_files:
+                        upload_state = "FILE_RESOLVED"
+                        logs.append(f"[上传状态机] FILE_RESOLVED: 已完成 {len(media_files)} 个素材文件的完整性与可读性校验")
+
                         file_input = page.query_selector('input[type="file"]')
-                        if file_input:
-                            file_input.set_input_files(media_files)
-                            logs.append(f"已通过文件输入口上传多模态素材: {[Path(m).name for m in media_files]}")
-                            self._wait_for_attachments(
-                                page, len(media_files), image_count=1 if task.start_image_path else 0)
-                        else:
-                            raise GeminiVideoSettingsError("参考素材上传入口不存在；请求未提交，不会丢弃素材。")
+                        if not file_input:
+                            for btn_sel in [
+                                'button[aria-label*="Add"]', 'button[aria-label*="Upload"]', 'button[aria-label*="Plus"]',
+                                'button[aria-label*="添加"]', 'button[aria-label*="上传"]', 'button[aria-label*="文件"]',
+                                'button.mat-mdc-button-base:has-text("Add")', 'button:has-text("添加")'
+                            ]:
+                                try:
+                                    ab = page.query_selector(btn_sel)
+                                    if ab and ab.is_visible():
+                                        ab.click(timeout=self._timeout())
+                                        self._pause(page, 0.5)
+                                        file_input = page.query_selector('input[type="file"]')
+                                        if file_input:
+                                            break
+                                except Exception:
+                                    pass
+
+                        if not file_input:
+                            upload_state = "FAILED"
+                            logs.append("[上传状态机] FAILED: 未在当前页面找到可用的文件上传控件或上传按钮")
+                            raise GeminiVideoSettingsError("参考素材上传入口不存在或当前模式不可用；请求未提交，不会丢弃素材。", "UPLOAD_ENTRY_NOT_FOUND")
+
+                        upload_state = "UPLOADING"
+                        logs.append(f"[上传状态机] UPLOADING: 正在执行向网页文件输入口挂载 {len(media_files)} 个素材...")
+                        file_input.set_input_files(media_files)
+
+                        logs.append("[上传状态机] 等待并确认网页端附件接收与预处理就绪...")
+                        self._wait_for_attachments(
+                            page, len(media_files), image_count=len(expected_images))
+                        upload_state = "UPLOAD_CONFIRMED"
+                        logs.append(f"[上传状态机] UPLOAD_CONFIRMED: 全部 {len(media_files)} 个素材附件上传与缩略图加载已确认完成")
+
+                        upload_state = "READY_TO_SUBMIT"
+                        logs.append("[上传状态机] READY_TO_SUBMIT: 所有参数、画幅与素材校验 100% 达成，允许安全提交生成")
+                    else:
+                        upload_state = "READY_TO_SUBMIT"
 
                     # 7. 填充提示词并安全提交
                     final_prompt = task.prompt.strip()

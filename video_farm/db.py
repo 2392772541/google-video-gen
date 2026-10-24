@@ -171,6 +171,10 @@ def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
                 conn.execute("ALTER TABLE tasks ADD COLUMN input_video_path TEXT DEFAULT ''")
             if "output_audio_path" not in cols:
                 conn.execute("ALTER TABLE tasks ADD COLUMN output_audio_path TEXT")
+            if "count" not in cols:
+                conn.execute("ALTER TABLE tasks ADD COLUMN count INTEGER DEFAULT 1")
+            if "output_video_paths" not in cols:
+                conn.execute("ALTER TABLE tasks ADD COLUMN output_video_paths TEXT")
 
             # Ensure columns exist in vids_workflows
             vids_wf_cols = [r["name"] for r in conn.execute("PRAGMA table_info(vids_workflows)").fetchall()]
@@ -265,6 +269,8 @@ def row_to_task(row: sqlite3.Row) -> Task:
     input_video_path = row_dict.get("input_video_path", "") or ""
     output_image_paths = row_dict.get("output_image_paths")
     output_audio_path = row_dict.get("output_audio_path")
+    output_video_paths = row_dict.get("output_video_paths")
+    count_val = int(row_dict.get("count", 1) or 1)
     t = Task(
         id=row["id"],
         project_id=row["project_id"] or "",
@@ -277,6 +283,7 @@ def row_to_task(row: sqlite3.Row) -> Task:
         status=row["status"],
         assigned_profile_id=row["assigned_profile_id"],
         priority=row["priority"],
+        count=count_val,
         retry_count=row["retry_count"],
         max_retries=row["max_retries"],
         require_clean_watermark=bool(row["require_clean_watermark"]),
@@ -284,6 +291,7 @@ def row_to_task(row: sqlite3.Row) -> Task:
         start_time=row["start_time"],
         finish_time=row["finish_time"],
         output_video_path=row["output_video_path"],
+        output_video_paths=output_video_paths,
         output_image_paths=output_image_paths,
         first_frame_ncc=row["first_frame_ncc"],
         last_frame_ncc=row["last_frame_ncc"],
@@ -521,6 +529,8 @@ def _insert_task(conn: sqlite3.Connection, task: Task) -> None:
     output_video_path = getattr(task, "output_video_path", None)
     output_image_paths = getattr(task, "output_image_paths", None)
     output_audio_path = getattr(task, "output_audio_path", None)
+    output_video_paths = getattr(task, "output_video_paths", None)
+    count_val = getattr(task, "count", 1) or 1
     start_time = getattr(task, "start_time", None)
     finish_time = getattr(task, "finish_time", None)
     conn.execute("""
@@ -529,14 +539,15 @@ def _insert_task(conn: sqlite3.Connection, task: Task) -> None:
         duration_sec, status, assigned_profile_id, priority, retry_count,
         max_retries, require_clean_watermark, submit_time, created_at, updated_at, engine,
         task_type, model, input_video_path, output_video_path, output_image_paths, output_audio_path,
-        start_time, finish_time
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        output_video_paths, count, start_time, finish_time
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         task.id, task.project_id, task.prompt, task.start_image_path, task.end_image_path,
         task.aspect_ratio, task.duration_sec, task.status, task.assigned_profile_id,
         task.priority, task.retry_count, task.max_retries, 1 if task.require_clean_watermark else 0,
         task.submit_time, task.created_at, task.updated_at, engine,
         task_type, model, input_video_path, output_video_path, output_image_paths, output_audio_path,
+        output_video_paths, count_val,
         start_time, finish_time
     ))
 

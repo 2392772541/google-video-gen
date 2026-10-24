@@ -105,21 +105,21 @@ def validate_video_request(task: Task, *, require_pair: bool = False) -> None:
             raise VideoRequestError("Google Vids 时长必须为 3 到 10 秒")
         if task.model and not re.fullmatch(r"Omni(?: \((?:720p|1080p)\))?", task.model, re.I):
             raise VideoRequestError("Google Vids 当前使用 Omni 模型，画质请选择 720p 或 1080p")
-        if len(start_paths) > 1 and not task.end_image_path:
-            raise VideoRequestError("Google Vids 当前仅支持首尾帧模式或单参考图，不支持超过 1 张的自由参考图列表")
+        if len(start_paths) > 3:
+            raise VideoRequestError("Google Vids 当前最多支持 3 张参考图，请减少参考图数量")
     elif task.engine == "flow":
         if int(task.duration_sec) not in (4, 6, 8, 10):
             raise VideoRequestError(f"Flow 视频时长仅支持 4、6、8、10 秒，当前为 {task.duration_sec} 秒")
-        if int(task.duration_sec) == 10 and task.model and not any(k in task.model.lower() for k in ("omni-flash", "omni_flash", "omni")):
-            raise VideoRequestError(f"Flow 10秒时长仅支持 Omni (omni-flash) 模型，当前模型 '{task.model}' 上限为 8 秒")
+        if int(task.duration_sec) == 10 and task.model and not any(k in task.model.lower() for k in ("omni-flash", "omni_flash", "omni", "flow")):
+            raise VideoRequestError(f"Flow 10秒时长仅支持 Omni (omni-flash) 模型，当前模型 '{task.model}' 仅支持 4s/6s/8s")
         
         if len(start_paths) > 1 and not task.end_image_path:
             raw_m = (task.model or "").lower()
             if "quality" in raw_m:
                 raise VideoRequestError("Flow Veo Quality 模型不支持参考图 (Ingredients) 生成，请切换为 Veo Fast / Lite 或 Omni 模型，或改用首尾帧模式")
             elif any(k in raw_m for k in ("omni-flash", "omni_flash", "omni")):
-                if len(start_paths) > 7:
-                    raise VideoRequestError(f"Flow Omni 模型最多支持 7 张参考图，当前提供了 {len(start_paths)} 张，请减少参考图数量")
+                if len(start_paths) > 3:
+                    raise VideoRequestError(f"Flow Omni 模型当前已验证最多支持 3 张参考图，当前提供了 {len(start_paths)} 张，请减少参考图数量")
             else:
                 if len(start_paths) > 3:
                     raise VideoRequestError(f"Flow {task.model or 'Veo'} 模型最多支持 3 张参考图，当前提供了 {len(start_paths)} 张，请减少参考图数量")

@@ -33,6 +33,7 @@ from .image_modes import MAX_IMAGE_BYTES
 from .local_security import media_type
 from pydantic import BaseModel
 from .timeline_assembler import assemble_timeline, TimelineAssemblyError, calculate_sha256, ShotSpec
+from .model_capabilities import get_canvas_models_payload, get_capabilities_raw, get_model_spec
 
 router = APIRouter(tags=["Infinite Canvas Adapter"])
 
@@ -102,100 +103,13 @@ async def _save_upload_image(upload: UploadFile, directory: Path, stem: str) -> 
 @router.get("/models")
 def list_canvas_models():
     """返回供无限画布模型选择器使用的本地可用模型列表"""
-    models = [
-        {
-            "id": "flow",
-            "object": "model",
-            "name": "Google Flow (Veo)",
-            "owned_by": "video-farm",
-            "permission": []
-        },
-        {
-            "id": "veo-lite",
-            "object": "model",
-            "name": "Google Veo 3.1 Lite (极速 · 4~8s · 延展)",
-            "owned_by": "video-farm",
-            "permission": []
-        },
-        {
-            "id": "veo-fast",
-            "object": "model",
-            "name": "Google Veo 3.1 Fast (均衡 · 4~8s)",
-            "owned_by": "video-farm",
-            "permission": []
-        },
-        {
-            "id": "veo-quality",
-            "object": "model",
-            "name": "Google Veo 3.1 Quality (高保真 · 4~8s · 仅首尾帧)",
-            "owned_by": "video-farm",
-            "permission": []
-        },
-        {
-            "id": "omni-flash",
-            "object": "model",
-            "name": "Google Flow Omni Flash (全能旗舰 · 4~10s · 7图参考)",
-            "owned_by": "video-farm",
-            "permission": []
-        },
-        {
-            "id": "vids",
-            "object": "model",
-            "name": "Google Vids",
-            "owned_by": "video-farm",
-            "permission": []
-        },
-        {
-            "id": "gemini",
-            "object": "model",
-            "name": "Gemini Video",
-            "owned_by": "video-farm",
-            "permission": []
-        },
-        {
-            "id": "gpt-image-1.5",
-            "object": "model",
-            "name": "GPT Image 1.5",
-            "owned_by": "video-farm",
-            "permission": []
-        },
-        {
-            "id": "gpt-image-2",
-            "object": "model",
-            "name": "GPT Image 2.0 (写实摄影)",
-            "owned_by": "video-farm",
-            "permission": []
-        },
-        {
-            "id": "gpt-image-2.5",
-            "object": "model",
-            "name": "GPT Image 2.5 (极致微距与质感)",
-            "owned_by": "video-farm",
-            "permission": []
-        },
-        {
-            "id": "flow-image",
-            "object": "model",
-            "name": "Flow Local Image",
-            "owned_by": "video-farm",
-            "permission": []
-        },
-        {
-            "id": "gpt-6-astra",
-            "object": "model",
-            "name": "GPT-6 Astra (分镜推演与提示词)",
-            "owned_by": "video-farm",
-            "permission": []
-        },
-        {
-            "id": "gpt-5.6-sol",
-            "object": "model",
-            "name": "GPT-5.6 Sol (通用大模型)",
-            "owned_by": "video-farm",
-            "permission": []
-        }
-    ]
-    return {"object": "list", "data": models}
+    return {"object": "list", "data": get_canvas_models_payload()}
+
+
+@router.get("/model-capabilities")
+def get_model_capabilities_endpoint():
+    """返回系统唯一的 MODEL_CAPABILITIES 权威注册数据"""
+    return get_capabilities_raw()
 
 
 def _forward_image_generation_request(payload: dict) -> dict:
@@ -342,6 +256,15 @@ async def create_canvas_video_task(request: Request):
     except (ValueError, TypeError):
         sec_int = 6
 
+    try:
+        count_int = int(str(form.get("count") or form.get("n") or form.get("output_count") or "1").strip())
+    except (ValueError, TypeError):
+        count_int = 1
+    if count_int not in (1, 2, 3, 4):
+        raise HTTPException(422, f"生成条数仅支持 1~4 条，当前为 {count_int}")
+    if engine != "flow" and count_int > 1:
+        raise HTTPException(422, f"当前引擎 ({engine}) 仅支持单条生成 (count=1)，不支持批量多条生成")
+
     if engine == "flow":
         # 优先按用户明确选择的模型归一化
         if "quality" in raw_model:
@@ -418,22 +341,28 @@ async def create_canvas_video_task(request: Request):
         last_frame = form.get("last_frame")
 
         if mode == "frames":
+            if engine == "vids":
+                raise HTTPException(422, "Google Vids 暂不支持双关键帧首尾插值模式，请使用首帧单图或 1~3 张参考图模式，或切换为 Google Flow")
+            if engine == "gemini":
+                raise HTTPException(422, "Google Gemini 网页通道不支持尾帧绑定，请切换为 Google Flow 或移除尾帧")
             if last_frame and not first_frame and len(collected_files) <= 1:
                 raise HTTPException(422, "首尾帧模式缺少起始帧；仅提供尾帧时无法生成，请补齐起始帧或切换为单图参考模式")
 
         if mode == "reference":
+            if engine == "gemini" and len(collected_files) > 1:
+                raise HTTPException(422, "Google Gemini 网页通道仅支持单张参考图驱动，请减少参考图数量 (最大 1 张)")
             if engine == "flow":
                 if "quality" in raw_model and len(collected_files) > 0:
                     raise HTTPException(422, "Flow Veo Quality 模型不支持参考图 (Ingredients) 生成，请切换为 Veo Fast / Lite 或 Omni 模型，或改用首尾帧模式")
-                if any(k in raw_model for k in ("omni-flash", "omni_flash", "omni")):
-                    if len(collected_files) > 7:
-                        raise HTTPException(422, f"Flow Omni 模型最多支持 7 张参考图，当前上传了 {len(collected_files)} 张，请减少参考图数量 (最大 7 张)")
+                if any(k in raw_model for k in ("omni-flash", "omni_flash", "omni", "flow")):
+                    if len(collected_files) > 3:
+                        raise HTTPException(422, f"Flow Omni 模型当前已验证最多支持 3 张参考图，当前上传了 {len(collected_files)} 张，请减少参考图数量 (最大 3 张)")
                 else:
                     if len(collected_files) > 3:
                         raise HTTPException(422, f"Flow {raw_model} 模型最多支持 3 张参考图，当前上传了 {len(collected_files)} 张，请减少参考图数量 (最大 3 张)")
             elif engine == "vids":
-                if len(collected_files) > 2:
-                    raise HTTPException(422, "Google Vids 当前仅支持首帧或首尾帧模式，不支持超过 2 张参考图")
+                if len(collected_files) > 3:
+                    raise HTTPException(422, f"Google Vids 当前最多支持 3 张参考图，当前上传了 {len(collected_files)} 张，请减少参考图数量 (最大 3 张)")
 
             saved_refs = []
             for idx, f in enumerate(collected_files):
@@ -469,6 +398,7 @@ async def create_canvas_video_task(request: Request):
             model=internal_model,
             project_id=upstream_project_id,
             assigned_profile_id=assigned_profile_id,
+            count=count_int,
             priority=10,
             submit_time=datetime.now().astimezone().isoformat()
         )
@@ -516,6 +446,19 @@ def get_canvas_video_task_status(task_id: str, request: Request):
     if task.status == "completed":
         fname = Path(task.output_video_path).name if task.output_video_path else ""
         video_url = f"{base_url}/media/outputs/{fname}" if fname else ""
+        urls = []
+        if getattr(task, "output_video_paths", None):
+            try:
+                paths = json.loads(task.output_video_paths)
+                for p in paths:
+                    fn = Path(p).name
+                    if fn:
+                        urls.append(f"{base_url}/media/outputs/{fn}")
+            except Exception:
+                pass
+        if not urls and video_url:
+            urls = [video_url]
+
         return {
             "id": task.id,
             "object": "video",
@@ -523,6 +466,9 @@ def get_canvas_video_task_status(task_id: str, request: Request):
             "url": video_url,
             "video_url": video_url,
             "result_url": video_url,
+            "urls": urls,
+            "results": [{"url": u} for u in urls],
+            "count": len(urls),
             "progress": 100,
             "created_at": task.submit_time,
             "completed_at": task.finish_time

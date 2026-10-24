@@ -23,6 +23,7 @@
     const importAlert = document.getElementById('canvas-import-alert');
     const statusPill = document.getElementById('canvas-status-pill');
     const proxyPill = document.getElementById('proxy-status-pill');
+    const agentPill = document.getElementById('agent-status-pill');
     const cpaPill = document.getElementById('cpa-status-pill');
 
     function showToast(msg, isSuccess = true) {
@@ -130,6 +131,10 @@
         if (proxyPill) {
           proxyPill.textContent = data.canvas_proxy ? '● 代理 23210 就绪' : '○ 代理 23210 未启动';
           proxyPill.className = 'pill status-pill ' + (data.canvas_proxy ? 'online' : 'offline');
+        }
+        if (agentPill) {
+          agentPill.textContent = data.canvas_agent ? '● Agent 17371 在线' : '○ Agent 17371 离线';
+          agentPill.className = 'pill status-pill ' + (data.canvas_agent ? 'online' : 'offline');
         }
         if (cpaPill) {
           cpaPill.textContent = data.cliproxyapi ? `● 8317 (${data.models_count || 0}模型)` : '○ 8317 离线';

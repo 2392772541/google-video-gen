@@ -237,12 +237,18 @@ class VideoWorker:
                     flow_model = "omni-flash"
                 elif raw_m in ("omni-flash", "veo-lite", "veo-fast", "veo-quality", "veo-lite-lp"):
                     flow_model = raw_m
-            if int(task.duration_sec) == 10:
-                flow_model = "omni-flash"
             if not flow_model:
                 flow_model = "omni-flash"
+            if int(task.duration_sec) == 10:
+                flow_model = "omni-flash"
             cmd.extend(["--model", flow_model])
-            cmd.extend(["--duration", str(task.duration_sec)])
+            # 仅当模型为 omni-flash 或 10s 时传递 --duration（Veo 系列日常默认时长由上游决定）
+            if (flow_model == "omni-flash" or int(task.duration_sec) == 10) and task.duration_sec:
+                cmd.extend(["--duration", str(task.duration_sec)])
+            # 生成条数参数支持 (1~4)
+            count_val = getattr(task, "count", 1) or 1
+            if count_val in (1, 2, 3, 4):
+                cmd.extend(["--count", str(count_val)])
             cmd.append(task.prompt)
             control.check()
             stdout_path, stderr_path = directory / "stdout.log", directory / "stderr.log"

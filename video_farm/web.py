@@ -2240,6 +2240,15 @@ def serve_canvas_page():
     canvas_file = STATIC_DIR / "canvas.html"
     if not canvas_file.exists():
         return JSONResponse({"message": "Infinite Canvas static/canvas.html is not created yet."})
+    try:
+        import socket, subprocess, os
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(0.2)
+            if s.connect_ex(('127.0.0.1', 17371)) != 0:
+                creation_flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+                subprocess.Popen(["cmd.exe", "/c", "canvas-agent"], creationflags=creation_flags)
+    except BaseException:
+        pass
     return FileResponse(str(canvas_file), headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache"})
 
 @app.get("/api/canvas/status")
@@ -2255,6 +2264,7 @@ def get_canvas_status():
 
     canvas_3000 = is_port_listening(3000)
     proxy_23210 = is_port_listening(23210)
+    agent_17371 = is_port_listening(17371)
     cpa_8317 = is_port_listening(8317)
     models_count = 0
     if cpa_8317:
@@ -2269,11 +2279,13 @@ def get_canvas_status():
     return {
         "canvas_app": canvas_3000,
         "canvas_proxy": proxy_23210,
+        "canvas_agent": agent_17371,
         "cliproxyapi": cpa_8317,
         "models_count": models_count,
         "ports": {
             "canvas": 3000,
             "proxy": 23210,
+            "agent": 17371,
             "cliproxyapi": 8317,
             "farm": 8088
         }

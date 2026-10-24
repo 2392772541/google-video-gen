@@ -142,27 +142,27 @@ def test_extreme_aspect_ratio_rejected(test_assets):
         validate_video_request(task)
 
 
-def test_flow_ingredients_omni_cap_7(test_assets):
+def test_flow_ingredients_omni_cap_3(test_assets):
     tmp = test_assets["tmp_path"]
     refs = []
-    for i in range(7):
+    for i in range(3):
         p = tmp / f"ref_omni_{i}.png"
         Image.new("RGB", (64, 64), "cyan").save(p)
         refs.append(str(p))
 
-    task = Task(id="t_omni_7refs", prompt="cat", engine="flow",
+    task = Task(id="t_omni_3refs", prompt="cat", engine="flow",
                 model="omni-flash", duration_sec=6, aspect_ratio="16:9",
                 start_image_path=";".join(refs))
     validate_video_request(task)
 
-    p_extra = tmp / "ref_omni_8.png"
+    p_extra = tmp / "ref_omni_4.png"
     Image.new("RGB", (64, 64), "cyan").save(p_extra)
     refs.append(str(p_extra))
 
-    task_over = Task(id="t_omni_8refs", prompt="cat", engine="flow",
+    task_over = Task(id="t_omni_4refs", prompt="cat", engine="flow",
                      model="omni-flash", duration_sec=6, aspect_ratio="16:9",
                      start_image_path=";".join(refs))
-    with pytest.raises(VideoRequestError, match="Flow Omni 模型最多支持 7 张参考图"):
+    with pytest.raises(VideoRequestError, match="Flow Omni 模型当前已验证最多支持 3 张参考图"):
         validate_video_request(task_over)
 
 

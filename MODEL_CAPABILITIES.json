@@ -1,153 +1,527 @@
 {
-  "version": "1.0.0",
-  "updated_at": "2026-10-24T13:15:00+08:00",
-  "models": {
+  "version": "2.0.0",
+  "updated_at": "2026-10-24T18:00:00+08:00",
+  "channels": {
     "flow": {
-      "displayName": "Google Flow (Veo 3.1 & Omni)",
+      "channel_id": "flow",
+      "provider": "google_flow",
+      "display_name": "Google Flow (Veo & Omni)",
+      "description": "Google 官方 Flow 视频生成平台，集成 Veo 3.1 系列与 Omni 1.1 Flash",
+      "models": [
+        "flow",
+        "omni-flash",
+        "veo-lite",
+        "veo-fast",
+        "veo-quality"
+      ]
+    },
+    "vids": {
+      "channel_id": "vids",
+      "provider": "google_vids",
+      "display_name": "Google Vids",
+      "description": "Google 官方企业级视频工作台，专精多镜头与参考图",
+      "models": [
+        "vids"
+      ]
+    },
+    "gemini": {
+      "channel_id": "gemini",
+      "provider": "google_gemini",
+      "display_name": "Google Gemini 网页通道",
+      "description": "Google Gemini 网页端原生多模态视频工作区",
+      "models": [
+        "gemini"
+      ]
+    },
+    "local_proxy": {
+      "channel_id": "local_proxy",
+      "provider": "local_proxy_api",
+      "display_name": "本地 Proxy API 网关",
+      "description": "本地模型网关，提供高精图像生成与创意分镜推理",
+      "models": [
+        "gpt-image-1.5",
+        "gpt-image-2",
+        "gpt-image-2.5",
+        "gpt-6-astra",
+        "gpt-5.6-sol"
+      ]
+    }
+  },
+  "models": {
+    "omni-flash": {
+      "provider": "google_flow",
+      "channel_id": "flow",
+      "model_id": "omni-flash",
+      "upstream_model_id": "omni-1.1-flash",
+      "displayName": "Google Flow Omni Flash",
       "platform": "Google Flow",
+      "badge": "全能旗舰 · 4~10s · 1~4条 · 3图参考",
       "category": "omni",
       "capability": "video",
-      "supportedDurations": [4, 6, 8, 10],
+      "modes": [
+        "text_to_video",
+        "first_frame",
+        "frames",
+        "ingredients"
+      ],
+      "first_frame_supported": true,
+      "last_frame_supported": true,
+      "ingredient_reference_supported": true,
+      "max_reference_images": 3,
+      "supportedDurations": [
+        4,
+        6,
+        8,
+        10
+      ],
       "defaultDuration": 6,
-      "maxReferences": 7,
+      "duration_control_mode": "selectable",
       "supportsFrames": true,
       "supportsIngredients": true,
       "supportsExtend": false,
-      "supportedResolutions": ["720p"],
-      "supportedRatios": ["16:9", "9:16"],
-      "status": "verified"
+      "supportedResolutions": [
+        "360p",
+        "720p"
+      ],
+      "supportedRatios": [
+        "16:9",
+        "9:16"
+      ],
+      "supported_output_counts": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "video_reference_enabled": false,
+      "required_upload_fields": [],
+      "default_parameters": {
+        "duration": 6,
+        "resolution": "720p",
+        "aspect_ratio": "16:9",
+        "count": 1
+      },
+      "account_availability": "available",
+      "validation_status": "verified",
+      "verified_at": "2026-10-24T17:00:00+08:00",
+      "evidence_source": "真实网页端实测，支持4/6/8/10s精确调节与首尾帧/三图参考"
     },
     "veo-lite": {
+      "provider": "google_flow",
+      "channel_id": "flow",
+      "model_id": "veo-lite",
+      "upstream_model_id": "veo-3.1-lite",
       "displayName": "Google Veo 3.1 Lite (极速)",
       "platform": "Google Flow",
+      "badge": "极速 · 默认时长 · 1~4条 · 首尾帧/3图参考",
       "category": "fast",
       "capability": "video",
-      "supportedDurations": [4, 6, 8],
+      "modes": [
+        "text_to_video",
+        "first_frame",
+        "frames",
+        "ingredients"
+      ],
+      "first_frame_supported": true,
+      "last_frame_supported": true,
+      "ingredient_reference_supported": true,
+      "max_reference_images": 3,
+      "supportedDurations": [
+        6
+      ],
       "defaultDuration": 6,
-      "maxReferences": 3,
+      "duration_control_mode": "upstream_default",
       "supportsFrames": true,
       "supportsIngredients": true,
       "supportsExtend": true,
-      "supportedResolutions": ["720p"],
-      "supportedRatios": ["16:9", "9:16"],
-      "status": "verified"
+      "supportedResolutions": [
+        "720p"
+      ],
+      "supportedRatios": [
+        "16:9",
+        "9:16"
+      ],
+      "supported_output_counts": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "video_reference_enabled": false,
+      "required_upload_fields": [],
+      "default_parameters": {
+        "duration": 6,
+        "resolution": "720p",
+        "aspect_ratio": "16:9",
+        "count": 1
+      },
+      "account_availability": "available",
+      "validation_status": "verified",
+      "verified_at": "2026-10-24T17:00:00+08:00",
+      "evidence_source": "网页端无时长选择控件，时长由上游决定；支持1~4条与首尾帧/3图参考"
     },
     "veo-fast": {
+      "provider": "google_flow",
+      "channel_id": "flow",
+      "model_id": "veo-fast",
+      "upstream_model_id": "veo-3.1-fast",
       "displayName": "Google Veo 3.1 Fast (均衡)",
       "platform": "Google Flow",
+      "badge": "均衡 · 默认时长 · 1~4条 · 首尾帧/3图参考",
       "category": "standard",
       "capability": "video",
-      "supportedDurations": [4, 6, 8],
+      "modes": [
+        "text_to_video",
+        "first_frame",
+        "frames",
+        "ingredients"
+      ],
+      "first_frame_supported": true,
+      "last_frame_supported": true,
+      "ingredient_reference_supported": true,
+      "max_reference_images": 3,
+      "supportedDurations": [
+        6
+      ],
       "defaultDuration": 6,
-      "maxReferences": 3,
+      "duration_control_mode": "upstream_default",
       "supportsFrames": true,
       "supportsIngredients": true,
       "supportsExtend": false,
-      "supportedResolutions": ["720p"],
-      "supportedRatios": ["16:9", "9:16"],
-      "status": "verified"
+      "supportedResolutions": [
+        "720p"
+      ],
+      "supportedRatios": [
+        "16:9",
+        "9:16"
+      ],
+      "supported_output_counts": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "video_reference_enabled": false,
+      "required_upload_fields": [],
+      "default_parameters": {
+        "duration": 6,
+        "resolution": "720p",
+        "aspect_ratio": "16:9",
+        "count": 1
+      },
+      "account_availability": "available",
+      "validation_status": "verified",
+      "verified_at": "2026-10-24T17:00:00+08:00",
+      "evidence_source": "网页端无时长选择控件，时长由上游决定；支持1~4条与首尾帧/3图参考"
     },
     "veo-quality": {
+      "provider": "google_flow",
+      "channel_id": "flow",
+      "model_id": "veo-quality",
+      "upstream_model_id": "veo-3.1-quality",
       "displayName": "Google Veo 3.1 Quality (高保真)",
       "platform": "Google Flow",
+      "badge": "高保真 · 默认时长 · 1~4条 · 仅首尾帧",
       "category": "quality",
       "capability": "video",
-      "supportedDurations": [4, 6, 8],
+      "modes": [
+        "text_to_video",
+        "first_frame",
+        "frames"
+      ],
+      "first_frame_supported": true,
+      "last_frame_supported": true,
+      "ingredient_reference_supported": false,
+      "max_reference_images": 0,
+      "supportedDurations": [
+        6
+      ],
       "defaultDuration": 6,
-      "maxReferences": 0,
+      "duration_control_mode": "upstream_default",
       "supportsFrames": true,
       "supportsIngredients": false,
       "supportsExtend": false,
-      "supportedResolutions": ["720p"],
-      "supportedRatios": ["16:9", "9:16"],
-      "status": "verified"
-    },
-    "omni-flash": {
-      "displayName": "Google Flow Omni Flash",
-      "platform": "Google Flow",
-      "category": "omni",
-      "capability": "video",
-      "supportedDurations": [4, 6, 8, 10],
-      "defaultDuration": 6,
-      "maxReferences": 7,
-      "supportsFrames": true,
-      "supportsIngredients": true,
-      "supportsExtend": false,
-      "supportedResolutions": ["720p"],
-      "supportedRatios": ["16:9", "9:16"],
-      "status": "verified"
+      "supportedResolutions": [
+        "720p"
+      ],
+      "supportedRatios": [
+        "16:9",
+        "9:16"
+      ],
+      "supported_output_counts": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "video_reference_enabled": false,
+      "required_upload_fields": [],
+      "default_parameters": {
+        "duration": 6,
+        "resolution": "720p",
+        "aspect_ratio": "16:9",
+        "count": 1
+      },
+      "account_availability": "available",
+      "validation_status": "verified",
+      "verified_at": "2026-10-24T17:00:00+08:00",
+      "evidence_source": "不支持普通多图参考(Ingredients)；支持首尾帧关键帧插值与1~4条输出"
     },
     "vids": {
-      "displayName": "Google Vids (Omni 连续分镜)",
+      "provider": "google_vids",
+      "channel_id": "vids",
+      "model_id": "vids",
+      "upstream_model_id": "vids-create-v1",
+      "displayName": "Google Vids (多镜头与参考图)",
       "platform": "Google Vids",
+      "badge": "参考图 1~3张 · 3~10s · 720p/1080p",
       "category": "quality",
       "capability": "video",
-      "supportedDurations": [3, 4, 5, 6, 7, 8, 9, 10],
+      "modes": [
+        "text_to_video",
+        "ingredients"
+      ],
+      "first_frame_supported": false,
+      "last_frame_supported": false,
+      "ingredient_reference_supported": true,
+      "max_reference_images": 3,
+      "supportedDurations": [
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10
+      ],
       "defaultDuration": 8,
-      "maxReferences": 2,
-      "supportsFrames": true,
-      "supportsIngredients": false,
+      "duration_control_mode": "selectable",
+      "supportsFrames": false,
+      "supportsIngredients": true,
       "supportsExtend": false,
-      "supportedResolutions": ["720p", "1080p"],
-      "supportedRatios": ["16:9"],
-      "status": "verified"
+      "supportedResolutions": [
+        "720p",
+        "1080p"
+      ],
+      "supportedRatios": [
+        "16:9"
+      ],
+      "supported_output_counts": [
+        1
+      ],
+      "video_reference_enabled": false,
+      "required_upload_fields": [],
+      "default_parameters": {
+        "duration": 8,
+        "resolution": "1080p",
+        "aspect_ratio": "16:9",
+        "count": 1
+      },
+      "account_availability": "available",
+      "validation_status": "verified",
+      "verified_at": "2026-10-24T17:00:00+08:00",
+      "evidence_source": "当前已验证支持最多3张参考素材，3~10秒可调，暂不支持视频参考"
     },
     "gemini": {
-      "displayName": "Google Gemini (网页多模态)",
+      "provider": "google_gemini",
+      "channel_id": "gemini",
+      "model_id": "gemini",
+      "upstream_model_id": "gemini-web-video",
+      "displayName": "Gemini Web Video (网页多模态)",
       "platform": "Google Gemini",
+      "badge": "单图参考 · 网页驱动 · 16:9/9:16",
       "category": "standard",
       "capability": "video",
-      "supportedDurations": [4, 6, 8],
+      "modes": [
+        "text_to_video",
+        "first_frame"
+      ],
+      "first_frame_supported": true,
+      "last_frame_supported": false,
+      "ingredient_reference_supported": false,
+      "max_reference_images": 1,
+      "supportedDurations": [
+        6
+      ],
       "defaultDuration": 6,
-      "maxReferences": 1,
+      "duration_control_mode": "upstream_default",
       "supportsFrames": false,
       "supportsIngredients": false,
-      "supportedResolutions": ["720p"],
-      "supportedRatios": ["16:9", "9:16"],
-      "status": "verified"
+      "supportsExtend": false,
+      "supportedResolutions": [
+        "720p"
+      ],
+      "supportedRatios": [
+        "16:9",
+        "9:16"
+      ],
+      "supported_output_counts": [
+        1
+      ],
+      "video_reference_enabled": false,
+      "required_upload_fields": [],
+      "default_parameters": {
+        "duration": 6,
+        "resolution": "720p",
+        "aspect_ratio": "16:9",
+        "count": 1
+      },
+      "account_availability": "available",
+      "validation_status": "verified",
+      "verified_at": "2026-10-24T17:00:00+08:00",
+      "evidence_source": "Gemini 网页端视频工作区，支持首帧驱动，严禁上传未确认提前提交"
     },
     "gpt-image-1.5": {
+      "provider": "local_proxy",
+      "channel_id": "local_proxy",
+      "model_id": "gpt-image-1.5",
+      "upstream_model_id": "gpt-image-1.5",
       "displayName": "GPT Image 1.5 高精摄影",
       "platform": "Local Proxy API",
       "category": "quality",
       "capability": "image",
-      "supportedResolutions": ["1024x1024", "1280x720", "720x1280"],
-      "supportedRatios": ["1:1", "16:9", "9:16", "4:3", "3:4"],
-      "status": "verified"
+      "supportedResolutions": [
+        "1024x1024",
+        "1280x720",
+        "720x1280"
+      ],
+      "supportedRatios": [
+        "1:1",
+        "16:9",
+        "9:16",
+        "4:3",
+        "3:4"
+      ],
+      "validation_status": "verified"
     },
     "gpt-image-2": {
+      "provider": "local_proxy",
+      "channel_id": "local_proxy",
+      "model_id": "gpt-image-2",
+      "upstream_model_id": "gpt-image-2",
       "displayName": "GPT Image 2.0 写实影像",
       "platform": "Local Proxy API",
       "category": "quality",
       "capability": "image",
-      "supportedResolutions": ["1024x1024", "1280x720", "720x1280"],
-      "supportedRatios": ["1:1", "16:9", "9:16", "4:3", "3:4"],
-      "status": "verified"
+      "supportedResolutions": [
+        "1024x1024",
+        "1280x720",
+        "720x1280"
+      ],
+      "supportedRatios": [
+        "1:1",
+        "16:9",
+        "9:16",
+        "4:3",
+        "3:4"
+      ],
+      "validation_status": "verified"
     },
     "gpt-image-2.5": {
+      "provider": "local_proxy",
+      "channel_id": "local_proxy",
+      "model_id": "gpt-image-2.5",
+      "upstream_model_id": "gpt-image-2.5",
       "displayName": "GPT Image 2.5 极致渲染",
       "platform": "Local Proxy API",
       "category": "quality",
       "capability": "image",
-      "supportedResolutions": ["1024x1024", "1280x720", "720x1280"],
-      "supportedRatios": ["1:1", "16:9", "9:16", "4:3", "3:4"],
-      "status": "verified"
+      "supportedResolutions": [
+        "1024x1024",
+        "1280x720",
+        "720x1280"
+      ],
+      "supportedRatios": [
+        "1:1",
+        "16:9",
+        "9:16",
+        "4:3",
+        "3:4"
+      ],
+      "validation_status": "verified"
     },
     "gpt-6-astra": {
+      "provider": "local_proxy",
+      "channel_id": "local_proxy",
+      "model_id": "gpt-6-astra",
+      "upstream_model_id": "gpt-6-astra",
       "displayName": "GPT-6 Astra 创意分镜大脑",
       "platform": "Local Proxy API",
       "category": "omni",
       "capability": "text",
       "supportsStreaming": true,
-      "status": "verified"
+      "validation_status": "verified"
     },
     "gpt-5.6-sol": {
+      "provider": "local_proxy",
+      "channel_id": "local_proxy",
+      "model_id": "gpt-5.6-sol",
+      "upstream_model_id": "gpt-5.6-sol",
       "displayName": "GPT-5.6 Sol 逻辑推理引擎",
       "platform": "Local Proxy API",
       "category": "quality",
       "capability": "text",
       "supportsStreaming": true,
-      "status": "verified"
+      "validation_status": "verified"
+    },
+    "flow": {
+      "provider": "google_flow",
+      "channel_id": "flow",
+      "model_id": "flow",
+      "upstream_model_id": "omni-1.1-flash",
+      "displayName": "Google Flow (Omni 旗舰)",
+      "platform": "Google Flow",
+      "badge": "全能旗舰 · 4~10s · 1~4条 · 3图参考",
+      "category": "omni",
+      "capability": "video",
+      "modes": [
+        "text_to_video",
+        "first_frame",
+        "frames",
+        "ingredients"
+      ],
+      "first_frame_supported": true,
+      "last_frame_supported": true,
+      "ingredient_reference_supported": true,
+      "max_reference_images": 3,
+      "supportedDurations": [
+        4,
+        6,
+        8,
+        10
+      ],
+      "defaultDuration": 6,
+      "duration_control_mode": "selectable",
+      "supportsFrames": true,
+      "supportsIngredients": true,
+      "supportsExtend": false,
+      "supportedResolutions": [
+        "360p",
+        "720p"
+      ],
+      "supportedRatios": [
+        "16:9",
+        "9:16"
+      ],
+      "supported_output_counts": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "video_reference_enabled": false,
+      "required_upload_fields": [],
+      "default_parameters": {
+        "duration": 6,
+        "resolution": "720p",
+        "aspect_ratio": "16:9",
+        "count": 1
+      },
+      "account_availability": "available",
+      "validation_status": "verified",
+      "verified_at": "2026-10-24T17:00:00+08:00",
+      "evidence_source": "真实网页端实测，支持4/6/8/10s精确调节与首尾帧/三图参考"
     }
   }
 }
