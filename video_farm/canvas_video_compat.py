@@ -402,10 +402,16 @@ async def create_canvas_video_task(request: Request):
     end_image_path = ""
 
     # 收集所有上传的文件，兼顾 first_frame, last_frame, images, image[], file 等
+    # 注意：前端为跨平台兼容常同时提交 image[] 与 images，必须按字段优先级提取，避免同一文件被双重收集为两张参考图
     collected_files: List[UploadFile] = []
-    for field_name, value in form.multi_items():
-        if _is_upload_file(value):
-            collected_files.append(value)
+    if form.getlist("image[]"):
+        collected_files = [f for f in form.getlist("image[]") if _is_upload_file(f)]
+    elif form.getlist("images"):
+        collected_files = [f for f in form.getlist("images") if _is_upload_file(f)]
+    else:
+        for field_name, value in form.multi_items():
+            if _is_upload_file(value) and field_name not in ("first_frame", "last_frame"):
+                collected_files.append(value)
 
     try:
         first_frame = form.get("first_frame")

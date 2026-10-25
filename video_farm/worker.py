@@ -187,6 +187,20 @@ class VideoWorker:
                 return outcome
             self._ensure_profile_marker(profile.name)
             ref_imgs = [Path(p.strip()).resolve() for p in (task.start_image_path or "").split(";") if p.strip()]
+            # 去重防护：避免重复收集相同文件导致误判定为 r2v 多图参考
+            unique_refs = []
+            seen_hashes = set()
+            for r_p in ref_imgs:
+                if r_p.is_file():
+                    try:
+                        import hashlib
+                        h = hashlib.sha256(r_p.read_bytes()).hexdigest()
+                        if h not in seen_hashes:
+                            seen_hashes.add(h)
+                            unique_refs.append(r_p)
+                    except Exception:
+                        unique_refs.append(r_p)
+            ref_imgs = unique_refs
             end_img = Path(task.end_image_path).resolve() if task.end_image_path else None
             for idx, r_img in enumerate(ref_imgs):
                 if not r_img.is_file():
@@ -243,8 +257,10 @@ class VideoWorker:
                 flow_model = "omni-flash"
             cmd.extend(["--model", flow_model])
             # Flow 时长适配：Veo Lite/Fast/Quality 支持 4s/6s/8s；Omni Flash 支持 4s/6s/8s/10s
-            # 正常向 CLI 传递用户请求的有效时长参数
-            if task.duration_sec and int(task.duration_sec) in (4, 6, 8, 10):
+            # 正常向 CLI 传递用户请求的有效时长参数 (注：r2v 多参考图模式在 Flow 平台强制固定为 8s)
+            if is_r2v:
+                cmd.extend(["--duration", "8"])
+            elif task.duration_sec and int(task.duration_sec) in (4, 6, 8, 10):
                 cmd.extend(["--duration", str(int(task.duration_sec))])
             # 生成条数参数支持 (1~4)
             count_val = getattr(task, "count", 1) or 1
