@@ -2312,7 +2312,7 @@ def get_canvas_status():
         try:
             import urllib.request
             req = urllib.request.Request("http://127.0.0.1:8317/v1/models", headers={"Authorization": "Bearer sk-local-23fa8d80e597d0c0d90c2e75d1c1430787ed13afe1175d70"})
-            with urllib.request.urlopen(req, timeout=0.8) as resp:
+            with urllib.request.urlopen(req, timeout=2.5) as resp:
                 data = json.loads(resp.read().decode())
                 models_count = len(data.get("data", []))
         except BaseException:
