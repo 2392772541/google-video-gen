@@ -203,9 +203,13 @@ class SchedulerManager:
 
 mgr = SchedulerManager()
 
+from .canvas_autostart import ensure_canvas_services_async, ensure_canvas_services
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     mgr.initialize()
+    # 视频项目自启动时，后台静默拉起画布 3000、代理 23210 与 Agent 17371
+    ensure_canvas_services_async()
     yield
     mgr.shutdown()
 
@@ -2242,12 +2246,8 @@ def serve_canvas_page():
     if not canvas_file.exists():
         return JSONResponse({"message": "Infinite Canvas static/canvas.html is not created yet."})
     try:
-        import socket, subprocess, os
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.settimeout(0.2)
-            if s.connect_ex(('127.0.0.1', 17371)) != 0:
-                creation_flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
-                subprocess.Popen(["cmd.exe", "/c", "canvas-agent"], creationflags=creation_flags)
+        # 打开无限画布工作台时，确保画布 3000、代理 23210 与 Agent 17371 全套在线
+        ensure_canvas_services()
     except BaseException:
         pass
     return FileResponse(str(canvas_file), headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache"})

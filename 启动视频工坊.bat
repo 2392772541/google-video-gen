@@ -29,11 +29,15 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
-echo [1/2] 正在启动后台调度引擎与 Web 服务 (端口: 8088)...
+echo [1/3] 正在自启动无限画布前端 (3000) 与代理服务 (23210)...
+"%PY_EXE%" -c "from video_farm.canvas_autostart import ensure_canvas_services; ensure_canvas_services()" >nul 2>&1
+
+echo [2/3] 正在启动后台调度引擎与 Web 服务 (端口: 8088)...
 echo 使用 Python: %PY_EXE%
 
-echo [2/2] 正在加载服务，请等到下方出现 Uvicorn running 后再打开页面。
-echo 页面地址：http://127.0.0.1:8088/vids
+echo [3/3] 正在加载服务，请等到下方出现 Uvicorn running 后再打开页面。
+echo 页面地址：http://127.0.0.1:8088/canvas (无限画布)
+echo 页面地址：http://127.0.0.1:8088/vids (Google Vids)
 echo 提示：关闭此窗口即可停止服务。按 Ctrl+C 可优雅退出。
 echo.
 

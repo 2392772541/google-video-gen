@@ -23,6 +23,12 @@ try:
 except Exception as e:
     print(f"Process cleanup note: {e}")
 
+try:
+    from video_farm.canvas_autostart import ensure_canvas_services
+    ensure_canvas_services()
+except Exception as e:
+    print(f"Canvas autostart note: {e}")
+
 cmd = [sys.executable, "-m", "video_farm.web", "--port", "8088", "--host", "127.0.0.1"]
 
 proc = subprocess.Popen(
