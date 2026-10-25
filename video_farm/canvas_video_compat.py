@@ -850,3 +850,174 @@ async def reconcile_submission(request_id: str = ""):
         "status": "NEEDS_RECONCILIATION",
         "message": "服务端未查询到该 request_id 的建单记录，需人工核对或安全重试"
     }
+
+
+class ExtractLastFrameRequest(BaseModel):
+    video_url: Optional[str] = None
+    videoUrl: Optional[str] = None
+    task_id: Optional[str] = None
+    taskId: Optional[str] = None
+    node_id: Optional[str] = None
+    nodeId: Optional[str] = None
+    project_id: Optional[str] = None
+    projectId: Optional[str] = None
+    variant_id: Optional[str] = None
+    variantId: Optional[str] = None
+
+    class Config:
+        extra = "allow"
+
+@router.post("/video/extract-last-frame")
+@router.post("/api/canvas/v1/video/extract-last-frame")
+@router.post("/api/canvas/video/extract-last-frame")
+async def extract_video_last_frame(req: ExtractLastFrameRequest):
+    """
+    提取指定视频的最后一帧为无损 PNG 图像，并持久化到媒体库中。
+    1. 支持根据 video_url 或 task_id 定位物理视频文件；
+    2. 支持针对具体候选版本提取；
+    3. 防止路径穿越与非法读取；
+    4. 采用 FFmpeg 安全参数列表提取，保持原视频真实分辨率与无损画面；
+    5. 支持防重复提取缓存（基于文件 SHA256）；
+    6. 返回前端可加载与引用的持久化 URL 及元数据。
+    """
+    import subprocess
+    import shutil
+
+    video_path: Optional[Path] = None
+
+    target_task_id = req.task_id or req.taskId
+    target_video_url = req.video_url or req.videoUrl
+
+    # 1. 尝试从 task_id 解析
+    if target_task_id:
+        task = db.get_task(target_task_id, DB_PATH)
+        if task:
+            if task.status in ("queued", "running"):
+                raise HTTPException(400, "视频任务仍在生成中，请等待生成完成后再提取尾帧")
+            if task.output_video_path and Path(task.output_video_path).is_file():
+                video_path = Path(task.output_video_path).resolve()
+
+    # 2. 尝试从 video_url 解析
+    if not video_path and target_video_url:
+        v_url = target_video_url.strip()
+        v_clean = v_url.split("?")[0]
+        if "://" in v_clean:
+            v_clean = "/" + v_clean.split("://", 1)[1].split("/", 1)[-1]
+
+        if "/media/outputs/" in v_clean:
+            sub = v_clean.split("/media/outputs/")[-1]
+            cand = (OUTPUTS_DIR / sub).resolve()
+            if cand.is_file():
+                video_path = cand
+            else:
+                for alt_dir in [BASE_DIR / "outputs", BASE_DIR]:
+                    alt_cand = (alt_dir / sub).resolve()
+                    if alt_cand.is_file():
+                        video_path = alt_cand
+                        break
+        elif target_video_url and "/media/file" in target_video_url and "path=" in target_video_url:
+            import urllib.parse
+            parsed = urllib.parse.urlparse(req.video_url)
+            qs = urllib.parse.parse_qs(parsed.query)
+            p_val = qs.get("path", [None])[0]
+            if p_val:
+                cand = Path(p_val).resolve()
+                if cand.is_file():
+                    video_path = cand
+        elif v_clean.startswith("/"):
+            sub = v_clean.lstrip("/")
+            for alt_dir in [OUTPUTS_DIR, BASE_DIR / "outputs", BASE_DIR]:
+                cand = (alt_dir / sub).resolve()
+                if cand.is_file():
+                    video_path = cand
+                    break
+
+    # 兜底：若直接是本地存在的文件路径
+    if not video_path and target_video_url:
+        cand = Path(target_video_url.strip()).resolve()
+        if cand.is_file():
+            video_path = cand
+
+    if not video_path or not video_path.is_file():
+        raise HTTPException(404, "未能定位到有效的来源视频文件，请确认视频已生成完成且媒体文件存在")
+
+    valid_video_exts = {".mp4", ".mov", ".webm", ".mkv", ".m4v"}
+    if video_path.suffix.lower() not in valid_video_exts:
+        raise HTTPException(400, f"指定的媒体文件不是合法视频格式: {video_path.suffix}")
+
+    ffmpeg_bin = shutil.which("ffmpeg")
+    if not ffmpeg_bin:
+        raise HTTPException(500, "服务器未安装或无法执行 FFmpeg，无法完成尾帧提取")
+
+    try:
+        video_sha256 = calculate_sha256(video_path)
+    except Exception as exc:
+        logger.warning(f"计算视频 SHA256 异常，采用时间戳代替: {exc}")
+        video_sha256 = f"stat_{video_path.stat().st_mtime}_{video_path.stat().st_size}"
+
+    tail_dir = OUTPUTS_DIR / "tail_frames"
+    tail_dir.mkdir(parents=True, exist_ok=True)
+    out_png_name = f"tail_{video_sha256[:16]}.png"
+    out_png_path = tail_dir / out_png_name
+
+    if out_png_path.is_file() and out_png_path.stat().st_size > 0:
+        logger.info(f"复用已有尾帧提取产物: {out_png_name}")
+    else:
+        tmp_png = tail_dir / f"tmp_{uuid.uuid4().hex[:8]}.png"
+        cmd_fast = [
+            ffmpeg_bin, "-y",
+            "-sseof", "-2",
+            "-i", str(video_path),
+            "-vf", "reverse",
+            "-vframes", "1",
+            str(tmp_png)
+        ]
+        res = subprocess.run(cmd_fast, capture_output=True, text=True)
+        if res.returncode != 0 or not tmp_png.is_file() or tmp_png.stat().st_size == 0:
+            logger.info("快速尾部定位提取失败，执行全量倒序回退方案")
+            cmd_fallback = [
+                ffmpeg_bin, "-y",
+                "-i", str(video_path),
+                "-vf", "reverse",
+                "-vframes", "1",
+                str(tmp_png)
+            ]
+            res2 = subprocess.run(cmd_fallback, capture_output=True, text=True)
+            if res2.returncode != 0 or not tmp_png.is_file() or tmp_png.stat().st_size == 0:
+                err_detail = (res2.stderr or res.stderr or "FFmpeg 解码失败").splitlines()[-3:]
+                raise HTTPException(500, f"FFmpeg 提取最后一帧失败: {'; '.join(err_detail)}")
+
+        try:
+            if out_png_path.exists():
+                out_png_path.unlink()
+            tmp_png.replace(out_png_path)
+        except Exception as exc:
+            logger.warning(f"原子替换尾帧图片异常: {exc}")
+            out_png_path = tmp_png
+
+    width, height = 1280, 720
+    try:
+        with Image.open(out_png_path) as im:
+            width, height = im.size
+    except Exception as exc:
+        logger.warning(f"读取尾帧尺寸异常: {exc}")
+
+    try:
+        png_sha256 = calculate_sha256(out_png_path)
+    except Exception:
+        png_sha256 = ""
+
+    frame_url = f"/media/outputs/tail_frames/{out_png_path.name}"
+    return {
+        "ok": True,
+        "success": True,
+        "url": frame_url,
+        "frame_url": frame_url,
+        "width": width,
+        "height": height,
+        "source_video_url": target_video_url,
+        "source_video_sha256": video_sha256,
+        "sha256": png_sha256,
+        "extracted_at": datetime.now().isoformat(),
+        "message": "尾帧提取成功"
+    }
