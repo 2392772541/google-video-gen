@@ -139,6 +139,30 @@ def get_model_capabilities_endpoint():
 
 def _forward_image_generation_request(payload: dict) -> dict:
     """向本地 CLIProxyAPI 发送生图请求，支持 120s 超时、3次退避重试与网络超时友好兜底。"""
+
+def normalize_model_image_size(target_model: str, requested_size: str) -> str:
+    """根据上游模型真实尺寸能力进行映射，杜绝非法尺寸导致模型退化为横屏。"""
+    s = (requested_size or "1024x1024").strip()
+    s_lower = s.lower()
+    if "gpt-image" in target_model.lower():
+        # gpt-image-1.5 / gpt-image-2 官方仅支持: 1024x1024, 1024x1536 (竖屏), 1536x1024 (横屏), auto
+        if s_lower in ("1024x1536", "1536x1024", "1024x1024", "auto"):
+            return s
+        if any(v in s_lower for v in ("9:16", "2:3", "3:4", "9:21", "竖", "864x1536", "1024x1792")):
+            return "1024x1536"
+        if any(h in s_lower for h in ("16:9", "3:2", "4:3", "21:9", "横", "1536x864", "1792x1024")):
+            return "1536x1024"
+        if "1:1" in s_lower or "正方" in s_lower:
+            return "1024x1024"
+        if "x" in s_lower:
+            try:
+                parts = s_lower.split("x")
+                w, h = int(parts[0]), int(parts[1])
+                return "1024x1536" if h > w else ("1536x1024" if w > h else "1024x1024")
+            except Exception:
+                pass
+        return "1024x1024"
+    return s
     import time
     max_attempts = 3
     last_exc = None
@@ -203,12 +227,13 @@ async def create_canvas_image_generation(request: Request):
 
     raw_model = (body.get("model") or "").strip()
     target_model = raw_model if raw_model else "gpt-image-1.5"
+    resolved_size = normalize_model_image_size(target_model, body.get("size") or "1024x1024")
 
     payload = {
         "model": target_model,
         "prompt": prompt,
         "n": int(body.get("n") or 1),
-        "size": body.get("size") or "1024x1024",
+        "size": resolved_size,
         "quality": body.get("quality") or "standard",
         "response_format": "b64_json"
     }
@@ -229,12 +254,13 @@ async def create_canvas_image_edit(request: Request):
 
     raw_model = str(form.get("model") or "").strip()
     target_model = raw_model if raw_model else "gpt-image-1.5"
+    resolved_size = normalize_model_image_size(target_model, str(form.get("size") or "1024x1024"))
 
     payload = {
         "model": target_model,
         "prompt": prompt,
         "n": 1,
-        "size": str(form.get("size") or "1024x1024"),
+        "size": resolved_size,
         "quality": str(form.get("quality") or "standard"),
         "response_format": "b64_json"
     }

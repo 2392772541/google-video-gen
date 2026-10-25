@@ -541,11 +541,17 @@ class VidsWorker:
             asset_paths = [str(p) for p in task.image_paths if p]
         else:
             if task.start_image_path:
-                asset_paths.append(str(task.start_image_path))
+                for p in str(task.start_image_path).split(";"):
+                    if p.strip() and p.strip() not in asset_paths:
+                        asset_paths.append(p.strip())
             if getattr(task, "ref_image_path", None) and task.ref_image_path:
-                asset_paths.append(str(task.ref_image_path))
+                for p in str(task.ref_image_path).split(";"):
+                    if p.strip() and p.strip() not in asset_paths:
+                        asset_paths.append(p.strip())
             if task.end_image_path and str(task.end_image_path) not in asset_paths:
-                asset_paths.append(str(task.end_image_path))
+                for p in str(task.end_image_path).split(";"):
+                    if p.strip() and p.strip() not in asset_paths:
+                        asset_paths.append(p.strip())
         asset_paths = asset_paths[:3]
         has_multiple_assets = len(asset_paths) > 1
 
