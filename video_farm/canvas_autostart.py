@@ -69,7 +69,11 @@ def ensure_agent_17371():
     if is_port_listening(17371):
         return True
     creation_flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
-    cmd = ["cmd.exe", "/c", "canvas-agent"]
+    daemon_script = CANVAS_ROOT / "scripts" / "canvas-agent-daemon.ps1"
+    if daemon_script.exists():
+        cmd = ["powershell.exe", "-NoProfile", "-WindowStyle", "Hidden", "-File", str(daemon_script)]
+    else:
+        cmd = ["cmd.exe", "/c", "canvas-agent"]
     try:
         subprocess.Popen(
             cmd,
@@ -78,8 +82,8 @@ def ensure_agent_17371():
             stderr=subprocess.DEVNULL,
             creationflags=creation_flags
         )
-        for _ in range(10):
-            time.sleep(0.2)
+        for _ in range(12):
+            time.sleep(0.25)
             if is_port_listening(17371):
                 return True
     except Exception as e:

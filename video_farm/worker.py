@@ -329,6 +329,18 @@ class VideoWorker:
             # Without a pre-submit receipt, no account failover/retry is safe.
             return failure("FLOW_RESULT_UNCONFIRMED", "Flow 未返回可验证成片；请先核对原工程，可能已经消耗额度，不会自动重发")
         except ExecutionStopped as exc:
+            content = ""
+            if stdout_path is not None and stderr_path is not None:
+                try:
+                    content = (self._read_log_tail(stdout_path) + "\n" + self._read_log_tail(stderr_path)).lower()
+                except Exception:
+                    content = ""
+            if "submit_observed" in content:
+                return failure(
+                    "NEEDS_RECONCILIATION",
+                    f"上游 Google Flow 已受理并在生成中 (submit_observed)；本地等待超时 ({exc})。系统已锁定原任务状态并防止自动重复扣费，请在原工程核对结果。",
+                    submission_possible=True
+                )
             code = exc.code if exc.code == "USER_CANCELLED" or not launched else "FLOW_RESULT_UNCONFIRMED"
             return failure(code, str(exc) + (" 请核对原工程；不会重复提交。" if launched else " 尚未启动生成。"))
         except Exception as exc:
@@ -350,8 +362,9 @@ class VideoWorker:
                 outcome["logs"] = logs
             outcome["cleanup_confirmed"] = bool(cleaned)
             if not cleaned:
-                failure("PROCESS_CLEANUP_FAILED",
-                        "本地执行进程树未确认退出；账号已隔离，其他账号可继续。请核对原工程结果，不要重复提交。")
+                if outcome.get("error_code") != "NEEDS_RECONCILIATION":
+                    failure("PROCESS_CLEANUP_FAILED",
+                            "本地执行进程树未确认退出；账号已隔离，其他账号可继续。请核对原工程结果，不要重复提交。")
             else:
                 try:
                     if outcome.get("success") and output_to_publish:

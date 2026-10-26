@@ -127,12 +127,10 @@
       "ingredient_reference_supported": true,
       "max_reference_images": 3,
       "supportedDurations": [
-        4,
-        6,
-        8
+        6
       ],
       "defaultDuration": 6,
-      "duration_control_mode": "selectable",
+      "duration_control_mode": "upstream_default",
       "supportsFrames": true,
       "supportsIngredients": true,
       "supportsExtend": true,
@@ -183,12 +181,10 @@
       "ingredient_reference_supported": true,
       "max_reference_images": 3,
       "supportedDurations": [
-        4,
-        6,
-        8
+        6
       ],
       "defaultDuration": 6,
-      "duration_control_mode": "selectable",
+      "duration_control_mode": "upstream_default",
       "supportsFrames": true,
       "supportsIngredients": true,
       "supportsExtend": false,
@@ -238,12 +234,10 @@
       "ingredient_reference_supported": false,
       "max_reference_images": 0,
       "supportedDurations": [
-        4,
-        6,
-        8
+        6
       ],
       "defaultDuration": 6,
-      "duration_control_mode": "selectable",
+      "duration_control_mode": "upstream_default",
       "supportsFrames": true,
       "supportsIngredients": false,
       "supportsExtend": false,

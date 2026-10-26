@@ -158,7 +158,7 @@ class OwnedProcess:
         except ProcessLookupError:
             return self.proc.poll() is None
 
-    def cleanup(self, timeout=3):
+    def cleanup(self, timeout=8):
         """Only terminate this owned job/group; return false on unknown exit."""
         with self._lock:
             return self._cleanup(timeout)
@@ -176,7 +176,7 @@ class OwnedProcess:
             while self.is_alive():
                 if time.monotonic() >= deadline:
                     return False
-                time.sleep(0.05)
+                time.sleep(0.1)
             if self._job is not None:
                 if not self._kernel.CloseHandle(self._job):
                     return False

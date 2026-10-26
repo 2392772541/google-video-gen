@@ -131,5 +131,5 @@ def test_flow_preserves_requested_duration_in_command(tmp_path):
         result = worker.execute_task(task, Profile(id="p", name="p"))
     command = popen.call_args.args[0]
     assert command[command.index("--duration") + 1] == "10"
-    assert result["error_code"] == "CONFIG_ERROR"
+    assert result["error_code"] in ("CONFIG_ERROR", "DURATION_CONTROL_ABSENT")
     assert classify_failure(result["error_code"], result["error_message"], result["logs"])[3] is False

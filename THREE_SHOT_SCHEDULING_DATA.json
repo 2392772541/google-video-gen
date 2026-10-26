@@ -1,0 +1,34 @@
+{
+  "mode_a": {
+    "mode": "Tail-relay (尾帧接力)",
+    "total_time": 5.138129949569702,
+    "shot_latencies": [
+      0.004000186920166016,
+      0.002043485641479492,
+      0.002001523971557617
+    ],
+    "tail_extract_cost": 0.07996988296508789,
+    "assembly_cost": 5.008975267410278,
+    "manual_interventions": 0,
+    "failed_tasks": 0,
+    "repeat_submissions": 0,
+    "continuity": "强衔接 (镜头严格连续)",
+    "final_video": "C:\\Users\\win10\\Documents\\ChatGPT\\视频制作\\video_farm_data\\outputs\\timeline_assembly_tail_relay_eed11a.mp4"
+  },
+  "mode_b": {
+    "mode": "Keyframe-priority (关键帧优先)",
+    "total_time": 5.176837921142578,
+    "shot_latencies": [
+      0.0030007362365722656,
+      0.0019996166229248047,
+      0.002001047134399414
+    ],
+    "tail_extract_cost": 0.0,
+    "assembly_cost": 5.166836738586426,
+    "manual_interventions": 0,
+    "failed_tasks": 0,
+    "repeat_submissions": 0,
+    "continuity": "松散衔接 (多机位/转场/关键帧)",
+    "final_video": "C:\\Users\\win10\\Documents\\ChatGPT\\视频制作\\video_farm_data\\outputs\\timeline_assembly_keyframe_444cc4.mp4"
+  }
+}

@@ -28,7 +28,7 @@ TERMINAL_FAILURES = {
     "PROJECT_INIT_REQUIRED", "UNSUPPORTED_FEATURE", "WIRE_FORMAT_MISMATCH", "CONFIG_ERROR", "AGENTIC_UI_BLOCKED",
     FLOW_RESPONSE_UNREADABLE, "SAFETY_FILTER_BLOCKED", "VIDEO_ASPECT_MISMATCH", "VIDEO_DURATION_MISMATCH",
     "VIDEO_OUTPUT_INVALID", "AUDIO_DISABLED", "INVALID_IMAGE_REQUEST", "IMAGE_OUTPUT_INVALID",
-    "PROCESS_CLEANUP_FAILED", "STOP_RESULT_UNCONFIRMED", "PRE_SUBMIT_TIMEOUT",
+    "PROCESS_CLEANUP_FAILED", "STOP_RESULT_UNCONFIRMED", "PRE_SUBMIT_TIMEOUT", "NEEDS_RECONCILIATION",
 }
 
 def classify_failure(err_code: str, err_msg: str, logs: str) -> tuple[str, str, int, bool]:
@@ -44,6 +44,8 @@ def classify_failure(err_code: str, err_msg: str, logs: str) -> tuple[str, str, 
     code_up = (err_code or "").upper()
     content = f"{err_code} {err_msg} {logs}".lower()
 
+    if code_up == "NEEDS_RECONCILIATION":
+        return ("NEEDS_RECONCILIATION", err_msg or "上游已受理生成，本地超时；已锁定任务状态，杜绝自动重复扣费", 0, False)
     if code_up == "PRE_SUBMIT_TIMEOUT":
         return (code_up, (err_msg or "提交前执行超时，确认未提交云端请求") +
                 " 请检查登录和网页后手动重试；不自动重发。", 0, False)
@@ -53,7 +55,7 @@ def classify_failure(err_code: str, err_msg: str, logs: str) -> tuple[str, str, 
         return (code_up, (err_msg or "Google 已收到生成请求，但本地尚未确认结果") +
                 " 已停止自动重试，请先检查原工程/网页结果，勿直接重新生成以免重复消耗额度。", 0, False)
     if code_up in ("INVALID_VIDEO_REQUEST", "INVALID_IMAGE_REQUEST", "VIDS_SETTINGS_UNCONFIRMED",
-                   "USER_ACTION_REQUIRED", "PROJECT_INIT_REQUIRED", "AUDIO_DISABLED", "CONFIG_ERROR", "AGENTIC_UI_BLOCKED"):
+                   "USER_ACTION_REQUIRED", "PROJECT_INIT_REQUIRED", "AUDIO_DISABLED", "CONFIG_ERROR", "AGENTIC_UI_BLOCKED", "DURATION_CONTROL_ABSENT"):
         return (code_up, (err_msg or "请核对输入、网页设置、登录或工程") +
                 " 请手动处理后再重试；系统不会自动同意协议或切换平台。", 0, False)
 
@@ -473,15 +475,16 @@ class VideoScheduler:
                         success=True,
                         db_path=self.db_path
                     )
+                    task_status = "needs_reconciliation" if category == "NEEDS_RECONCILIATION" else "failed"
                     db.update_task_status(
                         task_id=task_id,
-                        status="failed",
+                        status=task_status,
                         error_code=category,
                         error_message=friendly_msg,
                         logs=logs,
                         db_path=self.db_path
                     )
-                    db.log_task_event(task_id, "TASK_FAILED", f"❌ {friendly_msg}", db_path=self.db_path)
+                    db.log_task_event(task_id, category, f"❌ {friendly_msg}", db_path=self.db_path)
                     print(f"[{thread_name}] ❌ 任务 [{task_id}] 不可自动重试: {friendly_msg}")
                     return
 

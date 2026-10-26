@@ -110,6 +110,9 @@ class GeminiWebWorker(VidsWorker):
                 break
         if not duration:
             raise GeminiVideoSettingsError("成片没有可核验的时长", "VIDEO_OUTPUT_INVALID")
+        if task.duration_sec and abs(duration - task.duration_sec) > 1.5:
+            raise GeminiVideoSettingsError(
+                f"实际成片 {duration:.3f}s 与请求 {task.duration_sec}s 不符", "VIDEO_DURATION_MISMATCH")
         control.check()
         logs.append(f"真实成片规格通过：{width}×{height} / {duration:.3f}s (Gemini 网页端时长为服务端固定默认)")
 
@@ -332,6 +335,11 @@ class GeminiWebWorker(VidsWorker):
                 raise GeminiVideoSettingsError(
                     f"请求画幅 {aspect}，Gemini 实际返回 {width}×{height}；已拦截错误画幅，未标记成功。",
                     "VIDEO_ASPECT_MISMATCH",
+                )
+            if requested_duration and abs(duration - requested_duration) > 1.5:
+                raise GeminiVideoSettingsError(
+                    f"请求 {requested_duration} 秒，Gemini 实际返回 {duration:.1f} 秒；已拦截时长不符的产物，未标记成功。",
+                    "VIDEO_DURATION_MISMATCH",
                 )
             logs.append(f"Gemini 时长核验通过: {duration:.1f}s (Gemini 网页端时长由平台服务端默认决定，不可控)")
         finally:

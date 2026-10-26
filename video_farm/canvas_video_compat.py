@@ -71,6 +71,35 @@ def _save_idempotent_cache():
 
 _load_idempotent_cache()
 
+def sanitize_prompt_compat(prompt: str) -> str:
+    """
+    后端二次纯净提示词去噪与去标签净化器：
+    - 剥离 【文本X】、【Text X】、图片X、@[node:...] 等 DAG 结构调试标记
+    - 剥离 【镜头 XX ...】 纯标记前缀
+    - 过滤首尾多余标点与空白
+    - 段落级去重，消除重复拼接
+    """
+    if not prompt:
+        return ""
+    p = prompt
+    p = re.sub(r"@\[node:[^\]]+\]", "", p)
+    p = re.sub(r"【\s*(?:文本|Text)\s*\d*\s*】", "", p, flags=re.IGNORECASE)
+    p = re.sub(r"(?:^|(?<=[\s,，、\n]))(?:图片|Image|视频|Video)\s*\d+(?=(?:[\s,，、\n]|$))", "", p, flags=re.IGNORECASE)
+    p = re.sub(r"【镜头\s*\d+[^】]*】", "", p)
+    p = re.sub(r"^[、,，\s]+|[、,，\s]+$", "", p)
+    p = re.sub(r"([、,，])\s*([、,，])", r"\1", p)
+    lines = [line.strip() for line in p.splitlines() if line.strip()]
+    seen = set()
+    unique_lines = []
+    for line in lines:
+        norm = re.sub(r"[\s\W_]+", "", line).lower()
+        if norm and norm not in seen:
+            seen.add(norm)
+            unique_lines.append(line)
+        elif not norm and line:
+            unique_lines.append(line)
+    return "\n\n".join(unique_lines).strip()
+
 CLI_PROXY_URL = "http://127.0.0.1:8317/v1"
 CLI_PROXY_KEY = "sk-local-23fa8d80e597d0c0d90c2e75d1c1430787ed13afe1175d70"
 
@@ -277,23 +306,39 @@ async def create_canvas_video_task(request: Request):
     """
     form = await request.form()
     request_id = str(form.get("request_id") or form.get("requestId") or "").strip()
-    if request_id and request_id in _IDEMPOTENT_REQUEST_CACHE:
-        cached = _IDEMPOTENT_REQUEST_CACHE[request_id]
-        logger.info(f"[Idempotency] 拦截到重复请求 {request_id}，复用既有任务 {cached['id']}")
-        return {
-            "id": cached["id"],
-            "object": "video",
-            "model": cached.get("model", "flow"),
-            "raw_model": cached.get("raw_model", "flow"),
-            "status": cached.get("status", "queued"),
-            "created_at": cached.get("created_at", int(time.time())),
-            "reused": True,
-            "requestId": request_id
-        }
+    shot_id = str(form.get("shot_id") or form.get("shotId") or "").strip()
+    candidate_id = str(form.get("candidate_id") or form.get("candidateId") or "").strip()
     raw_model = str(form.get("model") or "flow").split("::")[-1].strip().lower()
-    clean_prompt = (str(form.get("prompt") or "")).strip() or "根据输入参考生成高质量连贯动态视频"
+    raw_prompt = str(form.get("prompt") or "").strip()
+    clean_prompt = sanitize_prompt_compat(raw_prompt) or "根据输入参考生成高质量连贯动态视频"
     mode = str(form.get("mode") or "").strip().lower()
     raw_canvas_project = str(form.get("project_id") or form.get("projectId") or "").strip()
+
+    # 复合幂等键支持：优先使用 request_id，其次使用 projectId + shotId (+ candidateId)
+    idempotent_key = request_id
+    if not idempotent_key and raw_canvas_project and shot_id:
+        idempotent_key = f"{raw_canvas_project}:{shot_id}" + (f":{candidate_id}" if candidate_id else "")
+
+    if idempotent_key and idempotent_key in _IDEMPOTENT_REQUEST_CACHE:
+        cached = _IDEMPOTENT_REQUEST_CACHE[idempotent_key]
+        cached_task = db.get_task(cached["id"], DB_PATH)
+        # 若原任务仍在排队、运行或状态未知待对账，杜绝重复发起付费请求，直接返回既有任务
+        if cached_task and cached_task.status in ("queued", "running", "dispatching", "verifying", "needs_reconciliation", "completed"):
+            logger.info(f"[Idempotency] 拦截到重复请求 {idempotent_key}，复用既有任务 {cached['id']} (状态: {cached_task.status})")
+            return {
+                "id": cached["id"],
+                "object": "video",
+                "model": cached.get("model", "flow"),
+                "raw_model": cached.get("raw_model", "flow"),
+                "status": cached_task.status,
+                "created_at": cached.get("created_at", int(time.time())),
+                "reused": True,
+                "requestId": request_id,
+                "shotId": shot_id,
+                "projectId": raw_canvas_project,
+                "submissionState": cached.get("submissionState", "observed")
+            }
+
     assigned_profile_id = db.get_affinity_profile_id(raw_canvas_project, DB_PATH) if raw_canvas_project else None
 
     vquality_str = str(form.get("vquality") or form.get("resolution_name") or "720").strip().lower()
@@ -487,6 +532,22 @@ async def create_canvas_video_task(request: Request):
 
         validate_video_request(task)
         db.add_task(task, DB_PATH)
+        if idempotent_key:
+            _IDEMPOTENT_REQUEST_CACHE[idempotent_key] = {
+                "id": task_id,
+                "projectId": raw_canvas_project,
+                "shotId": shot_id,
+                "candidateId": candidate_id,
+                "requestId": request_id,
+                "platformTaskId": upstream_project_id or "",
+                "attemptId": task_id,
+                "submissionState": "submitted",
+                "model": internal_model,
+                "raw_model": raw_model,
+                "status": "queued",
+                "created_at": int(time.time())
+            }
+            _save_idempotent_cache()
         db.log_task_event(
             task_id,
             "TASK_CREATED_CANVAS",
@@ -564,14 +625,36 @@ def get_canvas_video_task_status(task_id: str, request: Request):
                 "message": task.error_message or "视频生成失败或已被取消"
             }
         }
+    elif task.status == "needs_reconciliation":
+        return {
+            "id": task.id,
+            "object": "video",
+            "status": "needs_reconciliation",
+            "stage": "needs_reconciliation",
+            "stage_text": "状态未知、等待对账（上游已受理，防止重复扣费）",
+            "progress": 50,
+            "error": {
+                "message": task.error_message or "上游已受理生成，本地等待超时；请核对原工程结果，杜绝自动重复扣费"
+            }
+        }
     else:
-        # 队列中、调度中、运行中或质检中
-        prog_map = {"queued": 10, "dispatching": 25, "running": 50, "verifying": 90, "retry_wait": 15}
+        # 队列中、调度中、运行中或质检中，提供细粒度阶段提示
+        prog_map = {"queued": 10, "dispatching": 25, "running": 60, "verifying": 90, "retry_wait": 15}
+        stage_map = {
+            "queued": ("queued", "排队中"),
+            "dispatching": ("dispatching", "正在提交上游"),
+            "running": ("generating", "上游生成中"),
+            "verifying": ("downloading", "媒体下载与校验中"),
+            "retry_wait": ("cooldown", "避让冷却中")
+        }
+        stg, stg_txt = stage_map.get(task.status, ("processing", "正在处理中"))
         progress = prog_map.get(task.status, 30)
         return {
             "id": task.id,
             "object": "video",
             "status": "pending",
+            "stage": stg,
+            "stage_text": stg_txt,
             "progress": progress
         }
 
