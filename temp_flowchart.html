@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0d1117;
+    color: #e6edf3;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    padding: 40px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+  .container {
+    width: 1300px;
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 20px;
+    padding: 40px;
+    box-shadow: 0 20px 50px rgba(0,0,0,0.6);
+  }
+  .header {
+    text-align: center;
+    margin-bottom: 36px;
+  }
+  .header h1 {
+    font-size: 28px;
+    font-weight: 700;
+    color: #58a6ff;
+    letter-spacing: 1px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+  }
+  .header p {
+    color: #8b949e;
+    font-size: 15px;
+    margin-top: 8px;
+  }
+  .grid-stages {
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+    position: relative;
+  }
+  .stage-row {
+    display: grid;
+    grid-template-columns: 240px 1fr;
+    gap: 24px;
+    background: #21262d;
+    border: 1px solid #30363d;
+    border-radius: 14px;
+    padding: 20px;
+    position: relative;
+    transition: all 0.2s;
+  }
+  .stage-badge-col {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    border-right: 1px dashed #30363d;
+    padding-right: 20px;
+  }
+  .stage-num {
+    display: inline-block;
+    font-size: 12px;
+    font-weight: 800;
+    text-transform: uppercase;
+    color: #79c0ff;
+    background: rgba(56, 139, 253, 0.15);
+    padding: 4px 10px;
+    border-radius: 6px;
+    width: fit-content;
+    margin-bottom: 8px;
+    border: 1px solid rgba(56, 139, 253, 0.3);
+  }
+  .stage-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: #f0f6fc;
+    margin-bottom: 6px;
+  }
+  .stage-desc {
+    font-size: 13px;
+    color: #8b949e;
+    line-height: 1.5;
+  }
+  .stage-content-col {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  .card-box {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 10px;
+    padding: 14px 18px;
+    flex: 1;
+    min-width: 220px;
+  }
+  .card-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #c9d1d9;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .card-pill {
+    background: #30363d;
+    font-size: 11px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: #8b949e;
+  }
+  .param-item {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    color: #8b949e;
+    margin-top: 5px;
+  }
+  .param-val {
+    color: #58a6ff;
+    font-weight: 600;
+  }
+  .arrow-down {
+    text-align: center;
+    color: #58a6ff;
+    font-size: 20px;
+    margin: -10px 0;
+  }
+  .highlight-purple {
+    border-color: #8957e5;
+    background: rgba(137, 87, 229, 0.08);
+  }
+  .highlight-green {
+    border-color: #238636;
+    background: rgba(35, 134, 54, 0.08);
+  }
+  .highlight-orange {
+    border-color: #d29922;
+    background: rgba(210, 153, 34, 0.08);
+  }
+  .tag-highlight {
+    background: #8957e5;
+    color: white;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+  }
+  .tag-green {
+    background: #238636;
+    color: white;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+  }
+  .footer-note {
+    margin-top: 30px;
+    padding: 16px 20px;
+    background: #21262d;
+    border-radius: 10px;
+    border-left: 4px solid #58a6ff;
+    font-size: 13px;
+    color: #8b949e;
+    line-height: 1.6;
+  }
+  .footer-note b { color: #f0f6fc; }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <h1><span>🎬</span> 26Flow × 即梦级画布 · 全流程架构图</h1>
+    <p>从“文案拆解”到“视觉母卡锁色”，再到“多轨垫图”、“局部涂抹精修”与“时间线一键出片”</p>
+  </div>
+
+  <div class="grid-stages">
+
+    <!-- 阶段 1 -->
+    <div class="stage-row">
+      <div class="stage-badge-col">
+        <span class="stage-num">STEP 01</span>
+        <div class="stage-title">文案拆解与九镜策划</div>
+        <div class="stage-desc">文案录入，拆解景别、运镜与解说词。弹窗确认，拒绝静默开跑。</div>
+      </div>
+      <div class="stage-content-col">
+        <div class="card-box">
+          <div class="card-title">📝 原始口播文案 <span class="card-pill">DMPP避坑</span></div>
+          <div style="font-size:12px; color:#8b949e; line-height:1.4;">选DMPP别只看含量，看报告、工艺与批次稳定...</div>
+        </div>
+        <div style="color:#58a6ff; font-size:18px;">➔</div>
+        <div class="card-box">
+          <div class="card-title">📋 9 镜精细脚本表 <span class="tag-green">G2 门禁确认</span></div>
+          <div class="param-item"><span>01 警报黄金钩子</span><span class="param-val">4s · 俯冲下潜</span></div>
+          <div class="param-item"><span>03 探针报告核验</span><span class="param-val">5s · 微距平移</span></div>
+          <div class="param-item"><span>07 留样质检并轨</span><span class="param-val">5s · 中性写实</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 阶段 2 -->
+    <div class="stage-row highlight-purple">
+      <div class="stage-badge-col">
+        <span class="stage-num" style="color:#bc8cff; background:rgba(188,140,255,0.15); border-color:rgba(188,140,255,0.3);">STEP 02 · 核心突破</span>
+        <div class="stage-title" style="color:#d2a8ff;">全局视觉母卡 (Style Anchor)</div>
+        <div class="stage-desc">在画布上方挂载“调色总开关”，全片共用一套色彩与质感母盘，杜绝各画各的。</div>
+      </div>
+      <div class="stage-content-col">
+        <div class="card-box" style="border-color:#8957e5;">
+          <div class="card-title">🎨 全片视觉基调母图 <span class="tag-highlight">母盘主锁</span></div>
+          <div style="font-size:12px; color:#8b949e; line-height:1.4;">选定：国内真实农化厂化验室质检台 + 5000K柔和日光 + 不锈钢管道质感</div>
+        </div>
+        <div style="color:#bc8cff; font-size:18px;">➔</div>
+        <div class="card-box" style="border-color:#8957e5;">
+          <div class="card-title">🎛️ 四维精细化控制面板</div>
+          <div class="param-item"><span>写实倾向 (Realism)</span><span class="param-val" style="color:#bc8cff;">85% 实拍质感</span></div>
+          <div class="param-item"><span>光影对比 (Contrast)</span><span class="param-val" style="color:#bc8cff;">45% 散射柔光</span></div>
+          <div class="param-item"><span>冷暖倾向 (Color Tone)</span><span class="param-val" style="color:#bc8cff;">62% 中性偏暖</span></div>
+          <div class="param-item"><span>胶片颗粒 (Texture Grain)</span><span class="param-val" style="color:#bc8cff;">18% 消除塑料感</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 阶段 3 -->
+    <div class="stage-row highlight-green">
+      <div class="stage-badge-col">
+        <span class="stage-num" style="color:#7ee787; background:rgba(126,231,135,0.15); border-color:rgba(126,231,135,0.3);">STEP 03 · 双轨输入</span>
+        <div class="stage-title" style="color:#7ee787;">分镜生成与真实产品垫图</div>
+        <div class="stage-desc">参考职责解耦：风格连母卡，主体连真实产品照片，不再让 AI 凭空胡编。</div>
+      </div>
+      <div class="stage-content-col">
+        <div class="card-box" style="border-color:#238636;">
+          <div class="card-title">🔗 风格参考 (STYLE_REF)</div>
+          <div style="font-size:12px; color:#8b949e;">全片 9 镜直通连线母卡，强制统一色彩与光影语言</div>
+        </div>
+        <div style="color:#7ee787; font-size:18px;">+</div>
+        <div class="card-box" style="border-color:#238636;">
+          <div class="card-title">📦 主体参考 (SUBJECT_REF)</div>
+          <div style="font-size:12px; color:#8b949e;">支持拖入真实产品图（纳铠甲颗粒 / 捷邦油剂瓶）进行主体锁定</div>
+        </div>
+        <div style="color:#7ee787; font-size:18px;">➔</div>
+        <div class="card-box" style="border-color:#238636;">
+          <div class="card-title">🖼️ 分镜图片输出 (V1)</div>
+          <div style="font-size:12px; color:#8b949e;">生成精准符合品牌规范的高清竖屏底图 (9:16)</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 阶段 4 -->
+    <div class="stage-row highlight-orange">
+      <div class="stage-badge-col">
+        <span class="stage-num" style="color:#e3b341; background:rgba(227,179,65,0.15); border-color:rgba(227,179,65,0.3);">STEP 04 · 即梦神技</span>
+        <div class="stage-title" style="color:#f2cc60;">单镜微调与局部涂抹重绘</div>
+        <div class="stage-desc">某镜不满意？不全盘推翻！画笔涂抹瑕疵区域局部替换，主体与其余 8 镜不动。</div>
+      </div>
+      <div class="stage-content-col">
+        <div class="card-box" style="border-color:#d29922;">
+          <div class="card-title">🖌️ 局部画笔涂抹 (Inpainting)</div>
+          <div style="font-size:12px; color:#8b949e;">在画布上涂抹“背景窗户/仪器标签”，输入修改词替换，前景100%保留</div>
+        </div>
+        <div style="color:#e3b341; font-size:18px;">➔</div>
+        <div class="card-box" style="border-color:#d29922;">
+          <div class="card-title">🗂️ 候选版本池 (Candidate Pool)</div>
+          <div style="font-size:12px; color:#8b949e;">生成 V2、V3 备选，人工点击【采用】才生效，保护下游视频不受干扰</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 阶段 5 -->
+    <div class="stage-row">
+      <div class="stage-badge-col">
+        <span class="stage-num">STEP 05 & 06</span>
+        <div class="stage-title">Muse 直通与时间线成片</div>
+        <div class="stage-desc">尾帧自动截取连续传递，质检问题回显展开，时间线严格锁定 1~9 顺序导出。</div>
+      </div>
+      <div class="stage-content-col">
+        <div class="card-box">
+          <div class="card-title">🎥 Muse 视频直通生成</div>
+          <div style="font-size:12px; color:#8b949e;">首尾帧连续性传递，质检回显面板展示真实审片意见</div>
+        </div>
+        <div style="color:#58a6ff; font-size:18px;">➔</div>
+        <div class="card-box">
+          <div class="card-title">🎞️ 时间线保序节点</div>
+          <div style="font-size:12px; color:#8b949e;">自动拼装 9 镜 39 秒完整序列，支持单片段拖拽微调</div>
+        </div>
+        <div style="color:#58a6ff; font-size:18px;">➔</div>
+        <div class="card-box">
+          <div class="card-title">📦 一键导出 MP4</div>
+          <div style="font-size:12px; color:#8b949e;">高清 9:16 竖屏成片，直接用于短视频分发</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="footer-note">
+    <b>💡 核心总结：</b>以前系统是<b>“单线黑盒碰运气”</b>（纯靠文字盲猜，9 镜风格容易脱节）；改造后是<b>“母卡总控 + 双轨垫图 + 局部画笔 + 版本保护”</b>。您只要拉滑块定全片调性，传真实产品图定主角，哪里不好就涂哪里，就像手握专业调色台与导演监视器一样清晰可控！
+  </div>
+</div>
+</body>
+</html>
