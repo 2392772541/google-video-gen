@@ -222,7 +222,12 @@ class VideoWorker:
             directory.mkdir(parents=True, exist_ok=False)
             start_img = ref_imgs[0] if ref_imgs else ""
             end_img = task.end_image_path or ""
-            is_r2v = len(ref_imgs) > 1 and not end_img
+            # 明确区分参考图模式 (r2v) 与首尾帧模式 (i2v)
+            # 只要带有明确的 reference 标记、或者图片带有 ref_ 标识且没有尾帧，不论是1张还是多张均判定为参考图生视频 (r2v)
+            is_r2v = (
+                getattr(task, "generation_mode", "") == "reference"
+                or (bool(ref_imgs) and not end_img and (len(ref_imgs) > 1 or any("ref_" in r.name.lower() for r in ref_imgs)))
+            )
 
             if is_r2v:
                 cmd = [str(self.python_bin), "-m", "gflow_cli", "video", "r2v"]

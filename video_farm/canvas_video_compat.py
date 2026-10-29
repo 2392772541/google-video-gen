@@ -455,7 +455,7 @@ async def create_canvas_video_task(request: Request):
         collected_files = [f for f in form.getlist("images") if _is_upload_file(f)]
     else:
         for field_name, value in form.multi_items():
-            if _is_upload_file(value) and field_name not in ("first_frame", "last_frame"):
+            if _is_upload_file(value) and (mode in ("reference", "ingredients", "ingredient") or field_name not in ("first_frame", "last_frame")):
                 collected_files.append(value)
 
     try:
@@ -463,6 +463,11 @@ async def create_canvas_video_task(request: Request):
         last_frame = form.get("last_frame")
 
         is_ref_mode = mode in ("reference", "ingredients", "ingredient") or (mode != "frames" and len(collected_files) > 0 and not (first_frame or last_frame))
+        if is_ref_mode and not collected_files:
+            if _is_upload_file(first_frame):
+                collected_files.append(first_frame)
+            if _is_upload_file(last_frame):
+                collected_files.append(last_frame)
 
         if mode == "frames":
             if engine == "vids":
@@ -517,6 +522,7 @@ async def create_canvas_video_task(request: Request):
             prompt=clean_prompt,
             start_image_path=start_image_path,
             end_image_path=end_image_path,
+            generation_mode="reference" if is_ref_mode else ("frames" if (first_frame or last_frame) else "auto"),
             aspect_ratio=aspect_ratio,
             duration_sec=sec_int,
             status="queued",

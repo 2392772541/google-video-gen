@@ -553,11 +553,12 @@ class VidsWorker:
                     if p.strip() and p.strip() not in asset_paths:
                         asset_paths.append(p.strip())
         asset_paths = asset_paths[:3]
-        has_multiple_assets = len(asset_paths) > 1
+        has_assets = len(asset_paths) > 0
 
-        if has_multiple_assets:
-            mode = "创建|Create"
-        elif asset_paths:
+        # 仅当任务明确指定为 animate 动图模式，或在没有提示词且仅有1张图片时，才进入“添加动画|Animate”
+        # 只要存在提示词或明确是参考图生成，即使只有 1 张参考图，也必须保持在“创建|Create”模式下挂载素材
+        is_animate_only = getattr(task, "generation_mode", "") == "animate" or (not task.prompt.strip() and len(asset_paths) == 1)
+        if is_animate_only:
             mode = "添加动画|Animate"
         else:
             mode = "创建|Create"
@@ -567,15 +568,15 @@ class VidsWorker:
         expand = sidebar.get_by_role("button", name=re.compile(r"^(展开|Expand)$", re.I))
         if self._visible(expand):
             expand.first.click(timeout=control.timeout_ms())
-        if has_multiple_assets:
-            self._upload_multiple_assets(page, sidebar, asset_paths, control, logs)
-        elif asset_paths:
+        if mode == "添加动画|Animate":
             self._upload(page, sidebar, asset_paths[0], control, logs)
+        elif has_assets:
+            self._upload_multiple_assets(page, sidebar, asset_paths, control, logs)
         self._configure(page, sidebar, task, control, logs)
         prompt = sidebar.get_by_role("tabpanel").get_by_role("textbox")
         self._wait(page, control, lambda: self._visible(prompt), "未找到当前模式的提示词输入框")
         p_clean = task.prompt.strip()
-        if has_multiple_assets:
+        if has_assets and mode != "添加动画|Animate":
             prompt.first.click(timeout=control.timeout_ms())
             prompt.first.press("End", timeout=control.timeout_ms())
             prompt.first.press_sequentially(f" {p_clean}", timeout=control.timeout_ms())

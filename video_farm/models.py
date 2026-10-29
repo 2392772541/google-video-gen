@@ -27,6 +27,7 @@ class Task:
     start_image_path: str = ""
     end_image_path: str = ""
     input_video_path: str = ""  # 多模态参考视频路径 (.mp4, .mov 等)
+    generation_mode: str = ""  # "reference" (参考图/Ingredients), "frames" (首尾帧), "animate" 等
     engine: str = "flow"  # "vids" (Google Vids), "flow" (Google Flow), "gemini" (Gemini); default retained for legacy callers
     task_type: str = "video"  # "video" (视频生成), "image" (图像生成) 或 "audio" (音频生成/配音)
     model: str = ""  # 视频模型: veo-lite, veo-fast, veo-quality, omni-flash 等; 图像模型: imagen4, nano-pro, nano2 等
