@@ -141,6 +141,13 @@ async def _save_upload_image(upload: UploadFile, directory: Path, stem: str) -> 
                 raise HTTPException(422, f"参考图片单边分辨率超过上限 ({w}x{h})，单边最大支持 8192 像素")
             if max(w, h) / max(1, min(w, h)) > 16.0:
                 raise HTTPException(422, f"参考图片长宽比异常 ({w}:{h})，不支持极端狭长图片")
+
+            # 自动修复透明通道（RGBA / LA / 带透明的调色板格式）：合成纯白底并转为标准 RGB，彻底杜绝模型黑底黑斑
+            if img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info):
+                canvas = Image.new("RGB", img.size, (255, 255, 255))
+                rgba_img = img.convert("RGBA")
+                canvas.paste(rgba_img, mask=rgba_img.split()[3])
+                canvas.save(str(dest), format="PNG")
         return str(dest.resolve())
     except (HTTPException, VideoRequestError):
         if dest.exists():
