@@ -81,7 +81,7 @@
         "id": "node_shot_01_v_prompt",
         "type": "prompt",
         "x": 100,
-        "y": 580,
+        "y": 700,
         "data": {
           "text": "FPV crash zoom diving rapidly toward the inspection desk, dramatic red rotating beacon flash, sudden dolly zoom vertigo effect expanding the background factory floor, abrupt mechanical stop, intense dramatic motion blur.",
           "sceneLabel": "01·运镜提示词 (动感参数)"
@@ -91,7 +91,7 @@
         "id": "node_shot_01_video",
         "type": "generateVideo",
         "x": 460,
-        "y": 580,
+        "y": 700,
         "data": {
           "model": "muse-video",
           "size": "9:16",
@@ -158,7 +158,7 @@
         "id": "node_shot_02_v_prompt",
         "type": "prompt",
         "x": 1020,
-        "y": 580,
+        "y": 700,
         "data": {
           "text": "Rapid FPV flight piercing through steel pipelines and rising steam plumes, ascending with a 360-degree Dutch roll out above the granulating towers, smooth downward crane descent, grand scale.",
           "sceneLabel": "02·运镜提示词 (动感参数)"
@@ -168,7 +168,7 @@
         "id": "node_shot_02_video",
         "type": "generateVideo",
         "x": 1380,
-        "y": 580,
+        "y": 700,
         "data": {
           "model": "muse-video",
           "size": "9:16",
@@ -235,7 +235,7 @@
         "id": "node_shot_03_v_prompt",
         "type": "prompt",
         "x": 1940,
-        "y": 580,
+        "y": 700,
         "data": {
           "text": "Probe lens skimming micro-millimeters above paper texture, swift 180-degree orbital sweep around the chemical test vial, sharp rack focus to ultraviolet fluorescence glow.",
           "sceneLabel": "03·运镜提示词 (动感参数)"
@@ -245,7 +245,7 @@
         "id": "node_shot_03_video",
         "type": "generateVideo",
         "x": 2300,
-        "y": 580,
+        "y": 700,
         "data": {
           "model": "muse-video",
           "size": "9:16",
@@ -260,7 +260,7 @@
         "id": "node_shot_04_img_prompt",
         "type": "prompt",
         "x": 100,
-        "y": 1130,
+        "y": 1400,
         "data": {
           "text": "双螺杆重型混料机内部狭窄空间，干粉原料吸潮结块卡住不锈钢螺旋搅拌桨叶，机器剧烈震颤，粉尘翻滚。",
           "sceneLabel": "04·中文剧情提示词 (04·关卡二·混料结块痛点)"
@@ -270,7 +270,7 @@
         "id": "node_shot_04_img_gen",
         "type": "generateImage",
         "x": 460,
-        "y": 1130,
+        "y": 1400,
         "data": {
           "model": "gpt-image-2.5",
           "size": "9:16",
@@ -312,7 +312,7 @@
         "id": "node_shot_04_v_prompt",
         "type": "prompt",
         "x": 100,
-        "y": 1630,
+        "y": 2020,
         "data": {
           "text": "Low-angle dynamic upward spiral tracking alongside the rotating mixer paddle, turbulent powder vortex rushing directly into lens, sudden whip pan to clumped paddle blade.",
           "sceneLabel": "04·运镜提示词 (动感参数)"
@@ -322,7 +322,7 @@
         "id": "node_shot_04_video",
         "type": "generateVideo",
         "x": 460,
-        "y": 1630,
+        "y": 2020,
         "data": {
           "model": "muse-video",
           "size": "9:16",
@@ -337,7 +337,7 @@
         "id": "node_shot_05_img_prompt",
         "type": "prompt",
         "x": 1020,
-        "y": 1130,
+        "y": 1400,
         "data": {
           "text": "显微微距视角：纳铠甲高纯度包晶晶体微观核心在肥料基质中迅速解聚、均匀分散，微纳米晶核外壳完整破裂，无任何结块。",
           "sceneLabel": "05·中文剧情提示词 (05·形态一·纳铠甲包晶解聚)"
@@ -347,7 +347,7 @@
         "id": "node_shot_05_img_gen",
         "type": "generateImage",
         "x": 1380,
-        "y": 1130,
+        "y": 1400,
         "data": {
           "model": "gpt-image-2.5",
           "size": "9:16",
@@ -389,7 +389,7 @@
         "id": "node_shot_05_v_prompt",
         "type": "prompt",
         "x": 1020,
-        "y": 1630,
+        "y": 2020,
         "data": {
           "text": "Hyper-macro particle fly-through entering the crystalline core, bullet time slow-motion deceleration as the nanometer coating ruptures and disperses in all directions.",
           "sceneLabel": "05·运镜提示词 (动感参数)"
@@ -399,7 +399,7 @@
         "id": "node_shot_05_video",
         "type": "generateVideo",
         "x": 1380,
-        "y": 1630,
+        "y": 2020,
         "data": {
           "model": "muse-video",
           "size": "9:16",
@@ -414,7 +414,7 @@
         "id": "node_shot_06_img_prompt",
         "type": "prompt",
         "x": 1940,
-        "y": 1130,
+        "y": 1400,
         "data": {
           "text": "高速流体微距摄影：高压微米雾化喷嘴喷射出琥珀色澄清透明的捷邦DMPX油剂微雾，在滚动球形肥料颗粒表面均匀吸附并形成超薄光滑保护膜。",
           "sceneLabel": "06·中文剧情提示词 (06·形态二·捷邦油剂雾化附着)"
@@ -424,7 +424,7 @@
         "id": "node_shot_06_img_gen",
         "type": "generateImage",
         "x": 2300,
-        "y": 1130,
+        "y": 1400,
         "data": {
           "model": "gpt-image-2.5",
           "size": "9:16",
@@ -466,7 +466,7 @@
         "id": "node_shot_06_v_prompt",
         "type": "prompt",
         "x": 1940,
-        "y": 1630,
+        "y": 2020,
         "data": {
           "text": "Fluid particle tracking locked onto an atomized amber droplet, 1000fps high-speed slow motion following the droplet impact and smooth spreading into an ultra-thin adhesive film.",
           "sceneLabel": "06·运镜提示词 (动感参数)"
@@ -476,7 +476,7 @@
         "id": "node_shot_06_video",
         "type": "generateVideo",
         "x": 2300,
-        "y": 1630,
+        "y": 2020,
         "data": {
           "model": "muse-video",
           "size": "9:16",
@@ -491,7 +491,7 @@
         "id": "node_shot_07_img_prompt",
         "type": "prompt",
         "x": 100,
-        "y": 2180,
+        "y": 2720,
         "data": {
           "text": "国内现代化肥厂标准留样室与质检中心，整齐不锈钢货架摆满贴有合格批号封条的标准广口试剂瓶，专注的女质检员手戴手套举瓶细致观察。",
           "sceneLabel": "07·中文剧情提示词 (07·关卡三·恒温留样并轨)"
@@ -501,7 +501,7 @@
         "id": "node_shot_07_img_gen",
         "type": "generateImage",
         "x": 460,
-        "y": 2180,
+        "y": 2720,
         "data": {
           "model": "gpt-image-2.5",
           "size": "9:16",
@@ -564,7 +564,7 @@
         "id": "node_shot_07_v_prompt",
         "type": "prompt",
         "x": 100,
-        "y": 2680,
+        "y": 3340,
         "data": {
           "text": "Smooth infinite forward dolly push down the central aisle, synchronized high-speed space contraction, green laser planar sweep moving across sample bottles.",
           "sceneLabel": "07·运镜提示词 (动感参数)"
@@ -574,7 +574,7 @@
         "id": "node_shot_07_video",
         "type": "generateVideo",
         "x": 460,
-        "y": 2680,
+        "y": 3340,
         "data": {
           "model": "muse-video",
           "size": "9:16",
@@ -589,7 +589,7 @@
         "id": "node_shot_08_img_prompt",
         "type": "prompt",
         "x": 1020,
-        "y": 2180,
+        "y": 2720,
         "data": {
           "text": "特写与象征构图：光谱吸收曲线、流动油膜与批次追溯条码三者紧密咬合，化为坚固的金属盾牌图腾，光流流转，固若金汤。",
           "sceneLabel": "08·中文剧情提示词 (08·法则升维·合金盾牌咬合)"
@@ -599,7 +599,7 @@
         "id": "node_shot_08_img_gen",
         "type": "generateImage",
         "x": 1380,
-        "y": 2180,
+        "y": 2720,
         "data": {
           "model": "gpt-image-2.5",
           "size": "9:16",
@@ -641,7 +641,7 @@
         "id": "node_shot_08_v_prompt",
         "type": "prompt",
         "x": 1020,
-        "y": 2680,
+        "y": 3340,
         "data": {
           "text": "Dynamic 3-axis gimbal orbit rotating rapidly, three industrial components slamming together with a high-impact snap, shockwave ripple and spark emission settling into locked shield.",
           "sceneLabel": "08·运镜提示词 (动感参数)"
@@ -651,7 +651,7 @@
         "id": "node_shot_08_video",
         "type": "generateVideo",
         "x": 1380,
-        "y": 2680,
+        "y": 3340,
         "data": {
           "model": "muse-video",
           "size": "9:16",
@@ -666,7 +666,7 @@
         "id": "node_shot_09_img_prompt",
         "type": "prompt",
         "x": 1940,
-        "y": 2180,
+        "y": 2720,
         "data": {
           "text": "现代农化物流园区开阔大景，晨光破晓照亮现代化厂区与仓储高架，重型运输车队载满品牌成品化肥缓缓驶出园区，底气磅礴。",
           "sceneLabel": "09·中文剧情提示词 (09·品牌底气·车队破晓启程)"
@@ -676,7 +676,7 @@
         "id": "node_shot_09_img_gen",
         "type": "generateImage",
         "x": 2300,
-        "y": 2180,
+        "y": 2720,
         "data": {
           "model": "gpt-image-2.5",
           "size": "9:16",
@@ -718,7 +718,7 @@
         "id": "node_shot_09_v_prompt",
         "type": "prompt",
         "x": 1940,
-        "y": 2680,
+        "y": 3340,
         "data": {
           "text": "Extreme aerial jib crane lifting smoothly upward into a massive wide pull-back shot, golden sunlight bursting past industrial silhouetted towers, serene convoy motion below.",
           "sceneLabel": "09·运镜提示词 (动感参数)"
@@ -728,7 +728,7 @@
         "id": "node_shot_09_video",
         "type": "generateVideo",
         "x": 2300,
-        "y": 2680,
+        "y": 3340,
         "data": {
           "model": "muse-video",
           "size": "9:16",
@@ -743,7 +743,7 @@
         "id": "node_timeline",
         "type": "timeline",
         "x": 2900,
-        "y": 1100,
+        "y": 1350,
         "data": {
           "label": "全片时间线 (严格九镜锁定播放序)",
           "clipOrder": [
