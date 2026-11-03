@@ -3354,7 +3354,13 @@ function renderNodeVersionBar(n, body) {
   
   function autoLayoutWorkflow() {
     if (!state.nodes || state.nodes.length === 0) return;
-    const styleAnchors = state.nodes.filter(n => n.type === 'imageInput' || n.type === 'references' || n.id.includes('anchor') || n.id.includes('ref'));
+    const styleAnchors = state.nodes.filter(n =>
+      n.type === 'imageInput' ||
+      n.type === 'references' ||
+      n.id.includes('anchor') ||
+      n.id.includes('ref_') ||
+      n.id.startsWith('node_ref')
+    );
     const timelineNodes = state.nodes.filter(n => n.type === 'timeline');
     const previewNodes = state.nodes.filter(n => n.type === 'preview');
 
@@ -3362,10 +3368,11 @@ function renderNodeVersionBar(n, body) {
     state.nodes.forEach(n => {
       if (styleAnchors.includes(n) || timelineNodes.includes(n) || previewNodes.includes(n)) return;
       let sceneNum = null;
-      const labelMatch = (n.data?.sceneLabel || '').match(/(?:场景|分镜|镜头|Shot)\s*(\d+)/i);
+      const labelMatch = (n.data?.sceneLabel || n.title || '').match(/(?:场景|分镜|镜头|Shot)\s*(\d+)/i);
       const idMatch = n.id.match(/(?:shot|scene)[-_]?(\d+)/i);
       if (labelMatch) sceneNum = Number(labelMatch[1]);
       else if (idMatch) sceneNum = Number(idMatch[1]);
+      else if (Number.isFinite(n.data?.shotNumber)) sceneNum = Number(n.data.shotNumber);
       const key = sceneNum !== null ? sceneNum : n.id;
       if (!sceneMap.has(key)) {
         sceneMap.set(key, { key, sceneNum: sceneNum !== null ? sceneNum : 999, nodes: [] });
@@ -3375,37 +3382,79 @@ function renderNodeVersionBar(n, body) {
 
     const sortedScenes = [...sceneMap.values()].sort((a, b) => a.sceneNum - b.sceneNum);
     const totalScenes = sortedScenes.length;
-    const numCols = totalScenes <= 2 ? totalScenes : 3;
 
-    styleAnchors.forEach((n, idx) => { n.x = -420; n.y = 80 + idx * 480; });
+    // 根据总分镜数自适应列数：15镜为5列x3行，9镜为3列x3行，兼顾大屏叙事结构
+    let numCols = 3;
+    if (totalScenes <= 3) numCols = Math.max(1, totalScenes);
+    else if (totalScenes <= 8) numCols = Math.min(3, totalScenes);
+    else if (totalScenes === 9) numCols = 3;
+    else if (totalScenes % 5 === 0) numCols = 5;
+    else if (totalScenes % 4 === 0) numCols = 4;
+    else numCols = totalScenes > 12 ? 5 : 4;
 
+    const sceneW = 1220;
+    const sceneH = 1400;
+
+    // 1. 左侧全局资产列：外扩独立定位，绝不挤压正文
+    styleAnchors.forEach((n, idx) => {
+      n.x = -480;
+      n.y = 100 + idx * 460;
+    });
+
+    // 2. 逐镜黄金三列六联体排版：提示词列 ➔ 底图列 ➔ 视频列，彻底杜绝上下或左右遮挡
     sortedScenes.forEach((scene, index) => {
       const row = Math.floor(index / numCols);
       const col = index % numCols;
-      const originX = 100 + col * 920;
-      const originY = 80 + row * 1320;
-      const imgPrompts = scene.nodes.filter(n => n.type === 'prompt' && (n.id.includes('img') || !n.id.includes('v_')));
-      const imgGens = scene.nodes.filter(n => n.type === 'generateImage');
-      const vPrompts = scene.nodes.filter(n => n.type === 'prompt' && (n.id.includes('v_') || n.id.includes('video')));
-      const vGens = scene.nodes.filter(n => n.type === 'generateVideo');
-      if (imgPrompts[0]) { imgPrompts[0].x = originX; imgPrompts[0].y = originY; }
-      if (imgGens[0]) { imgGens[0].x = originX + 360; imgGens[0].y = originY; }
-      if (vPrompts[0]) { vPrompts[0].x = originX; vPrompts[0].y = originY + 620; }
-      if (vGens[0]) { vGens[0].x = originX + 360; vGens[0].y = originY + 620; }
-      const placed = new Set([imgPrompts[0], imgGens[0], vPrompts[0], vGens[0]].filter(Boolean));
+      const originX = 120 + col * sceneW;
+      const originY = 100 + row * sceneH;
+
+      const isEnd = (n) => n.id.includes('end') || n.data?.frameRole === 'end' || (n.data?.sceneLabel || '').includes('尾帧');
+      const isVideo = (n) => n.id.includes('v_') || n.id.includes('video') || (n.data?.sceneLabel || '').includes('运镜');
+
+      const imgPrompt = scene.nodes.find(n => n.type === 'prompt' && !isEnd(n) && !isVideo(n));
+      const endImgPrompt = scene.nodes.find(n => n.type === 'prompt' && isEnd(n));
+      const vPrompt = scene.nodes.find(n => n.type === 'prompt' && isVideo(n));
+
+      const imgGen = scene.nodes.find(n => n.type === 'generateImage' && !isEnd(n));
+      const endImgGen = scene.nodes.find(n => n.type === 'generateImage' && isEnd(n));
+      const vGen = scene.nodes.find(n => n.type === 'generateVideo');
+
+      // 列 1: 提示词垂直流
+      if (imgPrompt) { imgPrompt.x = originX; imgPrompt.y = originY; }
+      if (endImgPrompt) { endImgPrompt.x = originX; endImgPrompt.y = originY + 380; }
+      if (vPrompt) { vPrompt.x = originX; vPrompt.y = originY + 760; }
+
+      // 列 2: 首尾帧图片生成流 (与左侧提示词水平严格对齐)
+      if (imgGen) { imgGen.x = originX + 360; imgGen.y = originY; }
+      if (endImgGen) { endImgGen.x = originX + 360; endImgGen.y = originY + 380; }
+
+      // 列 3: 10s视频生成节点 (居中垂直对齐于首尾帧之间，连线舒展自然)
+      if (vGen) { vGen.x = originX + 740; vGen.y = originY + 220; }
+
+      // 备用/未预置扩展节点：整齐置于分镜下方，绝对不穿透至下一行
+      const placed = new Set([imgPrompt, endImgPrompt, vPrompt, imgGen, endImgGen, vGen].filter(Boolean));
       scene.nodes.filter(n => !placed.has(n)).forEach((n, extraIdx) => {
-        n.x = originX + (extraIdx % 2) * 360;
-        n.y = originY + 1200 + Math.floor(extraIdx / 2) * 320;
+        n.x = originX + (extraIdx % 3) * 360;
+        n.y = originY + 1150 + Math.floor(extraIdx / 3) * 360;
       });
     });
 
-    timelineNodes.forEach((n, idx) => { n.x = 100 + numCols * 920; n.y = 80 + 1280 + idx * 460; });
-    previewNodes.forEach((n, idx) => { n.x = 100 + numCols * 920; n.y = 80 + idx * 460; });
+    // 3. 时间线与全局预览：放置于故事板右侧专属控制区
+    const timelineX = 120 + numCols * sceneW + 60;
+    timelineNodes.forEach((n, idx) => {
+      n.x = timelineX;
+      n.y = 100 + 360 + idx * 460;
+    });
+    previewNodes.forEach((n, idx) => {
+      n.x = timelineX;
+      n.y = 100 + idx * 360;
+    });
 
     render();
     saveState();
     fitCanvas();
-    setRunStatus(`已自动规整排版：${totalScenes} 个分镜按 3x3 故事板矩阵优雅排列。`, 'ok');
+    const rowsCount = Math.ceil(totalScenes / numCols);
+    setRunStatus(`✓ 已优化规整排版：${totalScenes} 个分镜按 ${numCols}列×${rowsCount}行 矩阵无重叠舒展排列，视野清晰通透！`, 'ok');
   }
 
   function fitCanvas(){const nodes=state.nodes.filter(node=>!node.data?.dockOnly);if(!nodes.length){state.zoom=1;state.panX=0;state.panY=0;applyCanvasTransform();return;}const rect=$('#viewport').getBoundingClientRect(),xs=nodes.map(n=>n.x),ys=nodes.map(n=>n.y),maxX=Math.max(...nodes.map(n=>n.x+(document.querySelector(`.node[data-id="${CSS.escape(n.id)}"]`)?.offsetWidth||270))),maxY=Math.max(...nodes.map(n=>n.y+(document.querySelector(`.node[data-id="${CSS.escape(n.id)}"]`)?.offsetHeight||220)));const minX=Math.min(...xs),minY=Math.min(...ys),scale=Math.max(.25,Math.min(1.5,(rect.width-100)/(maxX-minX+80),(rect.height-80)/(maxY-minY+80)));state.zoom=scale;state.panX=(rect.width-(maxX-minX)*scale)/2-minX*scale;state.panY=(rect.height-(maxY-minY)*scale)/2-minY*scale;applyCanvasTransform();scheduleDrawEdges();}
