@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "26Flow 中文版",
+  "name": "MuseFlow - muse.ai视频生成工作流",
   "version": "0.5.0",
-  "description": "26Flow 可视化工作流画布，直接使用已登录的 Muse.ai 浏览器会话。",
+  "description": "muse.ai视频生成工作流，直接使用已登录的 Muse.ai 浏览器会话。",
   "action": {
     "default_title": "打开 MuseFlow 中文版",
     "default_icon": {
@@ -26,7 +26,11 @@
   ],
   "host_permissions": [
     "https://muse.ai/*",
-    "https://*.muse.ai/*"
+    "https://*.muse.ai/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*",
+    "http://*/*",
+    "https://*/*"
   ],
   "content_scripts": [
     {

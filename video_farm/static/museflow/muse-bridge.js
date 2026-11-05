@@ -1,6 +1,5 @@
 (() => {
-  if (window.__museFlowBridgeInstalled) return;
-  window.__museFlowBridgeInstalled = true;
+  window.__museFlowBridgeVersion = '2026-10-30-v3';
 
   function t05Probe(stage, fields = {}) {
     try {
@@ -23,21 +22,175 @@
     } catch {}
   }
 
-  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    if (message?.type === 'MUSEFLOW_CHECK_SESSION') {
+  window.__museFlowBridgeHandler = (message, _sender, sendResponse) => {
+    if (message?.type === 'MUSEFLOW_CHECK_SESSION' || message?.type === 'MUSEFLOW_CHECK_SESSION_V3') {
       checkSession().then(sendResponse);
       return true;
     }
-    if (message?.type === 'MUSEFLOW_GENERATE') {
+    if (message?.type === 'MUSEFLOW_GENERATE' || message?.type === 'MUSEFLOW_GENERATE_V3') {
       const controller=new AbortController();activeGenerations.set(message.requestId,controller);
       generate(message,controller.signal).then(sendResponse, error => sendResponse({ ok: false, code:error.code||'MUSE_ERROR', error: error.message || String(error) })).finally(()=>activeGenerations.delete(message.requestId));
       return true;
     }
-    if(message?.type==='MUSEFLOW_STOP_GENERATION'){
+    if (message?.type === 'MUSEFLOW_RECOVER_LATEST' || message?.type === 'MUSEFLOW_RECOVER_LATEST_V3') {
+      recoverLatestMedia(message).then(
+        sendResponse,
+        error => sendResponse({ ok: false, error: error.message || String(error) })
+      );
+      return true;
+    }
+    if(message?.type==='MUSEFLOW_STOP_GENERATION' || message?.type==='MUSEFLOW_STOP_GENERATION_V3'){
       const stopped=message.requestId?abortGeneration(message.requestId):[...activeGenerations.keys()].some(id=>abortGeneration(id));
       sendResponse({ok:true,stopped});return false;
     }
-  });
+    return false;
+  };
+
+  if (window.__museFlowBridgeListener && chrome.runtime?.onMessage?.removeListener) {
+    try { chrome.runtime.onMessage.removeListener(window.__museFlowBridgeListener); } catch {}
+  }
+  window.__museFlowBridgeListener = (message, sender, sendResponse) => {
+    if (typeof window.__museFlowBridgeHandler === 'function') {
+      return window.__museFlowBridgeHandler(message, sender, sendResponse);
+    }
+    return false;
+  };
+  window.__museFlowBridgeInstalled = true;
+  chrome.runtime.onMessage.addListener(window.__museFlowBridgeListener);
+
+  function findPrecedingUserMsg(el) {
+    if (!el) return null;
+    const allUserMsgs = userMessageElements();
+    let preceding = null;
+    for (const um of allUserMsgs) {
+      if (isFollowing(um, el)) preceding = um;
+    }
+    return preceding;
+  }
+
+  function rankMediaCandidates(items, { mediaType = 'video', size = '16:9', duration = 0 } = {}) {
+    const [ratioW, ratioH] = String(size || '1:1').split(':').map(Number);
+    const expectedRatio = ratioW > 0 && ratioH > 0 ? ratioW / ratioH : 1;
+    const trimRe = /trim|cut|clip|first\d+s|mid\d+|[-_]\d+(?:\.\d+)?s(?:\b|\.mp4)/i;
+    return [...items].sort((a, b) => {
+      if (mediaType === 'video') {
+        const labelA = `${a.label || ''} ${a.videoUrl || ''}`;
+        const labelB = `${b.label || ''} ${b.videoUrl || ''}`;
+        // 最高优先级：优先保存 10 秒完整原片（media-generation-），绝不让已加载宽高的 3 秒裁剪版排到前面
+        const isRawA = /media-generation-/i.test(labelA) && !trimRe.test(labelA);
+        const isRawB = /media-generation-/i.test(labelB) && !trimRe.test(labelB);
+        if (isRawA !== isRawB) return isRawA ? -1 : 1;
+
+        const isTrimA = trimRe.test(labelA);
+        const isTrimB = trimRe.test(labelB);
+        if (isTrimA !== isTrimB) return isTrimA ? 1 : -1;
+
+        const durA = Number(a.videoDuration) || 0;
+        const durB = Number(b.videoDuration) || 0;
+        if (durA > 0 && durB > 0 && Math.abs(durA - durB) > 0.4) {
+          return durB - durA; // 优先完整长原片（10s 优先于 3s）
+        }
+      }
+      const wA = mediaType === 'video' ? a.videoWidth : a.width;
+      const hA = mediaType === 'video' ? a.videoHeight : a.height;
+      const wB = mediaType === 'video' ? b.videoWidth : b.width;
+      const hB = mediaType === 'video' ? b.videoHeight : b.height;
+      const hasDimA = Boolean(wA && hA);
+      const hasDimB = Boolean(wB && hB);
+      if (hasDimA && hasDimB) {
+        const scoreA = Math.abs(Math.log((wA / hA) / expectedRatio));
+        const scoreB = Math.abs(Math.log((wB / hB) / expectedRatio));
+        if (Math.abs(scoreA - scoreB) > 0.03) return scoreA - scoreB;
+      } else if (hasDimA !== hasDimB) {
+        return hasDimA ? -1 : 1;
+      }
+      if (mediaType === 'video') {
+        // 同一轮中 10s 原片总是先于裁剪版出现
+        return isFollowing(a.el, b.el) ? -1 : 1;
+      }
+      return isFollowing(a.el, b.el) ? 1 : -1;
+    });
+  }
+
+  async function resolveTransferableMediaUrl(src, mediaType = 'video') {
+    if (!src) return { url: '', error: '媒体地址为空' };
+    if (src.startsWith('data:')) return { url: src };
+    if (mediaType === 'video' && !src.startsWith('blob:')) return { url: src };
+    try {
+      const fetchOpts = src.startsWith('blob:') ? {} : { credentials: 'include' };
+      const response = await fetch(src, fetchOpts);
+      if (!response.ok) throw new Error(`${mediaType === 'video' ? '视频' : '图片'}下载返回 HTTP ${response.status}.`);
+      const blob = await response.blob();
+      return { url: await blobToDataUrl(blob) };
+    } catch (error) {
+      return { url: src, error: `新${mediaType === 'video' ? '视频' : '图片'}已检测到，但无法复制到本地：${error.message}` };
+    }
+  }
+
+  async function recoverLatestMedia(message = {}) {
+    const mediaType = typeof message === 'string' ? message : (message.mediaType || 'video');
+    const wantVideo = mediaType !== 'image';
+    const items = attachments().filter(item => wantVideo ? Boolean(item.videoUrl) : (Boolean(item.src) && !item.isVideo));
+    if (!items.length) {
+      return { ok: false, error: '当前 Muse 聊天中还没有可收回的视频附件。请确认聊天里的视频已经生成并能播放。' };
+    }
+    const rawPrompt = String(message?.prompt || '').trim();
+    const rawSceneLabel = String(message?.sceneLabel || '').trim();
+    const shotMatch = rawPrompt.match(/\bshot\s*0*(\d+)\b/i)
+      || rawSceneLabel.match(/(?:场景|分镜|镜头|shot)\s*0*(\d+)/i)
+      || rawPrompt.match(/(?:场景|分镜|镜头)\s*0*(\d+)/i);
+    const targetShotNum = shotMatch ? Number(shotMatch[1]) : 0;
+    const shotRegex = targetShotNum > 0
+      ? new RegExp(`(?:\\bshot\\s*0*${targetShotNum}\\b|(?:场景|分镜|镜头)\\s*0*${targetShotNum}(?!\\d)|\\b02-0*${targetShotNum}\\b)`, 'i')
+      : null;
+    const promptClean = rawPrompt.replace(/\s+/g, ' ').trim();
+    const promptSnippet = promptClean.length >= 18 ? promptClean.slice(0, 48).toLowerCase() : '';
+
+    let matchedItems = [];
+    if (shotRegex || promptSnippet) {
+      matchedItems = items.filter(item => {
+        const um = findPrecedingUserMsg(item.el);
+        const userText = (um?.innerText || um?.textContent || '').replace(/\s+/g, ' ');
+        const labelText = String(item.label || '');
+        if (shotRegex && (shotRegex.test(userText) || shotRegex.test(labelText))) return true;
+        if (promptSnippet && userText.toLowerCase().includes(promptSnippet)) return true;
+        return false;
+      });
+    }
+
+    const anchorItem = matchedItems.length ? matchedItems[matchedItems.length - 1] : items[items.length - 1];
+    const targetUserMsg = findPrecedingUserMsg(anchorItem.el);
+    const turnPool = targetUserMsg
+      ? items.filter(item => findPrecedingUserMsg(item.el) === targetUserMsg)
+      : (matchedItems.length ? matchedItems : items.slice(-2));
+    const ranked = rankMediaCandidates(turnPool.length ? turnPool : items, {
+      mediaType,
+      size: message?.size || '16:9',
+      duration: message?.duration || 0
+    });
+    const best = ranked[0] || anchorItem;
+    const rawUrl = wantVideo ? best.videoUrl : best.src;
+    if (!rawUrl) {
+      return { ok: false, error: '页面上还没有可收回的视频。请确认聊天里的视频已经能播放。' };
+    }
+    let reviewNotes = '';
+    try {
+      const bubbles = assistantMessageElements().filter(b => !targetUserMsg || isFollowing(targetUserMsg, b));
+      reviewNotes = bubbles.map(b => (b.innerText || b.textContent || '').replace(/\s+/g, ' ').trim()).filter(Boolean).join('\n').slice(-2000);
+    } catch {}
+    const transferred = await resolveTransferableMediaUrl(rawUrl, mediaType);
+    return {
+      ok: true,
+      url: transferred.url,
+      posterUrl: best.posterUrl || '',
+      width: best.videoWidth || best.width || 0,
+      height: best.videoHeight || best.height || 0,
+      duration: best.videoDuration || 0,
+      label: best.label || '',
+      reviewNotes,
+      error: transferred.error
+    };
+  }
 
   function findComposer() {
     const candidates=[...document.querySelectorAll('textarea')].filter(el=>visible(el)&&!el.disabled);
@@ -66,11 +219,21 @@
     const cancel=()=>{clearTimeout(timer);signal?.removeEventListener('abort',cancel);reject(new DOMException("用户已停止生成。",'AbortError'));};
     signal?.addEventListener('abort',cancel,{once:true});
   });
-  const attachmentSelector='[data-testid^="hatch-chat-attachment-presentation-"], [data-testid*="attachment" i], [data-testid*="video" i], video, [class*="attachment" i], [class*="media-card" i]';
+  const attachmentSelector='[data-testid^="hatch-chat-attachment-presentation-"]';
   const activeGenerations=new Map();
   const consumedAttachmentSrcs=new Set();
   const staleOrCancelledPrompts=new Set();
   const quarantinedAttachments=new Set();
+
+  function isNonChatOrAvatarElement(el) {
+    if (!el || typeof el.closest !== 'function') return true;
+    if (el.hasAttribute?.('data-hatch-avatar-layer') || el.querySelector?.('[data-hatch-avatar-layer]')) return true;
+    if (el.closest('[data-hatch-avatar-layer],[data-testid*="status-panel" i],[data-testid*="avatar" i],[class*="status-panel" i],[class*="avatar-layer" i],aside,header,nav,form,[class*="chat-user-bubble"],[data-message-author-role="user"],[data-testid="hatch-composer-placeholder-overlay"]')) return true;
+    if (el.getAttribute?.('aria-label') === 'Muse' || el.closest('[role="button"][aria-label="Muse"]')) return true;
+    const inPresentation = Boolean(el.closest('[data-testid^="hatch-chat-attachment-presentation-"]'));
+    const inAssistantBubble = Boolean(el.closest('div[class*="hatch-chat-groupable-bubble"],[data-message-author-role="assistant"]'));
+    return !inPresentation && !inAssistantBubble;
+  }
 
   function clickMuseStop(){
     const button=[...document.querySelectorAll('[data-testid="hatch-composer-stop-button"],button[aria-label*="Stop" i],button[aria-label*="停止"]')].find(visible);
@@ -105,19 +268,29 @@
   }
 
   function attachments() {
-    const rawList = [...document.querySelectorAll(attachmentSelector)];
-    try {
-      assistantMessageElements().forEach(msg => {
-        msg.querySelectorAll('video, a[href*=".mp4"], [data-video-src]').forEach(el => rawList.push(el));
-      });
-    } catch {}
-    const uniqueElements = [...new Set(rawList)];
-    return uniqueElements.filter(el=>!el.closest('form,[class*="chat-user-bubble"],[data-message-author-role="user"]')&&!el.closest('[data-testid="hatch-composer-placeholder-overlay"]')).map(el=>{
+    const rawList = [];
+    const presentations = [...document.querySelectorAll(attachmentSelector)].filter(el => !isNonChatOrAvatarElement(el));
+    for (const pres of presentations) {
+      const innerVideos = [...pres.querySelectorAll('video')].filter(v => !isNonChatOrAvatarElement(v));
+      if (innerVideos.length > 1) {
+        for (const v of innerVideos) {
+          const card = v.closest('div[class*="hatch-chat-groupable-bubble"],[role="button"][aria-label]') || v;
+          rawList.push(card);
+        }
+      } else {
+        rawList.push(pres);
+      }
+    }
+    const uniqueElements = [...new Set(rawList)].filter(el => !isNonChatOrAvatarElement(el));
+    return uniqueElements.map(el=>{
       const isVidTag=el.tagName==='VIDEO'||(typeof HTMLVideoElement!=='undefined'&&el instanceof HTMLVideoElement);
       const isImgTag=el.tagName==='IMG'||(typeof HTMLImageElement!=='undefined'&&el instanceof HTMLImageElement);
-      const tid=el.getAttribute('data-testid')||'';
+      const presAncestor=el.closest?.('[data-testid^="hatch-chat-attachment-presentation-"]');
+      const tid=el.getAttribute('data-testid')||presAncestor?.getAttribute('data-testid')||'';
       const video=isVidTag?el:el.querySelector('video');
       const image=isImgTag?el:el.querySelector('img');
+      if (video && isNonChatOrAvatarElement(video)) return null;
+      const label=el.getAttribute?.('aria-label')||el.querySelector?.('[role="button"][aria-label]')?.getAttribute('aria-label')||video?.closest?.('[role="button"][aria-label]')?.getAttribute('aria-label')||'';
       const urls=[...el.querySelectorAll('a[href],video source[src],source[src],[data-video-src],[data-download-url],video[src],img[src]')].map(item=>({url:item.href||item.src||item.getAttribute('data-video-src')||item.getAttribute('data-download-url')||'',download:item.getAttribute('download')||'',type:item.getAttribute('type')||''})).filter(item=>item.url);
       if(el.tagName==='A'&&el.href) urls.push({url:el.href,download:el.getAttribute('download')||'',type:el.getAttribute('type')||''});
       if(video?.currentSrc) urls.push({url:video.currentSrc,download:'',type:'video/mp4'});
@@ -125,15 +298,17 @@
       const videoLink=urls.find(item=>/video\//i.test(item.type)||/\.(?:mp4|webm|mov|m4v)(?:$|[?#])/i.test(item.url)||/\.(?:mp4|webm|mov|m4v)$/i.test(item.download))?.url||'';
       const videoUrl=video?.currentSrc||video?.src||videoLink||'';
       const posterUrl=image?.currentSrc||image?.src||urls.find(u=>/\.(?:png|jpe?g|webp)(?:$|[?#])/i.test(u.url))?.url||'';
-      const isCard=Boolean(tid || video || image || (el.classList && [...el.classList].some(c=>/attachment|media-card/i.test(c))));
+      const isCard=Boolean(tid);
       const isVideoCard=Boolean(videoUrl) || isVidTag || Boolean(video) || /video/i.test(tid) || Boolean(el.querySelector('video'));
       const videoWidth=video?.videoWidth||0;
       const videoHeight=video?.videoHeight||0;
+      const videoDuration=Number.isFinite(video?.duration)&&video.duration>0?Number(video.duration):0;
       const imageWidth=image?.naturalWidth||0;
       const imageHeight=image?.naturalHeight||0;
       return {
         el,
         tid,
+        label,
         isCard,
         isVideo: isVideoCard,
         hasVideoUrl: Boolean(videoUrl),
@@ -142,12 +317,13 @@
         src: videoUrl || posterUrl || urls[0]?.url || '',
         videoWidth,
         videoHeight,
+        videoDuration,
         imageWidth,
         imageHeight,
         width: isVideoCard ? videoWidth : imageWidth,
         height: isVideoCard ? videoHeight : imageHeight
       };
-    }).filter(a=>a.src || a.isCard);
+    }).filter(a=>a&&(a.src || a.isCard));
   }
 
   function waitForAttachmentChange(timeoutMs,signal){
@@ -200,7 +376,7 @@
     return '';
   }
 
-  async function generate({prompt,timeoutSec=600,mediaType='image',referenceImage='',referenceImages=[],size='1:1',model='muse-image',requestId},signal) {
+  async function generate({prompt,timeoutSec=600,mediaType='image',referenceImage='',referenceImages=[],size='1:1',duration=0,model='muse-image',requestId},signal) {
     const throwIfAborted=()=>{if(signal?.aborted)throw new DOMException("用户已停止生成。",'AbortError');};
     throwIfAborted();
     if(!String(prompt||'').trim())throw new Error("提示词为空。");
@@ -267,10 +443,19 @@
     let generationEverActive=false,stopDisappearedAt=0;
     let cardEverDetected=false;
     let videoEverResolved=false;
+    let firstVideoResolvedAt=0;
     try{
     while(Date.now()<deadline){
       throwIfAborted();
       currentContext=String(readNewAssistantContext(priorBubbleTexts)||'');
+      const stop=Boolean(document.querySelector('[data-testid="hatch-composer-stop-button"],button[aria-label*="Stop" i],button[aria-label*="停止"]'));
+      if(stop){
+        generationEverActive=true;
+        stopDisappearedAt=0;
+        lastProgress=Date.now();
+      }else if(generationEverActive&&!stopDisappearedAt){
+        stopDisappearedAt=Date.now();
+      }
       const fresh=attachments().filter(a=>{
         if(baseline.has(a.src))return false;
         if(consumedAttachmentSrcs.has(a.src))return false;
@@ -329,27 +514,20 @@
       if(readyItems.length>0){
         if(mediaType==='video'&&!videoEverResolved){
           videoEverResolved=true;
+          firstVideoResolvedAt=Date.now();
           t05Probe('VIDEO_URL_RESOLVED', { requestId, hasMedia: true, width: readyItems[0].videoWidth, height: readyItems[0].videoHeight });
         }
-        const measured=readyItems.sort((a,b)=>{
-          const hasDimA=Boolean(a.videoWidth&&a.videoHeight);
-          const hasDimB=Boolean(b.videoWidth&&b.videoHeight);
-          if(hasDimA&&hasDimB){
-            const scoreA=Math.abs(Math.log((a.videoWidth/a.videoHeight)/expectedRatio));
-            const scoreB=Math.abs(Math.log((b.videoWidth/b.videoHeight)/expectedRatio));
-            return scoreA-scoreB;
-          }
-          if(hasDimA) return -1;
-          if(hasDimB) return 1;
-          return isFollowing(a.el, b.el)?1:-1;
-        });
-
+        const measured=rankMediaCandidates(readyItems,{mediaType,size,duration});
         const best=measured[0];
         if(mediaType==='video'){
+          const videoEl = best.el?.tagName === 'VIDEO' ? best.el : best.el?.querySelector?.('video');
+          if (videoEl && (!best.videoWidth || !best.videoHeight)) {
+            try { if (videoEl.preload === 'none') videoEl.preload = 'metadata'; } catch {}
+          }
           if(best.videoWidth>0&&best.videoHeight>0){
             firstZeroDimAt=0;
             const ratioError=Math.abs(Math.log((best.videoWidth/best.videoHeight)/expectedRatio));
-            if(ratioError<=0.09||Date.now()-firstWrongRatioAt>=4000) result=best;
+            if(ratioError<=0.09||!stop||Date.now()-firstWrongRatioAt>=4000) result=best;
             else if(!firstWrongRatioAt) firstWrongRatioAt=Date.now();
           }else{
             if(!firstZeroDimAt) firstZeroDimAt=Date.now();
@@ -366,23 +544,8 @@
         if(result.videoUrl)consumedAttachmentSrcs.add(result.videoUrl);
         if(result.posterUrl)consumedAttachmentSrcs.add(result.posterUrl);
         const reviewNotes=currentContext.trim();
-        if(mediaType==='video'&&!src.startsWith('blob:')&&!src.startsWith('data:'))return {ok:true,url:src,posterUrl:result.posterUrl,reviewNotes,width:result.videoWidth,height:result.videoHeight};
-        if(src.startsWith('data:'))return {ok:true,url:src,reviewNotes,posterUrl:result.posterUrl,width:result.videoWidth,height:result.videoHeight};
-        try{
-          const fetchOpts=src.startsWith('blob:')?{}:{credentials:'include'};
-          const response=await fetch(src,fetchOpts);
-          if(!response.ok)throw new Error(`${mediaType==='video'?'视频':'图片'}下载返回 HTTP ${response.status}.`);
-          const blob=await response.blob();
-          return {ok:true,url:await blobToDataUrl(blob),posterUrl:result.posterUrl,reviewNotes,width:result.videoWidth,height:result.videoHeight};
-        }catch(error){return {ok:true,url:src,posterUrl:result.posterUrl,reviewNotes,width:result.videoWidth,height:result.videoHeight,error:`新${mediaType==='video'?'视频':'图片'}已检测到，但无法复制到本地：${error.message}`};}
-      }
-      const stop=Boolean(document.querySelector('[data-testid="hatch-composer-stop-button"],button[aria-label*="Stop" i],button[aria-label*="停止"]'));
-      if(stop){
-        generationEverActive=true;
-        stopDisappearedAt=0;
-        lastProgress=Date.now();
-      }else if(generationEverActive&&!stopDisappearedAt){
-        stopDisappearedAt=Date.now();
+        const transferred=await resolveTransferableMediaUrl(src,mediaType);
+        return {ok:true,url:transferred.url,posterUrl:result.posterUrl,reviewNotes,width:result.videoWidth,height:result.videoHeight,duration:result.videoDuration||0,error:transferred.error};
       }
       const refusal=isRefusalContext(currentContext);
       if(refusal){
@@ -405,7 +568,8 @@
       const elapsedSinceSubmit=Date.now()-submitTime;
       const composerNow=findComposer();
       const composerReady=Boolean(composerNow&&!composerNow.disabled&&visible(composerNow));
-      const stoppedAfterActive=generationEverActive&&stopDisappearedAt&&Date.now()-stopDisappearedAt>=2500&&composerReady;
+      const stopGraceMs=matching.length>0?8000:3500;
+      const stoppedAfterActive=generationEverActive&&stopDisappearedAt&&Date.now()-stopDisappearedAt>=stopGraceMs&&composerReady;
       const idleWithoutActivity=!generationEverActive&&elapsedSinceSubmit>=12000&&!stop&&composerReady;
       if(stoppedAfterActive||idleWithoutActivity){
         const tail=(document.body?.innerText||'').slice(-800);
@@ -413,24 +577,13 @@
           const err=new Error("Muse 账号的生成额度已耗尽。");err.code='OUT_OF_CREDITS';throw err;
         }
         const lastMsg=currentContext.trim()||tail.slice(-300).trim();
-        // 核心修复：不限制视频时长（后期用户可自主剪辑）。
-        // 当 Muse 页面停止且存在可用媒体附件时，无论反馈文本有何说明（如“时长有出入”），一律优先提取视频并判定成功！
-        const avail = attachments().filter(a=>mediaType==='video'?(a.isVideo||Boolean(a.videoUrl)):!a.isVideo);
-        if (avail.length > 0) {
-          const fallbackItem = avail[avail.length - 1];
-          const media = mediaType==='video'?(fallbackItem.el.querySelector('video')||null):(fallbackItem.el.querySelector('img')||null);
-          const fallbackSrc = mediaType==='video'?(fallbackItem.videoUrl||media?.currentSrc||media?.src||fallbackItem.src):(fallbackItem.src);
-          if (fallbackSrc) {
+        if(readyItems.length>0){
+          const fallbackItem=rankMediaCandidates(readyItems,{mediaType,size,duration})[0];
+          const fallbackSrc=mediaType==='video'?fallbackItem.videoUrl:(fallbackItem.src||fallbackItem.posterUrl);
+          if(fallbackSrc){
             consumedAttachmentSrcs.add(fallbackSrc);
-            return { ok: true, url: fallbackSrc, reviewNotes: lastMsg, width: fallbackItem.videoWidth, height: fallbackItem.videoHeight };
-          }
-        }
-        if (mediaType === 'video') {
-          const allVids = [...document.querySelectorAll('video')].map(v => ({ src: v.currentSrc || v.src, w: v.videoWidth, h: v.videoHeight })).filter(item => item.src);
-          if (allVids.length > 0) {
-            const fallbackItem = allVids[allVids.length - 1];
-            consumedAttachmentSrcs.add(fallbackItem.src);
-            return { ok: true, url: fallbackItem.src, reviewNotes: lastMsg, width: fallbackItem.w, height: fallbackItem.h };
+            const transferred=await resolveTransferableMediaUrl(fallbackSrc,mediaType);
+            return {ok:true,url:transferred.url,posterUrl:fallbackItem.posterUrl,reviewNotes:lastMsg,width:fallbackItem.videoWidth,height:fallbackItem.videoHeight,duration:fallbackItem.videoDuration||0,error:transferred.error};
           }
         }
         const failReason=lastMsg?`（页面反馈：${lastMsg}）`:'（Muse 已停止响应且未生成新的媒体附件，可能生成出错或服务异常）';
@@ -473,9 +626,20 @@
   }
 
   async function attachReferences(references,signal){
-    const files=await Promise.all(references.map(async(reference,index)=>{
+    const cappedRefs = Array.isArray(references) ? references.slice(0, 9) : [];
+    const files=await Promise.all(cappedRefs.map(async(reference,index)=>{
       const url=typeof reference==='string'?reference:reference?.url;
       if(!url)throw new Error(`参考图片 ${index+1}没有 URL。`);
+      if(url.startsWith('data:')){
+        const arr=url.split(',');
+        const mime=arr[0].match(/:(.*?);/)?.[1]||'image/png';
+        const bstr=atob(arr[1]||'');
+        let n=bstr.length;
+        const u8arr=new Uint8Array(n);
+        while(n--)u8arr[n]=bstr.charCodeAt(n);
+        const extension=(mime.split('/')[1]||'png').replace('jpeg','jpg').replace(/[^a-z0-9]/gi,'')||'png';
+        return new File([u8arr],`museflow-reference-${String(index+1).padStart(2,'0')}.${extension}`,{type:mime});
+      }
       const response=await fetch(url,{credentials:'include'});
       if(!response.ok)throw new Error(`无法加载参考图片 ${index+1} (${response.status}).`);
       const blob=await response.blob();

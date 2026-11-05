@@ -11,6 +11,7 @@
   <header class="toolbar">
     <div class="brand"><img class="brand-logo" src="icons/26flow.svg" alt="26Flow" /><strong class="brand-name">Flow</strong><span class="brand-version">0.5.0</span></div>
     <div class="toolbar-tools" aria-label="添加工作流节点">
+        <button id="aiOrchestrateBtn" type="button" class="accent-btn" title="随时丢入任意草稿或大纲，由 AI 对话搭建并一键生成工作流节点">💬 AI 对话搭建工作流</button>
       <button id="scriptImportBtn" type="button">＋ 脚本 → 节点</button>
       <button data-add="prompt">+ 提示词</button>
       <button data-add="negativePrompt">+ 反向提示词</button>
@@ -25,16 +26,21 @@
       <button data-add="preview">+ 预览</button>
     </div>
     <div class="toolbar-actions">
-      <button id="shotBibleBtn" type="button" title="设定工程视觉规范与主体锁定">🎨 视觉规范</button>
-      <button id="shotDeckBtn" type="button" title="查看分镜镜头表与独立版本控制">🎬 镜头表</button>
       <button id="saveBtn">保存</button>
       <button id="workflowExportBtn" type="button" title="将工作流保存为可复用的 JSON 文件">导出工作流</button>
       <button id="workflowImportBtn" type="button" title="导入已保存的 MuseFlow 工作流">导入工作流</button>
       <input id="workflowFileInput" type="file" accept=".json,application/json" hidden />
+      <button id="topAutoLayoutBtn" type="button" class="btn-highlight-layout" title="智能规整排版（提示词/图片/10s视频黄金矩阵无重叠舒展排列，快捷键 Alt+L）">📐 整理画布 (Alt+L)</button>
+      <button id="localApiQuickBtn" type="button" title="快速配置并连接本地生图 API / 选择本地模型">⚙ 本地API</button>
       <button id="settingsBtn">设置</button>
       <button id="resetBtn" class="danger">重置</button>
+      <button id="retryFailedBtn" type="button" class="warn hidden" title="仅重新运行标记为失败或阻断的节点">↺ 重试失败项</button>
+      <button id="exportNamedVideosBtn" type="button" class="btn-highlight-export" title="一键将所有已生成的 10 秒视频按【镜号+10s+口播文案】打包导出为 1 个 ZIP，并生成剪辑对照单">📦 按文案打包导出10s视频</button>
+      <button id="runShotRangeBtn" type="button" class="stage-run-btn" title="多浏览器/多账号并行分流：指定只跑第 N ~ M 镜（如 Chrome 跑 1~5 镜、Edge 跑 6~10 镜）">🎯 按区间运行</button>
       <button id="runAllBtn" type="button" title="忽略已生成缓存，重新生成全部节点">↺ 全量运行</button>
-      <button id="runBtn" class="primary" title="智能增量运行：仅生成未生成或已修改的节点">▶ 运行</button>
+      <button id="runImagesOnlyBtn" type="button" class="stage-run-btn" title="阶段一：仅批量运行生成图片供审阅（绝不偷跑视频）">🖼 仅跑图片</button>
+      <button id="runVideosOnlyBtn" type="button" class="stage-run-btn" title="阶段二：仅运行视频生成（依据已定稿底图做视频）">🎬 仅做视频</button>
+      <button id="runBtn" class="primary" title="智能增量运行：仅生成未生成或已修改的节点">▶ 运行全部</button>
     </div>
   </header>
 
@@ -52,11 +58,12 @@
       <button id="zoomOut" type="button" title="缩小">−</button>
       <span id="zoomLevel">100%</span>
       <button id="zoomIn" type="button" title="放大">＋</button>
+      <button id="autoLayoutBtn" type="button" title="智能规整排版（按3x3故事板矩阵整理，快捷键 Alt+L）">📐 整理</button>
       <button id="fitCanvas" type="button" title="显示全部节点">适应画布</button>
     </div>
   </main>
   <section id="timelineDock" class="timeline-dock collapsed" aria-label="视频时间线">
-    <div class="timeline-dock-header"><div class="timeline-heading"><strong>时间线</strong><span id="timelineClipCount">0 个片段</span><small>编排场景 · 拖动片段可调整顺序</small></div><div class="timeline-dock-actions"><button id="timelineImportAllBtn" type="button" title="将全部“生成视频”节点加入时间线">＋ 导入全部视频</button><div class="timeline-output-picker"><button id="timelineAddVideoBtn" type="button" title="添加视频输出">＋ 添加片段</button><div id="timelineOutputMenu" class="timeline-output-menu hidden"></div></div><button id="timelinePlayBtn" type="button" title="预览视频序列">▶ 预览</button><button id="timelineExportBtn" type="button" title="将完整时间线拼接导出为 WebM 视频">⇩ 导出</button><button id="timelineToggleBtn" type="button" aria-expanded="false" title="展开时间线">▲</button></div></div>
+    <div class="timeline-dock-header"><div class="timeline-heading"><strong>时间线</strong><span id="timelineClipCount">0 个片段</span><small>编排场景 · 拖动片段可调整顺序</small></div><div class="timeline-dock-actions"><button id="timelineImportAllBtn" type="button" title="将全部“生成视频”节点加入时间线">＋ 导入全部视频</button><div class="timeline-output-picker"><button id="timelineAddVideoBtn" type="button" title="添加视频输出">＋ 添加片段</button><div id="timelineOutputMenu" class="timeline-output-menu hidden"></div></div><button id="timelinePlayBtn" type="button" title="预览视频序列">▶ 预览</button><button id="timelineExportNamedVideosBtn" type="button" class="btn-highlight-export" title="一键将所有 10 秒视频按【镜号+口播文案】打包导出为 1 个 ZIP 压缩包">📦 打包导出10s视频</button><button id="timelineExportBtn" type="button" title="将完整时间线拼接导出为 WebM 视频">⇩ 拼接导出</button><button id="timelineToggleBtn" type="button" aria-expanded="false" title="展开时间线">▲</button></div></div>
     <div id="timelineDropZone" class="timeline-drop-zone">将“生成视频”节点或视频片段拖到这里</div>
     <div class="timeline-dock-content"><div id="timelineTrack" class="timeline-dock-track"></div></div>
   </section>
@@ -85,7 +92,8 @@
     <button data-context-action="run-selected" role="menuitem">▶ 运行选中节点</button>
     <button data-context-action="run" role="menuitem">▶ 智能运行工作流</button>
     <button data-context-action="run-all" role="menuitem">↺ 全量重新运行</button>
-    <button data-context-action="arrange" role="menuitem">整理节点</button>
+    <button data-context-action="arrange" role="menuitem">📐 整理画布 (Alt+L)</button>
+    <button data-context-action="export-named-videos" role="menuitem">📦 打包导出10s视频 (按文案)</button>
     <div class="menu-divider"></div>
     <button data-context-action="delete-selected" role="menuitem">删除选中节点</button>
     <button data-context-action="disconnect-all" role="menuitem">移除全部连接</button>
@@ -97,13 +105,49 @@
       <p>MuseFlow 直接使用浏览器中已登录的 Muse.ai 标签页。运行工作流时，请保持 Muse 聊天标签页打开。</p>
       <div class="connection-check"><button id="testMuseBtn" type="button">检查 Muse 会话</button><span id="connectionStatus" role="status"></span></div>
       <div class="settings-section">
-        <h3>生图模型设置</h3>
-        <p>配置新建“生成图片”节点的默认模型，以及管理你的自定义生图模型列表。</p>
+        <h3>生图模型与本地 API 设置</h3>
+        <p>选择生图服务引擎，支持直接直连你的本地生图大模型 API（兼容 OpenAI 规范 / SD WebUI），无需经过 Muse 网页端。</p>
+        <label for="imageApiProviderSelect">生图服务来源</label>
+        <select id="imageApiProviderSelect">
+          <option value="local">本地 / 自定义 API 服务 (OpenAI 兼容 / SD WebUI)</option>
+          <option value="muse">Muse.ai 网页网桥</option>
+        </select>
+        <div id="localApiConfigGroup">
+          <label for="localApiEndpointInput">本地 API 端点 (Base URL)</label>
+          <input id="localApiEndpointInput" type="text" placeholder="例如 http://127.0.0.1:8000/v1 或 http://localhost:7860" />
+          <div class="api-presets">
+            <button type="button" class="preset-btn" data-url="http://127.0.0.1:8000/v1">OpenAI/vLLM (8000)</button>
+            <button type="button" class="preset-btn" data-url="http://127.0.0.1:7860">SD WebUI (7860)</button>
+            <button type="button" class="preset-btn" data-url="http://127.0.0.1:11434">Ollama (11434)</button>
+            <button type="button" class="preset-btn" data-url="http://127.0.0.1:8188">ComfyUI (8188)</button>
+            <button type="button" class="preset-btn" data-url="http://127.0.0.1:1234/v1">LM Studio (1234)</button>
+          </div>
+          <label for="localApiKeyInput">API 密钥 (API Key，可选)</label>
+          <input id="localApiKeyInput" type="password" placeholder="本地服务若无认证可留空" />
+          <label for="orchestrationModelInput">本地脚本与分镜编排 LLM 模型</label>
+          <input id="orchestrationModelInput" type="text" placeholder="例如 qwen2.5:7b, llama3, deepseek-r1 或 local-llm" />
+          <div class="connection-check" style="margin-top:8px;">
+            <button id="testLocalApiBtn" type="button">🔍 测试连接并拉取本地模型</button>
+            <span id="localApiStatus" role="status"></span>
+          </div>
+        </div>
+        <div class="settings-field" style="margin-top:10px;">
+          <label for="localImageConcurrencySelect">本地生图并发数 (多图并行制作 · 显存保护)</label>
+          <select id="localImageConcurrencySelect">
+            <option value="1">1 (纯串行 · 最省显存)</option>
+            <option value="2">2 (推荐 · 兼顾速度与显存)</option>
+            <option value="3">3 (快速 · 中高配置显卡)</option>
+            <option value="4">4 (极速 · 大显存多卡并发)</option>
+          </select>
+          <div class="hint" style="margin-top:3px;margin-bottom:8px;font-size:12px;color:var(--text-secondary,#888);">
+            使用本地生图模型时，无画风依赖的分镜图片将自动并发并行制作，无需一个个等待；若开启了“参考前序图片画风”，系统会自动等待上一张底图生成完毕作为参考以防走偏。
+          </div>
+        </div>
         <label for="defaultImageModelSelect">默认生图模型</label>
         <select id="defaultImageModelSelect"></select>
-        <label for="customModelInput">添加自定义模型</label>
+        <label for="customModelInput">添加/管理模型名称</label>
         <div class="model-input-group">
-          <input id="customModelInput" type="text" placeholder="输入自定义模型名称，如 flux-pro 或 my-sd" />
+          <input id="customModelInput" type="text" placeholder="输入模型名称，如 flux-1-dev, sd-xl..." />
           <button id="addCustomModelBtn" type="button">添加模型</button>
         </div>
         <div id="customModelsList" class="custom-models-chips"></div>
@@ -121,19 +165,6 @@
       <p>粘贴包含“场景”“图片提示词”“视频提示词”和可选“音频”的分镜脚本；也兼容原版越南语格式。MuseFlow 会创建并连接各场景，然后按顺序将视频片段加入时间线。</p>
       <label for="scriptInput">分镜脚本</label>
       <textarea id="scriptInput" placeholder="场景 1（0:00–0:07）：场景标题&#10;&#10;图片提示词：...&#10;&#10;视频提示词：...&#10;音频：..."></textarea>
-      <div class="script-options" style="margin: 8px 0; display: flex; flex-direction: column; gap: 8px; font-size: 13px;">
-        <div style="display: flex; gap: 15px; align-items: center;">
-          <span style="font-weight: 600; color: #94a3b8;">导入模式:</span>
-          <label><input type="radio" name="scriptImportMode" value="update" checked /> 增量更新 (保留成片)</label>
-          <label><input type="radio" name="scriptImportMode" value="append" /> 追加新分镜</label>
-          <label><input type="radio" name="scriptImportMode" value="replace" /> 替换草稿 (自动快照)</label>
-        </div>
-        <div style="display: flex; gap: 15px; align-items: center;">
-          <label><input type="checkbox" id="scriptApplyBible" checked /> 批量套用工程视觉规范 (Visual Bible)</label>
-          <button id="undoImportBtn" type="button" style="padding: 2px 8px; font-size: 12px;">↩ 撤销上次导入</button>
-        </div>
-      </div>
-      <div id="scriptPreviewContainer" class="script-preview-container hidden" style="margin: 8px 0; max-height: 160px; overflow-y: auto;"></div>
       <div id="scriptImportStatus" role="status"></div>
       <div class="modal-actions">
         <button id="cancelScriptImport" type="button">取消</button>
@@ -142,88 +173,100 @@
     </section>
   </div>
 
-  <!-- 工程全局视觉规范 (Project Visual Bible) 弹窗 -->
-  <div id="shotBibleModal" class="modal-backdrop hidden">
-    <section class="modal bible-modal" role="dialog" style="max-width: 640px;">
-      <h2>🎨 工程全局视觉规范 (Project Visual Bible)</h2>
-      <p>为整部作品统一视觉调性、主体外观特征与摄影语言，单镜头仍可局部覆写。</p>
-      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 10px;">
-        <div>
-          <label for="bibleStyleName">风格名称</label>
-          <input id="bibleStyleName" type="text" value="电影级写实摄影" />
+  <div id="aiOrchestrateModal" class="modal-backdrop hidden">
+    <section class="modal orchestrate-modal chat-mode" role="dialog" aria-modal="true" aria-labelledby="aiOrchestrateModalTitle">
+      <div class="ai-chat-header">
+        <div class="ai-chat-title-group">
+          <h2 id="aiOrchestrateModalTitle">🤖 AI 对话工作流搭建助手</h2>
+          <p class="ai-chat-subtitle">随时把乱七八糟的文案、大纲、短句或杂乱灵感丢给我，支持多轮对话微调，随时一键在画布搭建/更新工作流。</p>
         </div>
-        <div>
-          <label for="bibleAspectRatio">标准画幅</label>
-          <select id="bibleAspectRatio">
-            <option value="16:9">16:9 (横版超清)</option>
-            <option value="9:16">9:16 (竖版短视频)</option>
-            <option value="1:1">1:1 (方形)</option>
-          </select>
+        <div class="ai-chat-actions">
+          <button id="toggleParamsDrawerBtn" type="button" class="ai-chat-tool-btn" title="查看或修改默认画幅、时长与风格">⚙ 偏好设置</button>
+          <button id="clearAiChatBtn" type="button" class="ai-chat-tool-btn" title="清空对话历史重新开始">🧹 新会话</button>
+          <button id="closeAiChatModalBtn" type="button" class="ai-chat-tool-btn" style="font-size:14px;padding:2px 8px;" title="关闭助手">✕</button>
         </div>
       </div>
-      <div style="margin-top: 10px;">
-        <label for="bibleStylePrompt">全局风格提示词</label>
-        <textarea id="bibleStylePrompt" rows="2" style="width: 100%; box-sizing: border-box;">8k cinematic realism, Hasselblad medium format photography, natural morning lighting, shallow depth of field, photorealistic textures</textarea>
-      </div>
-      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 10px;">
-        <div>
-          <label for="bibleColorScheme">配色倾向</label>
-          <input id="bibleColorScheme" type="text" value="自然晨光微冷青调" />
+
+      <!-- 消息交互流容器 -->
+      <div id="aiChatMessages" class="ai-chat-messages-container"></div>
+
+      <!-- 底部输入与快捷灵感区 -->
+      <div class="ai-chat-composer-area">
+        <div id="orchestrateParamsDrawer" class="orchestrate-controls-grid hidden" style="margin-bottom:6px;margin-top:0;">
+          <div>
+            <label for="aiTargetDurationSelect">目标总时长</label>
+            <select id="aiTargetDurationSelect">
+              <option value="15">15 秒（约 2~3 镜）</option>
+              <option value="30" selected>30 秒（约 4~5 镜）</option>
+              <option value="45">45 秒（约 6~7 镜）</option>
+              <option value="60">60 秒（约 8~10 镜）</option>
+            </select>
+          </div>
+          <div>
+            <label for="aiAspectSelect">画面比例</label>
+            <select id="aiAspectSelect">
+              <option value="9:16" selected>9:16 竖屏（短视频首选）</option>
+              <option value="16:9">16:9 横屏（宣传片/宽幅）</option>
+              <option value="1:1">1:1 正方形</option>
+            </select>
+          </div>
+          <div>
+            <label for="aiVisualFlowSelect">生成模式倾向</label>
+            <select id="aiVisualFlowSelect">
+              <option value="image_to_video" selected>图生视频为主（画面与角色最稳）</option>
+              <option value="text_to_video">纯文生视频为主（运镜动作幅度大）</option>
+            </select>
+          </div>
+          <div>
+            <label for="aiStylePresetSelect">视觉风格倾向</label>
+            <select id="aiStylePresetSelect">
+              <option value="自然写实纪实" selected>自然写实纪实纪录片</option>
+              <option value="电影质感胶片">电影质感胶片电影感</option>
+              <option value="动漫唯美奇幻">日系动漫唯美奇幻</option>
+              <option value="赛博朋克科幻">赛博朋克高对比霓虹</option>
+              <option value="3D微缩立体">3D微缩立体黏土风</option>
+            </select>
+          </div>
         </div>
-        <div>
-          <label for="bibleLighting">光照设定</label>
-          <input id="bibleLighting" type="text" value="侧逆晨光，柔和丁达尔散射" />
+
+        <div class="ai-chat-quick-chips">
+          <span class="preset-label" style="line-height:22px;">💡 快捷输入：</span>
+          <button type="button" class="chat-chip-btn" data-text="🌿 帮我制作一个30秒的农业科普视频：解释为什么过度施肥会导致土壤盐渍化，作物反而枯死。9:16竖屏，自然写实风，不需要人物出镜。">🌿 农业科普：过度施肥</button>
+          <button type="button" class="chat-chip-btn" data-text="🦊 制作一个治愈短剧：雪夜里护林员偶遇并救助了一只冻僵受伤的红狐狸，春天时小狐狸重返森林，回眸感激。电影质感光影。">🦊 治愈故事：救助小狐狸</button>
+          <button type="button" class="chat-chip-btn" data-text="☕ 制作一段微距美学短片：展示从咖啡豆研磨、热水浸润膨胀滴滤、再到丝滑拉花注入的慢动作特写，突出香气与质感。">☕ 品牌美学：冲煮咖啡</button>
+          <button type="button" class="chat-chip-btn" data-text="把所有镜头的画幅调整为 9:16 竖屏，增强电影级光影质感与环境音效描述。">🎬 优化为 9:16 竖屏电影感</button>
+          <button type="button" class="chat-chip-btn" data-text="增加更丰富的镜头运动指令（例如慢动作推镜、航拍俯瞰、微距运镜），让画面动态更明显。">🎥 强化推拉运镜动态</button>
         </div>
+
+        <!-- 待发送附件预览区（图片微缩图 / 文本文档胶囊） -->
+        <div id="aiChatAttachmentBar" class="ai-chat-attachment-bar hidden"></div>
+
+        <div class="ai-chat-input-row">
+          <input type="file" id="aiChatFileInput" multiple accept="image/*,.txt,.md,.json,.csv" style="display:none;">
+          <button id="aiChatUploadBtn" type="button" class="ai-chat-upload-btn" title="上传参考图片或素材文本文件 (支持多选、拖拽或剪贴板粘贴)">📎</button>
+          <textarea id="aiChatInput" rows="2" placeholder="随时把乱七八糟的文案、大纲丢给我，或直接拖入/粘贴/上传图片与文档…（Enter 发送）"></textarea>
+          <button id="aiChatSendBtn" type="button" class="ai-chat-send-btn">🚀 发送</button>
+        </div>
+        <div id="orchestrationStatus" role="status"></div>
       </div>
-      <div style="margin-top: 10px;">
-        <label for="bibleLensCamera">默认运镜/焦段</label>
-        <input id="bibleLensCamera" type="text" value="85mm f/1.4 写实人像与特写镜头" style="width: 100%; box-sizing: border-box;" />
-      </div>
-      <div style="margin-top: 10px; border-top: 1px solid var(--border-color, #333); padding-top: 10px;">
-        <h3>固定主体/人物外观锁定</h3>
-        <label for="bibleSubjectName">主体名称/角色</label>
-        <input id="bibleSubjectName" type="text" value="番茄幼苗 (Solanum lycopersicum)" style="width: 100%; box-sizing: border-box;" />
-        <label for="bibleSubjectFeatures" style="margin-top: 6px; display: block;">主体关键外观特征</label>
-        <textarea id="bibleSubjectFeatures" rows="2" style="width: 100%; box-sizing: border-box;">真实番茄双子叶舒展，茎秆微细绒毛，叶脉清晰，湿润黑褐色培养土</textarea>
-        <label for="bibleSubjectRefUrl" style="margin-top: 6px; display: block;">主体参考图 URL (可选)</label>
-        <input id="bibleSubjectRefUrl" type="text" placeholder="/media/outputs/..." style="width: 100%; box-sizing: border-box;" />
-      </div>
-      <div class="modal-actions" style="margin-top: 15px;">
-        <button id="closeBibleModal" type="button">关闭</button>
-        <button id="saveBibleBtn" type="button" class="primary">保存视觉规范</button>
+
+      <div id="orchestrateStepReview" class="orchestrate-step hidden">
+        <div class="review-header">
+          <div style="font-weight:600;font-size:14px;color:#e8ebf7;margin-bottom:4px;display:flex;align-items:center;">📋 AI 规划分镜预览与调整（共 <span id="storyboardCount">0</span> 镜）<span id="storyboardSourceBadge" class="storyboard-source-badge" style="display:none;"></span></div>
+          <div class="hint" style="margin-bottom:10px;">在生成画布节点前，你可以直接修改任意镜头的提示词、时长、连续性或增删镜头：</div>
+        </div>
+        <div id="storyboardCardsList" class="storyboard-cards-list"></div>
+        <div class="storyboard-add-row">
+          <button id="addStoryboardSceneBtn" type="button">＋ 添加一个分镜</button>
+        </div>
+        <div class="modal-actions">
+          <button id="backToAiInputBtn" type="button">← 返回修改创意</button>
+          <button id="confirmBuildWorkflowBtn" type="button" class="primary">✔ 确认并一键生成工作流节点</button>
+        </div>
       </div>
     </section>
   </div>
 
-  <!-- 镜头清单表与独立控制 (Shot Deck) 弹窗 -->
-  <div id="shotDeckModal" class="modal-backdrop hidden">
-    <section class="modal shot-deck-modal" role="dialog" style="max-width: 900px; width: 92%;">
-      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; padding-bottom: 8px;">
-        <h2 style="margin: 0;">🎬 分镜镜头表与独立版本控制 (Shot Deck)</h2>
-        <div style="display: flex; gap: 8px;">
-          <button id="batchExecuteBtn" type="button" class="primary" style="background: #0284c7;">▶ 批量生成计划</button>
-          <button id="batchRegenFailedBtn" type="button">仅重生成失败镜头</button>
-          <button id="exportArchiveBtn" type="button" style="background: #475569;">📦 导出工程归档包</button>
-          <button id="closeShotDeckBtn" type="button">关闭</button>
-        </div>
-      </div>
-      <p style="font-size: 13px; color: #888; margin: 8px 0;">
-        支持单镜头独立执行、候选版本回退与尾帧失效告警。重生成单个镜头不会影响其他镜头。
-      </p>
-      <div id="shotDeckList" style="max-height: 480px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; margin-top: 10px;">
-        <!-- 动态渲染镜头卡片 -->
-      </div>
-      <div class="modal-actions" style="margin-top: 15px; justify-content: space-between;">
-        <span id="shotDeckSummary" style="font-size: 13px; color: #aaa;">共 0 个分镜</span>
-        <div>
-          <button id="shotDeckAssembleBtn" type="button" class="primary">一键带裁切导出 MP4</button>
-        </div>
-      </div>
-    </section>
-  </div>
-
-  <script src="shot-manager.js"></script>
-  <script src="runtime-adapter.js"></script>
   <script src="jszip.min.js"></script>
   <script src="app.js"></script>
 </body>

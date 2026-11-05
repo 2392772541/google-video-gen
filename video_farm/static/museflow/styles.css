@@ -134,202 +134,227 @@ body{grid-template-rows:58px auto minmax(0,1fr) auto}
 /* Keep Chinese duration labels on one line in narrow timeline clips. */
 .dock-clip-details label{white-space:nowrap}
 
-/* Settings Model Management & Run Controls */
-.toolbar #runAllBtn{background:#1e212d;border-color:#3c4054;color:#d0d3df}
-.toolbar #runAllBtn:hover{background:#282c3c;color:#fff}
-.settings-section{margin-top:16px;padding-top:14px;border-top:1px solid #2b2e3a}
-.settings-section h3{margin:0 0 6px;font-size:14px;color:#f3f3f6}
-.model-input-group{display:flex;gap:8px;margin-top:6px}
-.model-input-group input{flex:1;background:#0e1017;color:#eee;border:1px solid #333644;border-radius:8px;padding:8px 10px;outline:none}
-.model-input-group button{background:#252838;color:#a9a0ff;border:1px solid #3d4255;border-radius:8px;padding:8px 14px;cursor:pointer;white-space:nowrap}
-.model-input-group button:hover{background:#303448;color:#fff}
-.custom-models-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;min-height:24px}
-.empty-chips-hint{font-size:11px;color:#707482}
-.model-chip{display:inline-flex;align-items:center;gap:6px;background:#232635;border:1px solid #3c4052;color:#d5d7e2;padding:3px 8px;border-radius:6px;font-size:11px}
-.model-chip button{background:transparent;border:0;color:#8f93a2;cursor:pointer;padding:0 2px;font-size:13px;line-height:1}
-.model-chip button:hover{color:#ff8383}
-.status.dirty{color:#f4c25d}
-.node select.model-select{margin-top:6px;font-size:12px;color:#d8dbff;border-color:#484b60}
-
-/* ========================================================
-   Video Farm Studio 集成样式增强 (素材抽屉与操作适配)
-   ======================================================== */
-.farm-media-drawer {
-  position: fixed;
-  top: 48px;
-  right: 0;
-  width: 320px;
-  height: calc(100vh - 48px);
-  background: #15161e;
-  border-left: 1px solid #272937;
-  display: flex;
-  flex-direction: column;
-  transform: translateX(100%);
-  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-  z-index: 9999;
-  box-shadow: -6px 0 24px rgba(0,0,0,0.55);
-}
-.farm-media-drawer.open {
-  transform: translateX(0);
-}
-.farm-drawer-header {
-  padding: 10px 14px;
-  background: #1c1d27;
-  border-bottom: 1px solid #2b2e3e;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  color: #e2e8f0;
-  font-size: 13px;
-}
-.farm-drawer-body {
-  flex: 1;
-  overflow-y: auto;
-  padding: 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.farm-media-card {
-  background: #1e202c;
-  border: 1px solid #2e3143;
-  border-radius: 6px;
-  overflow: hidden;
+/* MuseFlow Local Service - Extended UI Styles */
+.settings-modal-box {
+  width: min(580px, 94vw);
+  max-height: 88vh;
   display: flex;
   flex-direction: column;
 }
-.farm-media-thumb {
-  position: relative;
-  width: 100%;
-  height: 120px;
-  background: #0a0b0e;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-}
-.farm-media-thumb img, .farm-media-thumb video {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-.media-badge {
-  position: absolute;
-  top: 6px;
-  right: 6px;
-  background: rgba(0,0,0,0.7);
-  color: #38bdf8;
-  font-size: 10px;
-  padding: 2px 6px;
-  border-radius: 3px;
-  font-weight: 500;
-}
-.farm-media-info {
-  padding: 8px 10px;
-}
-.media-title {
-  font-size: 12px;
-  font-weight: 600;
-  color: #f1f5f9;
-  margin-bottom: 3px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.media-meta {
-  font-size: 11px;
-  color: #94a3b8;
-  margin-bottom: 8px;
-}
-.btn-action-add {
-  width: 100%;
-  background: #2563eb;
-  color: #fff;
-  border: none;
-  padding: 5px 8px;
-  border-radius: 4px;
-  font-size: 11px;
-  cursor: pointer;
-  font-weight: 500;
-  transition: background 0.15s;
-}
-.btn-action-add:hover {
-  background: #1d4ed8;
-}
-
-/* M9 镜头表与视觉规范样式 */
-.shot-deck-card {
-  background: #1e293b;
-  border: 1px solid #334155;
-  border-radius: 8px;
-  padding: 12px;
+.settings-grid {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  transition: border-color 0.2s;
-}
-.shot-deck-card:hover {
-  border-color: #475569;
-}
-.shot-deck-card.stale {
-  border-color: #f59e0b;
-  background: #1e1b12;
-}
-.shot-deck-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-.shot-deck-title {
-  font-weight: 600;
-  color: #f8fafc;
-  font-size: 14px;
-}
-.shot-status-badge {
-  font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 12px;
-  font-weight: 600;
-}
-.shot-status-badge.COMPLETED { background: #065f46; color: #34d399; }
-.shot-status-badge.RUNNING { background: #1e3a8a; color: #60a5fa; }
-.shot-status-badge.FAILED { background: #7f1d1d; color: #f87171; }
-.shot-status-badge.READY { background: #334155; color: #94a3b8; }
-.shot-status-badge.STALE_REFERENCE { background: #78350f; color: #fbbf24; }
-.shot-deck-body {
-  display: grid;
-  grid-template-columns: 140px 1fr 180px;
   gap: 12px;
-  align-items: center;
+  margin-top: 14px;
+  max-height: 55vh;
+  overflow-y: auto;
+  padding-right: 6px;
 }
-.shot-preview-box {
-  width: 140px;
-  height: 80px;
-  background: #0f172a;
-  border-radius: 4px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-}
-.shot-preview-box video, .shot-preview-box img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-.shot-deck-controls {
+.settings-field {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
 }
-.stale-alert-banner {
-  background: rgba(245, 158, 11, 0.15);
-  border: 1px dashed #f59e0b;
-  color: #fcd34d;
-  padding: 6px 10px;
-  border-radius: 4px;
+.settings-field label {
   font-size: 12px;
+  color: #a0a4b4;
+  font-weight: 600;
+}
+.settings-field input, .settings-field select {
+  background: #0e1017;
+  color: #eee;
+  border: 1px solid #333644;
+  border-radius: 7px;
+  padding: 8px 10px;
+  font-size: 12px;
+  width: 100%;
+}
+.settings-field input:focus, .settings-field select:focus {
+  border-color: #7b5aff;
+  outline: none;
+}
+.settings-desc {
+  font-size: 11px;
+  color: #787d90;
+  margin-top: 2px;
+  line-height: 1.4;
+}
+.node .model-input {
+  margin-top: 8px;
+  font-size: 11px;
+  padding: 6px 8px;
+  background: #0e1017;
+  border: 1px solid #3d4052;
+  border-radius: 6px;
+  color: #a9a0ff;
+  font-family: inherit;
+}
+.node .model-input:focus {
+  border-color: #8b6fff;
+  outline: none;
+}
+
+
+/* --- P3: 质检与审核问题回显面板（自适应展开，杜绝截断） --- */
+.status {
+  font-size: 11px;
+  color: #858996;
+  margin-top: 8px;
+  max-height: 140px;
+  overflow-y: auto;
+  line-height: 1.4;
+  word-break: break-word;
+}
+.status.running, .status.queued, .status.waiting { color: #e1bf5e; }
+.status.success { color: #65d894; }
+.status.error, .status.failed { color: #ff7979; }
+
+.node-review-echo-box {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: rgba(245, 176, 65, 0.08);
+  border: 1px solid rgba(245, 176, 65, 0.35);
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: #f5b041;
+  max-height: 180px;
+  overflow-y: auto;
+  box-sizing: border-box;
+}
+.node-review-echo-box.rejected {
+  background: rgba(255, 121, 121, 0.08);
+  border-color: rgba(255, 121, 121, 0.4);
+  color: #ff7979;
+}
+.node-review-echo-box.passed {
+  background: rgba(101, 216, 148, 0.08);
+  border-color: rgba(101, 216, 148, 0.35);
+  color: #65d894;
+}
+.node-review-echo-box .review-echo-header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  gap: 4px;
+  font-weight: 600;
+  margin-bottom: 4px;
+  color: inherit;
+}
+.node-review-echo-box .review-echo-text {
+  color: #e0e2ec;
+  margin-bottom: 4px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.node-review-echo-box .review-issues-list {
+  margin: 4px 0 0 16px;
+  padding: 0;
+  color: #ffbe6a;
+}
+.node-review-echo-box .review-issues-list li {
+  margin-bottom: 2px;
+}
+.node-review-echo-box .review-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+.node-review-echo-box .review-action-btn {
+  padding: 4px 8px;
+  font-size: 10px;
+  border-radius: 4px;
+  border: 1px solid rgba(255,255,255,0.2);
+  background: #252836;
+  color: #eee;
+  cursor: pointer;
+}
+.node-review-echo-box .review-action-btn:hover {
+  background: #353a4e;
+  color: #fff;
+}
+
+.status.submission_unknown { color: #f5b041; }
+
+.vo-script-box {
+  background: rgba(92, 134, 255, 0.12);
+  border: 1px solid rgba(92, 134, 255, 0.42);
+  border-radius: 6px;
+  padding: 5px 7px;
+  margin-bottom: 6px;
+  font-size: 11px;
+  color: #e8edff;
+}
+.vo-script-box .vo-script-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 600;
+  color: #9cb8ff;
+  margin-bottom: 3px;
+  font-size: 10px;
+}
+.vo-script-box .vo-script-input {
+  width: 100%;
+  background: rgba(14, 16, 24, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 4px;
+  color: #ffffff;
+  font-size: 11px;
+  padding: 4px 6px;
+  font-weight: 600;
+}
+.frame-role-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  margin-left: 4px;
+}
+.frame-role-badge.start {
+  background: rgba(46, 204, 113, 0.2);
+  border: 1px solid rgba(46, 204, 113, 0.55);
+  color: #65e898;
+}
+.frame-role-badge.end {
+  background: rgba(243, 156, 18, 0.22);
+  border: 1px solid rgba(243, 156, 18, 0.6);
+  color: #ffc66d;
+}
+.keyframe-lock-badge {
+  display: block;
+  background: rgba(46, 204, 113, 0.12);
+  border: 1px solid rgba(46, 204, 113, 0.4);
+  color: #82f0ad;
+  border-radius: 5px;
+  padding: 4px 7px;
+  font-size: 11px;
+  font-weight: 600;
+  margin: 4px 0;
+}
+
+.btn-highlight-layout {
+  background: #1f2338 !important;
+  border: 1px solid #6366f1 !important;
+  color: #c7d2fe !important;
+  font-weight: 700 !important;
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.25) !important;
+}
+.btn-highlight-layout:hover {
+  background: #2e3352 !important;
+  border-color: #818cf8 !important;
+  color: #ffffff !important;
+}
+
+.btn-highlight-export {
+  background: #103322 !important;
+  border: 1px solid #10b981 !important;
+  color: #6ee7b7 !important;
+  font-weight: 700 !important;
+  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.25) !important;
+}
+.btn-highlight-export:hover {
+  background: #174730 !important;
+  border-color: #34d399 !important;
+  color: #ffffff !important;
 }

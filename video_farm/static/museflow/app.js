@@ -3392,16 +3392,16 @@ function renderNodeVersionBar(n, body) {
     else if (totalScenes % 4 === 0) numCols = 4;
     else numCols = totalScenes > 12 ? 5 : 4;
 
-    const sceneW = 1220;
-    const sceneH = 1400;
+    const sceneW = 1140;
+    const sceneH = 1380;
 
-    // 1. 左侧全局资产列：外扩独立定位，绝不挤压正文
+    // 1. 左侧全局资产列：外扩独立定位，绝不挤压正文，给足 480px 纵向高度防止重叠
     styleAnchors.forEach((n, idx) => {
-      n.x = -480;
-      n.y = 100 + idx * 460;
+      n.x = -440;
+      n.y = 100 + idx * 480;
     });
 
-    // 2. 逐镜黄金三列六联体排版：提示词列 ➔ 底图列 ➔ 视频列，彻底杜绝上下或左右遮挡
+    // 2. 逐镜黄金网格：提示词列 ➔ 图片列 ➔ 10s视频列，物理杜绝上下与左右一切重叠
     sortedScenes.forEach((scene, index) => {
       const row = Math.floor(index / numCols);
       const col = index % numCols;
@@ -3419,23 +3419,23 @@ function renderNodeVersionBar(n, body) {
       const endImgGen = scene.nodes.find(n => n.type === 'generateImage' && isEnd(n));
       const vGen = scene.nodes.find(n => n.type === 'generateVideo');
 
-      // 列 1: 提示词垂直流
+      // 列 1: 提示词垂直流 (每张卡约 260px 高，间距留足 50px，绝不挤压)
       if (imgPrompt) { imgPrompt.x = originX; imgPrompt.y = originY; }
-      if (endImgPrompt) { endImgPrompt.x = originX; endImgPrompt.y = originY + 380; }
-      if (vPrompt) { vPrompt.x = originX; vPrompt.y = originY + 760; }
+      if (vPrompt) { vPrompt.x = originX; vPrompt.y = originY + 310; }
+      if (endImgPrompt) { endImgPrompt.x = originX; endImgPrompt.y = originY + 620; }
 
-      // 列 2: 首尾帧图片生成流 (与左侧提示词水平严格对齐)
-      if (imgGen) { imgGen.x = originX + 360; imgGen.y = originY; }
-      if (endImgGen) { endImgGen.x = originX + 360; endImgGen.y = originY + 380; }
+      // 列 2: 首尾帧图片生成流 (每张卡约 550px 高，纵向间距严格留足 620px，彻底告别重叠)
+      if (imgGen) { imgGen.x = originX + 350; imgGen.y = originY; }
+      if (endImgGen) { endImgGen.x = originX + 350; endImgGen.y = originY + 620; }
 
       // 列 3: 10s视频生成节点 (居中垂直对齐于首尾帧之间，连线舒展自然)
-      if (vGen) { vGen.x = originX + 740; vGen.y = originY + 220; }
+      if (vGen) { vGen.x = originX + 710; vGen.y = originY + 160; }
 
       // 备用/未预置扩展节点：整齐置于分镜下方，绝对不穿透至下一行
       const placed = new Set([imgPrompt, endImgPrompt, vPrompt, imgGen, endImgGen, vGen].filter(Boolean));
       scene.nodes.filter(n => !placed.has(n)).forEach((n, extraIdx) => {
-        n.x = originX + (extraIdx % 3) * 360;
-        n.y = originY + 1150 + Math.floor(extraIdx / 3) * 360;
+        n.x = originX + (extraIdx % 3) * 350;
+        n.y = originY + 1220 + Math.floor(extraIdx / 3) * 360;
       });
     });
 
@@ -3511,13 +3511,7 @@ function renderNodeVersionBar(n, body) {
     if(action==='node-duplicate'){const copy=structuredClone(node);copy.id=uid(node.type);copy.x+=36;copy.y+=36;copy.data={...copy.data};state.nodes.push(copy);if(['generateImage','generateVideo'].includes(copy.type)){const references=state.nodes.find(item=>item.type==='references');if(references)connectReferenceNode(references,copy);}render();setRunStatus("节点已复制。",'ok');}
   }
   function arrangeNodes(){
-    try{
-      const order=topoOrder().filter(id=>!nodeById(id)?.data?.dockOnly),level=new Map(order.map(id=>[id,0]));
-      for(const id of order)for(const edge of state.edges.filter(e=>e.source===id&&level.has(e.target)))level.set(edge.target,Math.max(level.get(edge.target)||0,(level.get(id)||0)+1));
-      const groups=new Map();for(const id of order){const l=level.get(id)||0;if(!groups.has(l))groups.set(l,[]);groups.get(l).push(id);}
-      for(const [l,ids] of groups.entries())ids.forEach((id,row)=>{const node=nodeById(id);node.x=70+l*350;node.y=60+row*260;});
-      render();setRunStatus("已按工作流顺序整理节点。",'ok');
-    }catch(error){setRunStatus(error.message,'error');}
+    autoLayoutWorkflow();
   }
   function runCanvasAction(action){
     if(action==='edge-delete'){const menu=$('#canvasMenu'),edgeId=menu.dataset.edgeId;closeCanvasMenu();if(!edgeId)return;const before=state.edges.length;state.edges=state.edges.filter(edge=>edge.id!==edgeId);delete menu.dataset.edgeId;if(state.edges.length!==before){render();saveState();setRunStatus("连接已删除。",'ok');}return;}
@@ -3528,7 +3522,8 @@ function renderNodeVersionBar(n, body) {
     if(action==='run'){execute(null,{forceAll:false});return;}
     if(action==='run-all'){execute(null,{forceAll:true});return;}
     if(action==='run-selected'){runSelectedNodes();return;}
-    if(action==='arrange'){arrangeNodes();return;}
+    if(action==='arrange'){autoLayoutWorkflow();return;}
+    if(action==='export-named-videos'){void exportNamedVideosAndCueSheet();return;}
     if(action==='delete-selected'){if(state.selectedNodeIds.length)removeSelectedNodes();else if(state.selectedNodeId)removeNode(state.selectedNodeId);else setRunStatus("请先选择一个或多个节点。",'warn');return;}
     if(action==='disconnect-all'){state.edges=[];state.connectingFrom=null;render();setRunStatus("已移除全部连接。",'ok');}
   }
@@ -3598,12 +3593,10 @@ function renderNodeVersionBar(n, body) {
         add(source.data?.endFrame?.url,source.data?.endFrame?.name||`尾帧 · ${labelName}`,role);
         return;
       }
-      if(source.type==='imageInput'&&source.data?.localDataUrl){
-        add(source.data.localDataUrl,labelName,role);
+      const candidateUrl = source.data?.localDataUrl || (source.data?.asset?.kind==='image' ? source.data?.asset?.url : null) || source.data?.asset?.url || source.data?.url;
+      if(candidateUrl){
+        add(candidateUrl, labelName, role);
         return;
-      }
-      if(source.data?.asset?.kind==='image'){
-        add(source.data.asset.url,labelName,role);
       }
     };
     const node=nodeById(nodeId);
@@ -3632,6 +3625,18 @@ function renderNodeVersionBar(n, body) {
     for(const edge of incomingRefEdges){
       const src=nodeById(edge.source);
       if(isGlobalAssetNode(src))visit(src,edge.sourcePort,'ref');
+    }
+    // 5. 【全局广播兜底防线】：无论生图还是生视频节点，若尚未关联到全局风格母图，自动扫描画布中的全局风格卡注入为画风基准
+    const hasStyleRef = references.some(r => /风格|style|master|anchor|全局/i.test(r.name) || r.role === 'ref');
+    if (!hasStyleRef && references.length < 9 && Array.isArray(state.nodes)) {
+      const globalStyleNodes = state.nodes.filter(n =>
+        n && (n.type === 'imageInput' || n.type === 'references') &&
+        (/^node_ref_style/i.test(n.id) || /^node_ref_asset/i.test(n.id) || /风格|style|母图|画风/i.test(`${n.id} ${n.data?.sceneLabel||''} ${n.data?.asset?.name||''}`))
+      );
+      for (const gNode of globalStyleNodes) {
+        if (references.length >= 9) break;
+        visit(gNode, 'image', 'ref');
+      }
     }
     return references.slice(0,9);
   }
@@ -4045,7 +4050,25 @@ function renderNodeVersionBar(n, body) {
             const audioRequirement = isVideo ? 'AUDIO IS REQUIRED: Return a video with audible, synchronized sound; do not make a silent clip. Follow the requested audio direction and make its music and sound effects clearly audible. Do not add spoken dialogue unless the prompt asks for it.' : '';
             const modelDirective = (!isVideo && n.data.model && n.data.model !== 'muse-image') ? `\n\n[Model: ${n.data.model}] Use ${n.data.model} model.` : '';
             const musePrompt = isVideo ? `Create a ${n.data.size} aspect ratio video clip, ${museVideoDuration} seconds long (return the full 10-second raw generated video directly; do NOT trim or cut into a shorter 3s clip). ${sizeInstruction}\n\n${audioRequirement}${continuityInstruction ? `\n\n${continuityInstruction}` : ''}${keyframeInstruction ? `\n\n${keyframeInstruction}` : ''}${referenceImages.length ? `\n\nUse the attached reference image${referenceImages.length === 1 ? '' : 's'} as visual guidance${continuityStartFrame ? ' while keeping image 1 as the exact opening frame.' : ownKeyframe ? (endRef ? ' with Image 1 as the exact opening frame and Image 2 as the target closing frame.' : ' with Image 1 as this shot\'s primary scene keyframe.') : '.'}` : ''}\n\nPrompt: ${sanitizedVideoPrompt}${negativePrompt ? `\n\nAvoid: ${negativePrompt}` : ''}` : `${prompt}${referenceImages.length ? '\n\nUse the attached reference image' + (referenceImages.length === 1 ? '' : 's') + ' as visual guidance; follow the prompt while preserving relevant subject details.' : ''}${styleConsistencyGuide}\n\n${sizeInstruction}${negativePrompt ? `\n\nAvoid the following (negative prompt): ${negativePrompt}` : ''}${modelDirective}`;
-            const generationRequest = { type: 'MUSEFLOW_GENERATE_V3', requestId: uid('generation'), prompt: musePrompt, negativePrompt, size: n.data.size, model: n.data.model || 'muse-image', duration: isVideo ? museVideoDuration : n.data.duration, mediaType: isVideo ? 'video' : 'image', referenceImages: referenceImages.slice(0, 9).map(item => item.url), timeoutSec: 300 };
+            // 确保跨域安全：将所有非 http(s) 的媒体 (如 idb:// 或 blob:) 统一转为纯文本 data:image/png;base64
+            const safeRefUrls = await Promise.all(referenceImages.slice(0, 9).map(async (item) => {
+              const u = item.url;
+              if (!u || u.startsWith('data:')) return u;
+              try {
+                let blob;
+                if (u.startsWith(idbMediaPrefix)) {
+                  blob = await getMedia(decodeURIComponent(u.slice(idbMediaPrefix.length)));
+                } else if (u.startsWith('blob:') || /https?:/i.test(u)) {
+                  const resp = await fetch(u, { credentials: 'include' });
+                  if (resp.ok) blob = await resp.blob();
+                }
+                if (blob && blob.size > 0) return await blobAsDataUrl(blob);
+              } catch (e) {
+                console.warn('[MuseFlow] 转换参考图为 DataURL 失败，使用原 URL:', e);
+              }
+              return u;
+            }));
+            const generationRequest = { type: 'MUSEFLOW_GENERATE_V3', requestId: uid('generation'), prompt: musePrompt, negativePrompt, size: n.data.size, model: n.data.model || 'muse-image', duration: isVideo ? museVideoDuration : n.data.duration, mediaType: isVideo ? 'video' : 'image', referenceImages: safeRefUrls.filter(Boolean), timeoutSec: 300 };
             state.generationRequestId = generationRequest.requestId;
 
             // 写入提交指纹与三元组版本锁
@@ -5509,6 +5532,93 @@ function renderNodeVersionBar(n, body) {
     return endImgNode;
   }
 
+  async function createStoreZipBlob(files) {
+    const crcTable = new Uint32Array(256);
+    for (let i = 0; i < 256; i++) {
+      let c = i;
+      for (let k = 0; k < 8; k++) c = ((c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1));
+      crcTable[i] = c;
+    }
+    function calcCrc32(uint8) {
+      let crc = 0xFFFFFFFF;
+      for (let i = 0; i < uint8.length; i++) crc = (crc >>> 8) ^ crcTable[(crc ^ uint8[i]) & 0xFF];
+      return (crc ^ 0xFFFFFFFF) >>> 0;
+    }
+    const encoder = new TextEncoder();
+    const parts = [];
+    const cdEntries = [];
+    let offset = 0;
+
+    for (const f of files) {
+      const nameBytes = encoder.encode(f.name);
+      const dataBytes = new Uint8Array(await f.blob.arrayBuffer());
+      const crc = calcCrc32(dataBytes);
+      const size = dataBytes.length;
+
+      const lh = new Uint8Array(30 + nameBytes.length);
+      const dv = new DataView(lh.buffer);
+      dv.setUint32(0, 0x04034b50, true);
+      dv.setUint16(4, 20, true);
+      dv.setUint16(6, 0x0800, true);
+      dv.setUint16(8, 0, true);
+      dv.setUint16(10, 0, true);
+      dv.setUint16(12, 0, true);
+      dv.setUint32(14, crc, true);
+      dv.setUint32(18, size, true);
+      dv.setUint32(22, size, true);
+      dv.setUint16(26, nameBytes.length, true);
+      dv.setUint16(28, 0, true);
+      lh.set(nameBytes, 30);
+
+      parts.push(lh, dataBytes);
+
+      const cd = new Uint8Array(46 + nameBytes.length);
+      const cdDv = new DataView(cd.buffer);
+      cdDv.setUint32(0, 0x02014b50, true);
+      cdDv.setUint16(4, 20, true);
+      cdDv.setUint16(6, 20, true);
+      cdDv.setUint16(8, 0x0800, true);
+      cdDv.setUint16(10, 0, true);
+      cdDv.setUint16(12, 0, true);
+      cdDv.setUint16(14, 0, true);
+      cdDv.setUint32(16, crc, true);
+      cdDv.setUint32(20, size, true);
+      cdDv.setUint32(24, size, true);
+      cdDv.setUint16(28, nameBytes.length, true);
+      cdDv.setUint16(30, 0, true);
+      cdDv.setUint16(32, 0, true);
+      cdDv.setUint16(34, 0, true);
+      cdDv.setUint16(36, 0, true);
+      cdDv.setUint32(38, 0, true);
+      cdDv.setUint32(42, offset, true);
+      cd.set(nameBytes, 46);
+
+      cdEntries.push(cd);
+      offset += lh.length + size;
+    }
+
+    const cdOffset = offset;
+    let cdSize = 0;
+    for (const cd of cdEntries) {
+      parts.push(cd);
+      cdSize += cd.length;
+    }
+
+    const eocd = new Uint8Array(22);
+    const eocdDv = new DataView(eocd.buffer);
+    eocdDv.setUint32(0, 0x06054b50, true);
+    eocdDv.setUint16(4, 0, true);
+    eocdDv.setUint16(6, 0, true);
+    eocdDv.setUint16(8, files.length, true);
+    eocdDv.setUint16(10, files.length, true);
+    eocdDv.setUint32(12, cdSize, true);
+    eocdDv.setUint32(16, cdOffset, true);
+    eocdDv.setUint16(20, 0, true);
+    parts.push(eocd);
+
+    return new Blob(parts, { type: 'application/zip' });
+  }
+
   async function exportNamedVideosAndCueSheet() {
     const timeline = state.nodes.find(n => n.type === 'timeline');
     const orderedIds = (timeline?.data?.clipOrder || []).filter(id => nodeById(id)?.type === 'generateVideo');
@@ -5524,13 +5634,31 @@ function renderNodeVersionBar(n, body) {
     const sanitizeFilePart = (str) => String(str || '')
       .replace(/[\\/:*?"<>|“”—\r\n]+/g, '')
       .replace(/\s+/g, '_')
-      .slice(0, 36) || '未命名文案';
+      .slice(0, 40) || '未命名文案';
 
     let downloadedCount = 0;
     const cueRows = [];
-    const hasZip = typeof JSZip !== 'undefined';
-    const zip = hasZip ? new JSZip() : null;
-    setRunStatus(`⏳ 正在准备导出 ${allVideos.length} 条分镜视频${hasZip ? '（ZIP 一键打包模式）' : ''}...`, 'info');
+    const filesToZip = [];
+    setRunStatus(`⏳ 正在准备读取 ${allVideos.length} 条 10s 分镜视频（ZIP 一键打包模式）...`, 'info');
+
+    async function resolveBlobForExport(url) {
+      if (!url) return null;
+      if (url.startsWith(idbMediaPrefix)) {
+        return await getMedia(decodeURIComponent(url.slice(idbMediaPrefix.length)));
+      }
+      if (url.startsWith('data:')) {
+        const arr = url.split(',');
+        const mime = arr[0].match(/:(.*?);/)?.[1] || 'video/mp4';
+        const bstr = atob(arr[1] || '');
+        let n = bstr.length;
+        const u8arr = new Uint8Array(n);
+        while (n--) u8arr[n] = bstr.charCodeAt(n);
+        return new Blob([u8arr], { type: mime });
+      }
+      const resp = await fetch(url);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      return await resp.blob();
+    }
 
     for (let idx = 0; idx < allVideos.length; idx++) {
       const vNode = allVideos[idx];
@@ -5539,7 +5667,8 @@ function renderNodeVersionBar(n, body) {
       const editSec = Number(vNode.data?.editDuration) || Number(timeline?.data?.durations?.[vNode.id]) || 3.5;
       const voText = vNode.data?.voText || vNode.data?.sceneLabel || `第${shotId}镜`;
       const cleanVo = sanitizeFilePart(voText);
-      const fileName = `${shotId}_[剪${editSec}s]_${cleanVo}.mp4`;
+      // 标准 10s 原片命名格式：序号_第XX镜_10s_对应台词.mp4
+      const fileName = `${shotId}_第${shotId}镜_10s_${cleanVo}.mp4`;
       const refs = resolveReferences(vNode.id);
       const startThumb = refs.find(r => r.role === 'start')?.url || '';
       const endThumb = refs.find(r => r.role === 'end')?.url || vNode.data?.endFrame?.url || '';
@@ -5558,104 +5687,110 @@ function renderNodeVersionBar(n, body) {
 
       if (hasVideo) {
         try {
-          setRunStatus(`⏳ 正在读取第 ${shotId} 镜 10s 视频 (${idx + 1}/${allVideos.length})${hasZip ? ' 并加入压缩包' : ''}...`, 'info');
-          const resp = await fetch(vNode.data.asset.url);
-          const blob = await resp.blob();
-          if (zip) {
-            zip.file(fileName, blob);
+          setRunStatus(`⏳ 正在读取第 ${shotId}/${allVideos.length} 镜 10s 视频并加入压缩包...`, 'info');
+          const blob = await resolveBlobForExport(vNode.data.asset.url);
+          if (blob && blob.size > 0) {
+            filesToZip.push({ name: fileName, blob });
             downloadedCount++;
-          } else {
-          const objUrl = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = objUrl;
-          a.download = fileName;
-          document.body.appendChild(a);
-          a.click();
-          a.remove();
-          setTimeout(() => URL.revokeObjectURL(objUrl), 4000);
-          downloadedCount++;
-          await new Promise(r => setTimeout(r, 220));
           }
         } catch (err) {
-          console.warn(`导出第 ${shotId} 镜视频失败:`, err);
+          console.warn(`读取第 ${shotId} 镜视频失败:`, err);
         }
       }
     }
 
-    // 同时导出一份直观的《00_分镜文案与视频剪辑对照单.html》
+    if (downloadedCount === 0) {
+      setRunStatus('当前分镜中尚未生成可导出的 10s 视频文件，请先运行生成视频后再导出。', 'warn');
+      return;
+    }
+
+    // 1. 生成配对的《00_分镜文案与视频剪辑对照单.html》
     const htmlContent = `<!doctype html>
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8"/>
-<title>分镜口播文案与视频剪辑对照单</title>
+<title>分镜口播文案与 10s 视频剪辑对照单</title>
 <style>
-  body { font-family: "Microsoft YaHei", sans-serif; background: #11141c; color: #eef2ff; padding: 24px; }
-  h1 { font-size: 20px; margin-bottom: 8px; }
-  p.sub { color: #9aa5c4; font-size: 13px; margin-bottom: 18px; }
-  table { width: 100%; border-collapse: collapse; background: #191d28; border-radius: 8px; overflow: hidden; }
-  th, td { border: 1px solid #2b3245; padding: 10px 12px; text-align: left; vertical-align: middle; font-size: 13px; }
-  th { background: #222838; color: #a7bfff; }
-  .vo { font-size: 15px; font-weight: 700; color: #ffffff; }
-  .fname { font-family: Consolas, monospace; color: #65e898; font-weight: 600; }
-  .thumb { width: 120px; height: 68px; object-fit: cover; border-radius: 4px; border: 1px solid #3c4663; }
-  .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; background: #2c3e50; color: #ffd166; font-weight: 600; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif; background: #0e1118; color: #eef2ff; padding: 24px; }
+  h1 { font-size: 20px; margin-bottom: 8px; color: #fff; }
+  p.sub { color: #8fa0c8; font-size: 13px; margin-bottom: 18px; line-height: 1.6; }
+  table { width: 100%; border-collapse: collapse; background: #161a25; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 16px rgba(0,0,0,0.4); }
+  th, td { border: 1px solid #282f42; padding: 12px 14px; text-align: left; vertical-align: middle; font-size: 13px; }
+  th { background: #1f2535; color: #9bb7ff; font-weight: 700; }
+  .vo { font-size: 14px; font-weight: 700; color: #ffffff; line-height: 1.5; }
+  .fname { font-family: Consolas, monospace; color: #5eead4; font-weight: 600; }
+  .thumb { width: 120px; height: 68px; object-fit: cover; border-radius: 6px; border: 1px solid #374151; background: #000; }
+  .badge-10s { display: inline-block; padding: 3px 8px; border-radius: 4px; background: #064e3b; color: #6ee7b7; font-weight: 700; }
+  .badge-cut { display: inline-block; padding: 3px 8px; border-radius: 4px; background: #312e81; color: #a5b4fc; font-weight: 600; margin-left: 6px; }
 </style>
 </head>
 <body>
-  <h1>🎬 分镜口播文案与 10s 视频剪辑对照单（共 ${cueRows.length} 镜）</h1>
-  <p class="sub">所有导出的 MP4 已直接按【镜号_[剪辑秒数]_对应口播文案.mp4】命名，拖入剪映即可按文件名直接对齐音频字幕。</p>
+  <h1>🎬 分镜口播文案与 10s 视频剪辑对照单（共 ${cueRows.length} 镜，已打包 ${downloadedCount} 镜）</h1>
+  <p class="sub">全部 MP4 为完整的 10 秒原片，文件名已包含【镜号 + 10s + 口播文案】。导入剪映或 Premiere 后，直接按文件名对齐音频字幕剪辑即可。</p>
   <table>
     <thead>
       <tr>
-        <th>镜号</th>
-        <th>建议剪辑时长</th>
+        <th style="width:70px;">镜号</th>
+        <th style="width:140px;">时长规格</th>
         <th>🎙️ 对应口播文案（字幕原句）</th>
-        <th>首帧参考图</th>
-        <th>尾帧参考图</th>
-        <th>导出 MP4 文件名（10s 原片）</th>
+        <th style="width:130px;">首帧底图</th>
+        <th style="width:130px;">尾帧底图</th>
+        <th>10s 导出文件名</th>
       </tr>
     </thead>
     <tbody>
       ${cueRows.map(r => `<tr>
         <td><strong>第 ${r.shotId} 镜</strong></td>
-        <td><span class="badge">${r.editSec} 秒</span></td>
+        <td><span class="badge-10s">原片 10s</span><span class="badge-cut">剪辑约 ${r.editSec}s</span></td>
         <td class="vo">${escapeHtml(r.voText)}</td>
-        <td>${r.startThumb ? `<img class="thumb" src="${r.startThumb}"/>` : '无'}</td>
-        <td>${r.endThumb ? `<img class="thumb" src="${r.endThumb}"/>` : '无'}</td>
+        <td>${r.startThumb ? `<img class="thumb" src="${r.startThumb}"/>` : '<span style="color:#64748b;">无</span>'}</td>
+        <td>${r.endThumb ? `<img class="thumb" src="${r.endThumb}"/>` : '<span style="color:#64748b;">无</span>'}</td>
         <td class="fname">${escapeHtml(r.fileName)} ${r.hasVideo ? '✅' : '⏳(未生成)'}</td>
       </tr>`).join('')}
     </tbody>
   </table>
 </body>
 </html>`;
-    if (zip) {
-      zip.file('00_分镜文案与视频剪辑对照单.html', htmlContent);
-      setRunStatus(`⏳ 正在生成 ZIP 压缩包 (共 ${downloadedCount} 条 10s 视频)...`, 'info');
-      const zipBlob = await zip.generateAsync({ type: 'blob', compression: 'STORE' }, (meta) => {
-        setRunStatus(`⏳ 正在生成最终 ZIP 压缩包 (${meta.percent.toFixed(0)}%)...`, 'info');
-      });
-      const zipUrl = URL.createObjectURL(zipBlob);
-      const a = document.createElement('a');
-      a.href = zipUrl;
-      const dStr = new Date().toISOString().slice(0, 10);
-      a.download = `分镜视频与对照单_${downloadedCount}镜10s打包_${dStr}.zip`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(zipUrl), 8000);
-      setRunStatus(`✓ 已成功将全部 ${downloadedCount} 条 10s 视频与剪辑对照单打包导出为 1 个 ZIP 文件！`, 'ok');
-    } else {
-    const htmlBlob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
-    const htmlUrl = URL.createObjectURL(htmlBlob);
-    const link = document.createElement('a');
-    link.href = htmlUrl;
-    link.download = '00_分镜文案与视频剪辑对照单.html';
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    setTimeout(() => URL.revokeObjectURL(htmlUrl), 4000);
-    setRunStatus(`✓ 已按【镜号+口播文案】导出 ${downloadedCount} 条 10s 视频，并生成《00_分镜文案与视频剪辑对照单.html》！`, 'ok');
+    filesToZip.push({ name: '00_分镜文案与10s视频剪辑对照单.html', blob: new Blob([htmlContent], { type: 'text/html;charset=utf-8' }) });
+
+    // 2. 生成配音台词纯文本单
+    const txtContent = cueRows.map(r => `第${r.shotId}镜（原片10s，剪辑约${r.editSec}s）：\n${r.voText}\n\n`).join('');
+    filesToZip.push({ name: '00_口播文案配音单.txt', blob: new Blob([txtContent], { type: 'text/plain;charset=utf-8' }) });
+
+    // 3. 执行打包生成并下载为 1 个 ZIP
+    setRunStatus(`⏳ 正在打包全部 ${filesToZip.length} 个文件为单一 ZIP 压缩包...`, 'info');
+
+    let zipBlob = null;
+    const hasJSZip = typeof JSZip !== 'undefined' || Boolean(window.JSZip);
+    if (hasJSZip) {
+      try {
+        const ZipCtor = typeof JSZip !== 'undefined' ? JSZip : window.JSZip;
+        const zip = new ZipCtor();
+        for (const f of filesToZip) {
+          zip.file(f.name, f.blob);
+        }
+        zipBlob = await zip.generateAsync({ type: 'blob', compression: 'STORE' }, (meta) => {
+          setRunStatus(`⏳ 正在生成最终 ZIP 压缩包 (${meta.percent.toFixed(0)}%)...`, 'info');
+        });
+      } catch (zipErr) {
+        console.warn('JSZip 打包异常，切换内置纯 JS 打包引擎:', zipErr);
+      }
     }
+
+    if (!zipBlob) {
+      zipBlob = await createStoreZipBlob(filesToZip);
+    }
+
+    const zipUrl = URL.createObjectURL(zipBlob);
+    const a = document.createElement('a');
+    a.href = zipUrl;
+    const dStr = new Date().toISOString().slice(0, 10);
+    a.download = `分镜视频与对照单_${downloadedCount}镜10s原片打包_${dStr}.zip`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(zipUrl), 10000);
+    setRunStatus(`✓ 已成功将全部 ${downloadedCount} 条 10s 原片视频与剪辑对照单打包导出为 1 个 ZIP 文件！`, 'ok');
   }
 
   function promptAndRunShotRange() {
@@ -5705,6 +5840,8 @@ function renderNodeVersionBar(n, body) {
 
   const exportNamedVideosBtn = $('#exportNamedVideosBtn');
   if (exportNamedVideosBtn) exportNamedVideosBtn.onclick = () => void exportNamedVideosAndCueSheet();
+  const timelineExportNamedVideosBtn = $('#timelineExportNamedVideosBtn');
+  if (timelineExportNamedVideosBtn) timelineExportNamedVideosBtn.onclick = () => void exportNamedVideosAndCueSheet();
   const runShotRangeBtn = $('#runShotRangeBtn');
   if (runShotRangeBtn) runShotRangeBtn.onclick = () => promptAndRunShotRange();
   const localApiQuickBtn=$('#localApiQuickBtn');
