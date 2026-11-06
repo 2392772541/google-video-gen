@@ -6,7 +6,7 @@ export const ConceptFlow: React.FC<{ params: ConceptFlowParams }> = ({ params })
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
-  // 标题弹簧入场
+  // 顶部入场
   const titleEntrance = spring({
     frame,
     fps,
@@ -21,169 +21,149 @@ export const ConceptFlow: React.FC<{ params: ConceptFlowParams }> = ({ params })
         padding: "0 60px",
       }}
     >
-      {/* 顶部徽标 */}
-      {params.badge && (
+      {/* 顶部标题 */}
+      <div
+        style={{
+          textAlign: "center",
+          marginBottom: 45,
+          opacity: titleEntrance,
+          transform: `translateY(${interpolate(titleEntrance, [0, 1], [30, 0])}px)`,
+        }}
+      >
+        {params.badge && (
+          <div
+            style={{
+              color: "#22c55e",
+              fontFamily: "monospace",
+              fontSize: 24,
+              letterSpacing: 3,
+              marginBottom: 12,
+              fontWeight: 700,
+            }}
+          >
+            {params.badge}
+          </div>
+        )}
         <div
           style={{
-            opacity: titleEntrance,
-            transform: `scale(${titleEntrance})`,
-            backgroundColor: "rgba(16, 185, 129, 0.15)",
-            color: "#10b981",
-            border: "1px solid rgba(16, 185, 129, 0.4)",
-            padding: "8px 24px",
-            borderRadius: 999,
-            fontSize: 24,
-            fontWeight: 600,
-            letterSpacing: 2,
-            marginBottom: 25,
-            fontFamily: "monospace",
+            color: "#ffffff",
+            fontSize: 52,
+            fontWeight: 800,
+            letterSpacing: -1,
           }}
         >
-          {params.badge}
+          {params.title}
         </div>
-      )}
-
-      {/* 标题 */}
-      <div
-        style={{
-          opacity: titleEntrance,
-          color: "#f8fafc",
-          fontSize: 56,
-          fontWeight: 800,
-          textAlign: "center",
-          marginBottom: 60,
-          maxWidth: 900,
-          textShadow: "0 6px 20px rgba(0,0,0,0.6)",
-        }}
-      >
-        {params.title}
       </div>
 
-      {/* 纵向科技节点流程 */}
+      {/* 流程节点列表 */}
       <div
         style={{
+          width: "100%",
           display: "flex",
           flexDirection: "column",
-          alignItems: "center",
-          width: "100%",
-          maxWidth: 720,
-          gap: 18,
+          gap: 20,
+          position: "relative",
         }}
       >
-        {params.steps.map((step, idx) => {
-          const stepDelay = 12 + idx * 16;
-          const stepSpring = spring({
-            frame: frame - stepDelay,
+        {params.steps.map((stepText, idx) => {
+          // 节点依次延迟点亮（第 8 帧、18 帧、28 帧、38 帧）
+          const stepDelay = 8 + idx * 12;
+          const nodeProgress = spring({
+            frame: Math.max(0, frame - stepDelay),
             fps,
-            config: { damping: 15, stiffness: 120 },
+            config: { damping: 13, stiffness: 100 },
           });
 
-          const isVisible = frame >= stepDelay;
-          const glowIntensity = Math.sin(frame * 0.15 + idx) * 0.2 + 0.8;
+          const isLit = frame >= stepDelay + 5;
 
           return (
-            <React.Fragment key={idx}>
-              {/* 连接箭头 */}
-              {idx > 0 && (
-                <div
-                  style={{
-                    opacity: isVisible ? 1 : 0,
-                    height: 30,
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                >
-                  <div
-                    style={{
-                      width: 2,
-                      height: 18,
-                      backgroundColor: "#10b981",
-                      boxShadow: "0 0 10px #10b981",
-                    }}
-                  />
-                  <div
-                    style={{
-                      width: 0,
-                      height: 0,
-                      borderLeft: "6px solid transparent",
-                      borderRight: "6px solid transparent",
-                      borderTop: "8px solid #10b981",
-                    }}
-                  />
-                </div>
-              )}
-
-              {/* 节点卡片 */}
+            <div
+              key={idx}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                backgroundColor: isLit ? "rgba(6, 78, 59, 0.4)" : "rgba(15, 23, 42, 0.6)",
+                border: `2px solid ${isLit ? "rgba(34, 197, 94, 0.7)" : "rgba(148, 163, 184, 0.2)"}`,
+                borderRadius: 18,
+                padding: "24px 28px",
+                boxShadow: isLit ? "0 0 30px rgba(34, 197, 94, 0.2)" : "none",
+                transform: `translateX(${interpolate(nodeProgress, [0, 1], [-40, 0])}px)`,
+                opacity: nodeProgress,
+                position: "relative",
+              }}
+            >
+              {/* 序号发光圆标 */}
               <div
                 style={{
-                  opacity: isVisible ? stepSpring : 0,
-                  transform: `translateY(${isVisible ? (1 - stepSpring) * 30 : 30}px) scale(${isVisible ? stepSpring : 0.9})`,
-                  width: "100%",
-                  backgroundColor: "rgba(15, 23, 42, 0.85)",
-                  border: "1px solid rgba(16, 185, 129, 0.4)",
-                  borderRadius: 20,
-                  padding: "24px 32px",
+                  width: 54,
+                  height: 54,
+                  borderRadius: "50%",
+                  backgroundColor: isLit ? "#22c55e" : "#334155",
+                  color: isLit ? "#050d0a" : "#94a3b8",
                   display: "flex",
+                  justifyContent: "center",
                   alignItems: "center",
-                  gap: 24,
-                  boxShadow: `0 8px 32px rgba(0, 0, 0, 0.4), 0 0 ${15 * glowIntensity}px rgba(16, 185, 129, 0.2)`,
+                  fontSize: 26,
+                  fontWeight: 900,
+                  marginRight: 24,
+                  flexShrink: 0,
+                  boxShadow: isLit ? "0 0 16px rgba(34, 197, 94, 0.6)" : "none",
                 }}
               >
-                <div
-                  style={{
-                    width: 48,
-                    height: 48,
-                    borderRadius: 12,
-                    backgroundColor: "#10b981",
-                    color: "#0f172a",
-                    display: "flex",
-                    justifyContent: "center",
-                    alignItems: "center",
-                    fontSize: 24,
-                    fontWeight: 800,
-                    fontFamily: "monospace",
-                    flexShrink: 0,
-                  }}
-                >
-                  0{idx + 1}
-                </div>
-                <div
-                  style={{
-                    color: "#f1f5f9",
-                    fontSize: 32,
-                    fontWeight: 600,
-                    letterSpacing: 0.5,
-                  }}
-                >
-                  {step}
-                </div>
+                0{idx + 1}
               </div>
-            </React.Fragment>
+
+              {/* 节点步骤描述 */}
+              <div
+                style={{
+                  color: isLit ? "#f0fdf4" : "#94a3b8",
+                  fontSize: 32,
+                  fontWeight: isLit ? 700 : 500,
+                  letterSpacing: 0.5,
+                }}
+              >
+                {stepText}
+              </div>
+
+              {/* 右侧箭头标识（最后一个不显示） */}
+              {idx < params.steps.length - 1 && (
+                <div
+                  style={{
+                    marginLeft: "auto",
+                    color: isLit ? "#22c55e" : "#475569",
+                    fontSize: 28,
+                    fontWeight: 900,
+                  }}
+                >
+                  ↓
+                </div>
+              )}
+            </div>
           );
         })}
       </div>
 
-      {/* 底部总结 */}
+      {/* 底部摘要卡片 */}
       {params.summary && (
         <div
           style={{
-            marginTop: 50,
-            opacity: interpolate(frame, [50, 65], [0, 1], {
+            marginTop: 40,
+            padding: "18px 30px",
+            backgroundColor: "rgba(34, 197, 94, 0.1)",
+            border: "1px dashed rgba(34, 197, 94, 0.4)",
+            borderRadius: 14,
+            color: "#86efac",
+            fontSize: 26,
+            textAlign: "center",
+            maxWidth: 880,
+            opacity: interpolate(frame, [35, 50], [0, 1], {
               extrapolateLeft: "clamp",
               extrapolateRight: "clamp",
             }),
-            color: "#94a3b8",
-            fontSize: 28,
-            textAlign: "center",
-            maxWidth: 820,
-            lineHeight: 1.5,
-            borderTop: "1px solid rgba(255,255,255,0.1)",
-            paddingTop: 24,
           }}
         >
-          {params.summary}
+          🎯 {params.summary}
         </div>
       )}
     </AbsoluteFill>

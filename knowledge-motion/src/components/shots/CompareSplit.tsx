@@ -6,24 +6,31 @@ export const CompareSplit: React.FC<{ params: CompareSplitParams }> = ({ params 
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
-  const titleSpring = spring({
+  // 顶部入场动效
+  const titleEntrance = spring({
     frame,
     fps,
     config: { damping: 14, stiffness: 100 },
   });
 
-  // 左/上卡片入场（第 10 帧）
-  const leftSpring = spring({
-    frame: frame - 10,
+  // 左卡片第 6 帧入场
+  const leftCardEntrance = spring({
+    frame: Math.max(0, frame - 6),
     fps,
-    config: { damping: 15, stiffness: 110 },
+    config: { damping: 14, stiffness: 90 },
   });
 
-  // 右/下卡片入场（第 22 帧）
-  const rightSpring = spring({
-    frame: frame - 22,
+  // 右卡片第 14 帧入场
+  const rightCardEntrance = spring({
+    frame: Math.max(0, frame - 14),
     fps,
-    config: { damping: 15, stiffness: 110 },
+    config: { damping: 14, stiffness: 90 },
+  });
+
+  // 底部结论第 24 帧淡入
+  const noteOpacity = interpolate(frame, [24, 38], [0, 1], {
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp",
   });
 
   return (
@@ -34,133 +41,172 @@ export const CompareSplit: React.FC<{ params: CompareSplitParams }> = ({ params 
         padding: "0 60px",
       }}
     >
-      {/* 顶部徽标 */}
-      {params.badge && (
+      {/* 顶部标题区域 */}
+      <div
+        style={{
+          textAlign: "center",
+          marginBottom: 40,
+          opacity: titleEntrance,
+          transform: `translateY(${interpolate(titleEntrance, [0, 1], [30, 0])}px)`,
+        }}
+      >
+        {params.badge && (
+          <div
+            style={{
+              color: "#22c55e",
+              fontFamily: "monospace",
+              fontSize: 24,
+              letterSpacing: 3,
+              marginBottom: 12,
+              fontWeight: 700,
+            }}
+          >
+            {params.badge}
+          </div>
+        )}
         <div
           style={{
-            opacity: titleSpring,
-            backgroundColor: "rgba(56, 189, 248, 0.15)",
-            color: "#38bdf8",
-            border: "1px solid rgba(56, 189, 248, 0.4)",
-            padding: "8px 24px",
-            borderRadius: 999,
-            fontSize: 24,
-            fontWeight: 600,
-            letterSpacing: 2,
-            marginBottom: 25,
-            fontFamily: "monospace",
+            color: "#ffffff",
+            fontSize: 52,
+            fontWeight: 800,
+            letterSpacing: -1,
           }}
         >
-          {params.badge}
+          {params.title}
         </div>
-      )}
-
-      {/* 标题 */}
-      <div
-        style={{
-          opacity: titleSpring,
-          color: "#ffffff",
-          fontSize: 54,
-          fontWeight: 800,
-          textAlign: "center",
-          marginBottom: 50,
-          maxWidth: 900,
-        }}
-      >
-        {params.title}
       </div>
 
-      {/* 对比双卡片（竖屏上下堆叠展示） */}
+      {/* 上下两相对比卡片 */}
       <div
         style={{
+          width: "100%",
           display: "flex",
           flexDirection: "column",
-          width: "100%",
-          maxWidth: 780,
           gap: 30,
+          position: "relative",
         }}
       >
-        {/* 卡片 1：传统对比项 */}
+        {/* 对比项 A：普通/传统 */}
         <div
           style={{
-            opacity: frame >= 10 ? leftSpring : 0,
-            transform: `translateX(${frame >= 10 ? (1 - leftSpring) * -40 : -40}px)`,
-            backgroundColor: "rgba(30, 41, 59, 0.7)",
-            border: "1px solid rgba(148, 163, 184, 0.25)",
+            backgroundColor: "rgba(15, 23, 42, 0.75)",
+            border: "1px solid rgba(148, 163, 184, 0.2)",
             borderRadius: 20,
-            padding: "30px 36px",
+            padding: "32px 36px",
+            transform: `translateY(${interpolate(leftCardEntrance, [0, 1], [40, 0])}px) scale(${interpolate(leftCardEntrance, [0, 1], [0.95, 1])})`,
+            opacity: leftCardEntrance,
           }}
         >
           <div
             style={{
               color: "#94a3b8",
-              fontSize: 26,
-              fontWeight: 700,
-              marginBottom: 10,
+              fontSize: 22,
+              fontWeight: 600,
+              marginBottom: 8,
               letterSpacing: 1,
-              display: "flex",
-              alignItems: "center",
-              gap: 10,
             }}
           >
-            <span style={{ color: "#ef4444", fontSize: 24 }}>✕</span>
+            传统认知 / 广谱
+          </div>
+          <div
+            style={{
+              color: "#cbd5e1",
+              fontSize: 40,
+              fontWeight: 700,
+              marginBottom: 12,
+            }}
+          >
             {params.leftLabel}
           </div>
-          <div style={{ color: "#cbd5e1", fontSize: 32, lineHeight: 1.45 }}>
+          <div
+            style={{
+              color: "#64748b",
+              fontSize: 28,
+              lineHeight: 1.45,
+            }}
+          >
             {params.leftDesc}
           </div>
         </div>
 
-        {/* 卡片 2：核心优势项 */}
+        {/* 中间发光 VS 标 */}
         <div
           style={{
-            opacity: frame >= 22 ? rightSpring : 0,
-            transform: `translateX(${frame >= 22 ? (1 - rightSpring) * 40 : 40}px)`,
-            backgroundColor: "rgba(15, 23, 42, 0.95)",
-            border: "2px solid rgba(56, 189, 248, 0.6)",
+            alignSelf: "center",
+            backgroundColor: "#22c55e",
+            color: "#050d0a",
+            fontWeight: 900,
+            fontSize: 22,
+            padding: "4px 20px",
+            borderRadius: 999,
+            boxShadow: "0 0 20px rgba(34, 197, 94, 0.6)",
+            margin: "-15px 0",
+            zIndex: 10,
+          }}
+        >
+          VS
+        </div>
+
+        {/* 对比项 B：褐藻寡糖/核心优势 */}
+        <div
+          style={{
+            backgroundColor: "rgba(6, 78, 59, 0.35)",
+            border: "2px solid rgba(34, 197, 94, 0.6)",
+            boxShadow: "0 0 40px rgba(34, 197, 94, 0.15)",
             borderRadius: 20,
             padding: "32px 36px",
-            boxShadow: "0 0 35px rgba(56, 189, 248, 0.2)",
+            transform: `translateY(${interpolate(rightCardEntrance, [0, 1], [40, 0])}px) scale(${interpolate(rightCardEntrance, [0, 1], [0.95, 1])})`,
+            opacity: rightCardEntrance,
           }}
         >
           <div
             style={{
-              color: "#38bdf8",
-              fontSize: 28,
+              color: "#4ade80",
+              fontSize: 22,
               fontWeight: 700,
-              marginBottom: 12,
+              marginBottom: 8,
               letterSpacing: 1,
-              display: "flex",
-              alignItems: "center",
-              gap: 10,
             }}
           >
-            <span style={{ color: "#22c55e", fontSize: 26 }}>✓</span>
+            专项定向 / 高活性
+          </div>
+          <div
+            style={{
+              color: "#ffffff",
+              fontSize: 42,
+              fontWeight: 800,
+              marginBottom: 12,
+              textShadow: "0 0 20px rgba(34, 197, 94, 0.4)",
+            }}
+          >
             {params.rightLabel}
           </div>
-          <div style={{ color: "#f8fafc", fontSize: 34, fontWeight: 600, lineHeight: 1.45 }}>
+          <div
+            style={{
+              color: "#86efac",
+              fontSize: 28,
+              lineHeight: 1.45,
+            }}
+          >
             {params.rightDesc}
           </div>
         </div>
       </div>
 
-      {/* 底部备注总结 */}
+      {/* 底部关键提示 */}
       {params.comparisonNote && (
         <div
           style={{
-            marginTop: 50,
-            opacity: interpolate(frame, [40, 55], [0, 1], {
-              extrapolateLeft: "clamp",
-              extrapolateRight: "clamp",
-            }),
-            color: "#38bdf8",
-            fontSize: 28,
+            marginTop: 36,
             textAlign: "center",
-            maxWidth: 820,
-            fontWeight: 500,
+            color: "#94a3b8",
+            fontSize: 26,
+            maxWidth: 860,
+            lineHeight: 1.5,
+            opacity: noteOpacity,
           }}
         >
-          {params.comparisonNote}
+          💡 {params.comparisonNote}
         </div>
       )}
     </AbsoluteFill>

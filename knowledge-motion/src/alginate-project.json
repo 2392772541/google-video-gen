@@ -1,0 +1,79 @@
+{
+  "projectTitle": "褐藻寡糖农化科学指南",
+  "fps": 30,
+  "width": 1080,
+  "height": 1920,
+  "theme": "matrix_green",
+  "shots": [
+    {
+      "id": "shot-1",
+      "type": "KeyTypography",
+      "durationInFrames": 90,
+      "badge": "农化科普 // 破解认知误区",
+      "mainTitle": "给庄稼吃甜的，病菌就不来了？",
+      "highlightWord": "吃甜的",
+      "subtitle": "“抗病糖”不是杀菌糖，真相是调动作物自身防御与根系基础"
+    },
+    {
+      "id": "shot-2",
+      "type": "CompareSplit",
+      "durationInFrames": 120,
+      "badge": "组分纯度 // 分子量对比",
+      "title": "褐藻寡糖 vs 普通海藻肥",
+      "leftLabel": "普通海藻提取物",
+      "leftDesc": "成分复杂多类，包含大分子多糖，活性因降解程度差异极大",
+      "rightLabel": "褐藻寡糖 (海藻酸降解)",
+      "rightDesc": "受控定向降解，专一小分子、高活性寡糖组分",
+      "comparisonNote": "同带“海藻”二字，但分子量与作物响应机制完全不同"
+    },
+    {
+      "id": "shot-3",
+      "type": "ConceptFlow",
+      "durationInFrames": 135,
+      "badge": "植物免疫学 // 诱导抗性链",
+      "title": "不是杀菌剂，凭啥能防病？",
+      "steps": [
+        "外源喷施特定海藻酸寡糖",
+        "作为诱导因子：触发作物自身防御信号",
+        "调动体内防御酶活性与防御物质合成",
+        "强化细胞壁结构：由内构筑防御防线"
+      ],
+      "summary": "它不直接杀灭病原，而是提前唤醒作物的自身免疫应激系统"
+    },
+    {
+      "id": "shot-4",
+      "type": "KeyTypography",
+      "durationInFrames": 90,
+      "badge": "科学用肥 // 拒绝神化",
+      "mainTitle": "喷上就等于披上“防弹衣”？",
+      "highlightWord": "防弹衣",
+      "subtitle": "诱导抗性绝非包治百病，效果取决于品种、病害与科学使用时期"
+    },
+    {
+      "id": "shot-5",
+      "type": "CompareSplit",
+      "durationInFrames": 120,
+      "badge": "吸收机理 // 肥料利用率",
+      "title": "它不造肥，凭啥提高利用率？",
+      "leftLabel": "肥料在根旁 ≠ 根系能吸收",
+      "leftDesc": "根系分布浅、活力不足时，大量底肥养分无法被有效摄取",
+      "rightLabel": "改善根系吸收基础",
+      "rightDesc": "促进根系生长与分布活性，极大增加根区水肥接触截面",
+      "comparisonNote": "这是改善吸收条件与搬运效率，而不是凭空变出肥效"
+    },
+    {
+      "id": "shot-6",
+      "type": "ConceptFlow",
+      "durationInFrames": 135,
+      "badge": "种植实战 // 河南福联生物",
+      "title": "种植户什么时候用最划算？",
+      "steps": [
+        "育苗移栽期：促发新根、加速缓苗成活",
+        "发病高发前：适期喷施、激活抗病防御准备",
+        "严重积水烂根/重盐害：必须先治主因，不可依赖单品救场",
+        "核心定位：肥料供养分，寡糖筑防线与吸收基础"
+      ],
+      "summary": "河南福联生物褐藻寡糖：把作用讲清楚，把效果交给验证"
+    }
+  ]
+}

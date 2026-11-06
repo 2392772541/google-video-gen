@@ -2,7 +2,7 @@ import React from "react";
 import { Composition } from "remotion";
 import { KnowledgeMotionComposition } from "./Composition";
 import { ProjectDSLSchema } from "./types/schema";
-import rawProject from "./projects/alginate-oligosaccharide.json";
+import rawProject from "./alginate-project.json";
 
 // Zod 强校验确保配置合法
 const validatedProject = ProjectDSLSchema.parse(rawProject);
