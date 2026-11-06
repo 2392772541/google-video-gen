@@ -213,6 +213,7 @@
     const refList = Array.isArray(referenceImages) ? referenceImages : [];
     const refUrls = refList.map(r => typeof r === 'string' ? r : r.url).filter(Boolean);
     const primaryRef = refUrls[0] || '';
+    const cleanB64s = refUrls.map(u => u.replace(/^data:image\/[a-zA-Z]+;base64,/, '')).filter(Boolean);
 
     // 1. SD WebUI 专用接口分支 (7860 / sdapi)
     if (endpoint.includes('7860') || endpoint.includes('sdapi')) {
@@ -228,7 +229,7 @@
         steps: 25
       };
       if (isImg2Img) {
-        payload.init_images = [primaryRef.replace(/^data:image\/[a-zA-Z]+;base64,/, '')];
+        payload.init_images = cleanB64s.length ? cleanB64s : [primaryRef.replace(/^data:image\/[a-zA-Z]+;base64,/, '')];
         payload.denoising_strength = 0.65;
       }
       try {
@@ -252,7 +253,7 @@
             model,
             prompt,
             stream: false,
-            images: primaryRef ? [primaryRef.replace(/^data:image\/[a-zA-Z]+;base64,/, '')] : undefined
+            images: cleanB64s.length ? cleanB64s : (primaryRef ? [primaryRef.replace(/^data:image\/[a-zA-Z]+;base64,/, '')] : undefined)
           })
         });
         if (data?.response && (data.response.startsWith('data:') || data.response.length > 500)) {
@@ -275,7 +276,11 @@
     };
     if (refUrls.length > 0) {
       reqPayload.reference_images = refUrls;
-      reqPayload.extra_body = { reference_images: refUrls, style_reference: primaryRef };
+      reqPayload.extra_body = {
+        reference_images: refUrls,
+        style_reference: primaryRef,
+        asset_references: refUrls.slice(1)
+      };
     }
     let data;
     try {
@@ -3631,11 +3636,11 @@ function renderNodeVersionBar(n, body) {
     if (!hasStyleRef && references.length < 9 && Array.isArray(state.nodes)) {
       const globalStyleNodes = state.nodes.filter(n =>
         n && (n.type === 'imageInput' || n.type === 'references') &&
-        (/^node_ref_style/i.test(n.id) || /^node_ref_asset/i.test(n.id) || /风格|style|母图|画风/i.test(`${n.id} ${n.data?.sceneLabel||''} ${n.data?.asset?.name||''}`))
+        (/^node_ref_style/i.test(n.id) || /风格|style|母图|画风/i.test(`${n.id} ${n.data?.sceneLabel||''} ${n.data?.asset?.name||''}`))
       );
-      for (const gNode of globalStyleNodes) {
-        if (references.length >= 9) break;
-        visit(gNode, 'image', 'ref');
+      const primaryStyleNode = globalStyleNodes[0];
+      if (primaryStyleNode) {
+        visit(primaryStyleNode, 'image', 'ref');
       }
     }
     return references.slice(0,9);
