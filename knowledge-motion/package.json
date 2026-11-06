@@ -1,0 +1,22 @@
+{
+  "name": "knowledge-motion",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "start": "remotion preview src/index.ts",
+    "render": "remotion render src/index.ts Main out/test_noise.mp4 --concurrency=1",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "remotion": "^4.0.240",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@remotion/cli": "^4.0.240",
+    "@types/node": "^22.0.0",
+    "@types/react": "^18.3.3",
+    "typescript": "^5.5.4"
+  }
+}

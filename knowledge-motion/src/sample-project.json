@@ -1,0 +1,28 @@
+{
+  "projectTitle": "对抗样本原理演示",
+  "fps": 30,
+  "width": 1080,
+  "height": 1920,
+  "theme": "cyber_dark",
+  "shots": [
+    {
+      "id": "shot-1",
+      "type": "KeyTypography",
+      "durationInFrames": 45,
+      "badge": "AI 视觉安全实验",
+      "mainTitle": "一层微小噪点，如何骗过最强 AI？",
+      "highlightWord": "微小噪点",
+      "subtitle": "人眼完全看不出的改变，足以让神经网络彻底失明"
+    },
+    {
+      "id": "shot-2",
+      "type": "NoiseDisruptor",
+      "durationInFrames": 75,
+      "title": "输入层梯度对抗扰动",
+      "labelBefore": "熊猫 (57.7%)",
+      "labelAfter": "长臂猿 (99.3%)",
+      "noiseIntensity": 0.45,
+      "description": "向图像加入精心计算的反向梯度噪点，造成分类置信度跳变"
+    }
+  ]
+}
