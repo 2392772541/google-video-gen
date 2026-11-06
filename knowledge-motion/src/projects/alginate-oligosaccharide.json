@@ -1,0 +1,61 @@
+{
+  "projectTitle": "褐藻寡糖抗病增效机理科普",
+  "fps": 30,
+  "width": 1080,
+  "height": 1920,
+  "theme": "matrix_green",
+  "shots": [
+    {
+      "id": "shot-1",
+      "type": "KeyTypography",
+      "durationInFrames": 90,
+      "badge": "农业科普 · 破除迷思",
+      "mainTitle": "给庄稼吃甜的，病菌就不来了？",
+      "highlightWord": "吃甜的",
+      "subtitle": "病菌可不会绕道走！所谓抗病并不是给庄稼加餐"
+    },
+    {
+      "id": "shot-2",
+      "type": "KeyTypography",
+      "durationInFrames": 90,
+      "badge": "核心物质 · 褐藻寡糖",
+      "mainTitle": "它不是杀菌剂，而是调动作物免疫",
+      "highlightWord": "调动作物免疫",
+      "subtitle": "源自海藻酸受控降解的小分子寡糖，与普通海藻肥截然不同"
+    },
+    {
+      "id": "shot-3",
+      "type": "ConceptFlow",
+      "durationInFrames": 105,
+      "badge": "防病路径 · 信号激活",
+      "title": "诱导抗性机制：激活植物自身防御",
+      "steps": [
+        "小分子寡糖被植物受体特异识别",
+        "触发细胞防御信号多级网络传递",
+        "防御酶大幅激活，加速细胞壁加固"
+      ],
+      "summary": "这是调动作物自身做足防御准备，而不是直接杀死病原"
+    },
+    {
+      "id": "shot-4",
+      "type": "CompareSplit",
+      "durationInFrames": 105,
+      "badge": "水肥增效 · 根系调理",
+      "title": "不凭空造肥，而是激活根系吸收条件",
+      "leftLabel": "仅靠大量施肥",
+      "leftDesc": "养分留在土壤中，根系活性不足，肥料吸收利用率低",
+      "rightLabel": "褐藻寡糖配套调理",
+      "rightDesc": "改善根系活性与微环境，大幅增强水肥主动吸收能力",
+      "comparisonNote": "改善吸收条件，才让地里的肥料真正被庄稼喝透吃饱"
+    },
+    {
+      "id": "shot-5",
+      "type": "KeyTypography",
+      "durationInFrames": 60,
+      "badge": "河南福联生物 · 科学实证",
+      "mainTitle": "把作用讲清楚，把效果交给验证",
+      "highlightWord": "效果交给验证",
+      "subtitle": "小分子 · 高活性 · 稳定性优异 · 科学种植的专业配套工具"
+    }
+  ]
+}

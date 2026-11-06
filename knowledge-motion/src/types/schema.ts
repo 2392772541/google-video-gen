@@ -25,10 +25,33 @@ export const NoiseDisruptorParamsSchema = ShotBaseSchema.extend({
   description: z.string().optional(),
 });
 
+// 3. 原理流程与信号链组件参数
+export const ConceptFlowParamsSchema = ShotBaseSchema.extend({
+  type: z.literal("ConceptFlow"),
+  title: z.string(),
+  badge: z.string().optional(),
+  steps: z.array(z.string()).min(2).max(4),
+  summary: z.string().optional(),
+});
+
+// 4. 二元对比展示组件参数
+export const CompareSplitParamsSchema = ShotBaseSchema.extend({
+  type: z.literal("CompareSplit"),
+  title: z.string(),
+  badge: z.string().optional(),
+  leftLabel: z.string(),
+  leftDesc: z.string(),
+  rightLabel: z.string(),
+  rightDesc: z.string(),
+  comparisonNote: z.string().optional(),
+});
+
 // 联合分镜类型
 export const ShotSchema = z.discriminatedUnion("type", [
   KeyTypographyParamsSchema,
   NoiseDisruptorParamsSchema,
+  ConceptFlowParamsSchema,
+  CompareSplitParamsSchema,
 ]);
 
 // 整个视频项目的 DSL Schema
@@ -45,3 +68,5 @@ export type Shot = z.infer<typeof ShotSchema>;
 export type ProjectDSL = z.infer<typeof ProjectDSLSchema>;
 export type KeyTypographyParams = z.infer<typeof KeyTypographyParamsSchema>;
 export type NoiseDisruptorParams = z.infer<typeof NoiseDisruptorParamsSchema>;
+export type ConceptFlowParams = z.infer<typeof ConceptFlowParamsSchema>;
+export type CompareSplitParams = z.infer<typeof CompareSplitParamsSchema>;

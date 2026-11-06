@@ -4,6 +4,8 @@ import { ProjectDSL } from "./types/schema";
 import { Background } from "./components/Background";
 import { KeyTypography } from "./components/shots/KeyTypography";
 import { NoiseDisruptor } from "./components/shots/NoiseDisruptor";
+import { ConceptFlow } from "./components/shots/ConceptFlow";
+import { CompareSplit } from "./components/shots/CompareSplit";
 
 export const KnowledgeMotionComposition: React.FC<{ project: ProjectDSL }> = ({ project }) => {
   return (
@@ -22,6 +24,8 @@ export const KnowledgeMotionComposition: React.FC<{ project: ProjectDSL }> = ({ 
             >
               {shot.type === "KeyTypography" && <KeyTypography params={shot} />}
               {shot.type === "NoiseDisruptor" && <NoiseDisruptor params={shot} />}
+              {shot.type === "ConceptFlow" && <ConceptFlow params={shot} />}
+              {shot.type === "CompareSplit" && <CompareSplit params={shot} />}
             </Series.Sequence>
           );
         })}
